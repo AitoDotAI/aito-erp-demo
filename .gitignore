@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Environment — never commit real keys
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+.next/
+frontend/out/
+
+# Generated fixtures — regenerate via `./do generate-personas`
+# (single-tenant flat files + the per-tenant subdirs).
+data/purchases.json
+data/products.json
+data/orders.json
+data/price_history.json
+data/projects.json
+data/assignments.json
+data/metsa/
+data/aurora/
+data/studio/
+
+# Runtime / dev artefacts
+*.log
+server.log
+.pytest_cache/
+.ruff_cache/
+
+# Playwright + screenshot scratch (committed screenshots stay under
+# screenshots/ — Playwright traces / videos do not)
+test-results/
+playwright-report/
+
+# Internal / private — anything under here is sales-context that
+# shouldn't ship publicly.
+.private/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

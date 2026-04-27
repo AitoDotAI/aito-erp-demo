@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Predictive ERP — fictional demo SaaS brand
+  Same role as `acme-logo.svg` in aito-demo: stands in for the ERP
+  vendor whose product the customer is using. Nothing to do with
+  Aito itself (Aito's brand lives on the right ContextPanel).
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="240" height="56" viewBox="0 0 240 56"
+     aria-labelledby="title">
+  <title id="title">Predictive ERP</title>
+
+  <!-- Gold disc with cream "P" monogram -->
+  <circle cx="22" cy="28" r="17" fill="#d4a030"/>
+  <text x="22" y="36"
+        font-family="Inter, 'Helvetica Neue', Arial, sans-serif"
+        font-size="22" font-weight="700"
+        fill="#0c0f0a"
+        text-anchor="middle">P</text>
+
+  <!-- Wordmark: "Predictive" in cream, "ERP" in gold to lift -->
+  <text x="48" y="35"
+        font-family="Inter, 'Helvetica Neue', Arial, sans-serif"
+        font-size="20" font-weight="600" letter-spacing="-0.2"
+        fill="#f0ece2">Predictive</text>
+  <text x="166" y="35"
+        font-family="Inter, 'Helvetica Neue', Arial, sans-serif"
+        font-size="20" font-weight="700" letter-spacing="0.5"
+        fill="#d4a030">ERP</text>
+</svg>
