@@ -24,7 +24,7 @@ Serves the Next.js static export from frontend/out/ when available.
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -200,8 +200,10 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("projects_portfolio", lambda: get_portfolio(aito).to_dict())
 
     def warm_recommendations():
-        # Only Aurora has rich enough product/order data to make this
-        # view sensible; others get sparse, fast-to-compute placeholders.
+        # Aurora-only feature; skip for other personas (the API also
+        # 404s for them, see RECOMMENDATIONS_TENANTS below).
+        if tenant_id != "aurora":
+            return
         warm_or_load("recommendations_overview",
                      lambda: get_recommendation_overview(aito).to_dict())
 
@@ -586,11 +588,31 @@ def inventory_status(request: Request):
 
 
 # ── Recommendations (Aurora retail story) ────────────────────────
+#
+# Cross-sell + similar-product recommendations only ship for the
+# Aurora persona — the side-nav already filters the link out of
+# Metsä and Studio because their `orders` and `products` tables
+# don't have the density Recommendations needs to be credible.
+# This guard mirrors that decision at the API layer so anyone
+# curling the endpoint directly gets a clean 404 instead of empty
+# arrays / mismatched supplier rows.
+
+RECOMMENDATIONS_TENANTS: set[TenantId] = {"aurora"}
+
+
+def _require_recommendations_tenant(tenant: TenantId) -> None:
+    if tenant not in RECOMMENDATIONS_TENANTS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"recommendations are not available for tenant '{tenant}'",
+        )
+
 
 @app.get("/api/recommendations/overview")
 def recommendations_overview(request: Request):
     """Browsable product list + trending ribbon for the picker."""
     tenant, aito = client_from_request(request)
+    _require_recommendations_tenant(tenant)
     cache_key = _tk(tenant, "recommendations_overview")
     cached = cache.get(cache_key)
     if cached:
@@ -605,6 +627,7 @@ def recommendations_overview(request: Request):
 def recommendations_cross_sell(request: Request, sku: str):
     """`Customers who bought X also bought Y` — month co-occurrence."""
     tenant, aito = client_from_request(request)
+    _require_recommendations_tenant(tenant)
     cache_key = _tk(tenant, f"recommendations_cross:{sku}")
     cached = cache.get(cache_key)
     if cached:
@@ -619,6 +642,7 @@ def recommendations_cross_sell(request: Request, sku: str):
 def recommendations_similar(request: Request, sku: str):
     """Similar products by category + supplier + price band."""
     tenant, aito = client_from_request(request)
+    _require_recommendations_tenant(tenant)
     cache_key = _tk(tenant, f"recommendations_similar:{sku}")
     cached = cache.get(cache_key)
     if cached:
