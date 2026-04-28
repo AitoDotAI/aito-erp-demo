@@ -155,12 +155,16 @@ DEMO_ANOMALIES_BY_TENANT: dict[str, list[dict]] = {
     "aurora": [
         {"purchase_id": "PO-7812", "supplier": "Valio Oy",             "amount": 4800.00, "account_code": "4030", "flagged_field": "account_code", "expected_value": "4010",        "actual_value": "4030",   "explanation": "Valio is a grocery supplier — account 4030 (fashion) is unusual, expected 4010 (groceries)"},
         {"purchase_id": "PO-7799", "supplier": "Bauhaus",              "amount": 2200.00, "account_code": "4060", "flagged_field": "supplier",     "expected_value": "Known vendor","actual_value": "Unknown vendor","explanation": "Bauhaus is not yet a registered vendor in Aurora's master list — first PO"},
-        {"purchase_id": "PO-7827", "supplier": "Posti",                "amount": 18400.00,"account_code": "4310", "flagged_field": "amount",       "expected_value": "~€7,500 avg","actual_value": "€18,400",     "explanation": "Amount is approximately 2.5× the average for Posti shipping invoices"},
+        # Modest spike (~1.9× the supplier average) — sits in
+        # mid-severity territory, distinct from Studio's AWS row below.
+        {"purchase_id": "PO-7827", "supplier": "Posti",                "amount": 13900.00,"account_code": "4310", "flagged_field": "amount",       "expected_value": "~€7,500 avg","actual_value": "€13,900",     "explanation": "Amount is approximately 1.9× the average for Posti shipping invoices"},
     ],
     "studio": [
         {"purchase_id": "PO-7812", "supplier": "Adobe Systems",        "amount": 2400.00, "account_code": "6810", "flagged_field": "account_code", "expected_value": "5530",        "actual_value": "6810",   "explanation": "Adobe is a software vendor — account 6810 (office supplies) is unusual, expected 5530 (design software)"},
         {"purchase_id": "PO-7799", "supplier": "LinkedIn Talent",      "amount": 4200.00, "account_code": "5750", "flagged_field": "supplier",     "expected_value": "Known vendor","actual_value": "Unknown vendor","explanation": "LinkedIn Talent appears as a new supplier — no prior placements on file"},
-        {"purchase_id": "PO-7827", "supplier": "Amazon Web Services",  "amount": 32000.00,"account_code": "5512", "flagged_field": "amount",       "expected_value": "~€8,800 avg","actual_value": "€32,000",     "explanation": "Amount is approximately 3.6× the average for AWS monthly invoices"},
+        # Larger spike (~5.5×) — pushes the score well above Aurora's
+        # Posti row, so the two demos look numerically distinct.
+        {"purchase_id": "PO-7827", "supplier": "Amazon Web Services",  "amount": 48500.00,"account_code": "5512", "flagged_field": "amount",       "expected_value": "~€8,800 avg","actual_value": "€48,500",     "explanation": "Amount is approximately 5.5× the average for AWS monthly invoices"},
     ],
 }
 
