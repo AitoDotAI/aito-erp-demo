@@ -553,38 +553,28 @@ def catalog_predict(body: dict, request: Request):
 @app.get("/api/pricing/estimate")
 def pricing_estimate(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "pricing_overview")
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    result = get_pricing_overview(aito, tenant=tenant)
-    cache.set(cache_key, result)
-    return result
+    return cache.get_or_compute(
+        _tk(tenant, "pricing_overview"),
+        lambda: get_pricing_overview(aito, tenant=tenant),
+    )
 
 
 @app.get("/api/demand/forecast")
 def demand_forecast(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "demand_forecast")
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    result = get_demand_forecast(aito, tenant=tenant)
-    cache.set(cache_key, result)
-    return result
+    return cache.get_or_compute(
+        _tk(tenant, "demand_forecast"),
+        lambda: get_demand_forecast(aito, tenant=tenant),
+    )
 
 
 @app.get("/api/inventory/status")
 def inventory_status(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "inventory_status")
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    overview = get_inventory_status(aito, tenant=tenant)
-    result = overview.to_dict()
-    cache.set(cache_key, result)
-    return result
+    return cache.get_or_compute(
+        _tk(tenant, "inventory_status"),
+        lambda: get_inventory_status(aito, tenant=tenant).to_dict(),
+    )
 
 
 # ── Recommendations (Aurora retail story) ────────────────────────

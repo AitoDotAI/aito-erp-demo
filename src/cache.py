@@ -39,6 +39,48 @@ PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")
 _cache: dict[str, tuple[float, Any]] = {}
 DEFAULT_TTL = 600  # 10 minutes
 
+# ── Per-key compute lock ─────────────────────────────────────────
+#
+# Prevents stampede: when the warmup thread is computing a key and a
+# user request asks for the same key, the second caller waits on the
+# warmup's result instead of racing it with a parallel Aito call.
+# Without this guard, the first request to /api/pricing/estimate
+# during warmup pays the full cold-predict cost again (5-20s), even
+# though the warmup is already 80% of the way there.
+_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _lock_for(key: str) -> threading.Lock:
+    """Get-or-create a lock for `key`, atomic against other callers."""
+    with _locks_guard:
+        lock = _locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _locks[key] = lock
+        return lock
+
+
+def get_or_compute(key: str, compute_fn, ttl: int = DEFAULT_TTL) -> Any:
+    """Cache-aware compute: return cached value if present, otherwise
+    serialise concurrent computations under a per-key lock.
+
+    The lock-then-recheck pattern means at most one thread runs
+    `compute_fn` per key; everyone else waits on the lock and then
+    finds the cache populated.
+    """
+    cached = get(key)
+    if cached is not None:
+        return cached
+    lock = _lock_for(key)
+    with lock:
+        cached = get(key)
+        if cached is not None:
+            return cached
+        value = compute_fn()
+        set(key, value, ttl=ttl)
+        return value
+
 # ── Layer 2: Aito persistent cache (per tenant) ───────────────────
 
 # Map of tenant_id → AitoClient. Single-tenant deployments register
