@@ -55,10 +55,22 @@ class SupplierIntelligence:
     delivery_risks: list[DeliveryRisk]
 
     def to_dict(self) -> dict:
+        # Both keys ship in parallel for one release: `spend_overview`
+        # remains for any external/integration code that already
+        # depends on the original payload; `top_suppliers` is the new
+        # canonical name (matches use-case 5 doc and reads naturally
+        # next to `delivery_risks`). Drop `spend_overview` after the
+        # frontend has been updated and any downstream consumers have
+        # had time to migrate.
+        spend = [s.to_dict() for s in self.spend_overview]
         return {
-            "spend_overview": [s.to_dict() for s in self.spend_overview],
-            "delivery_risks": [d.to_dict() for d in self.delivery_risks],
+            "top_suppliers": spend,
+            "spend_overview": spend,
+            "delivery_risks": self.delivery_risks_payload(),
         }
+
+    def delivery_risks_payload(self) -> list[dict]:
+        return [d.to_dict() for d in self.delivery_risks]
 
 
 def _classify_risk(late_rate: float, lift: float) -> str:

@@ -106,7 +106,9 @@ export interface DeliveryRisk {
 }
 
 export interface SupplierResponse {
-  spend_overview: SupplierSpend[];
+  top_suppliers: SupplierSpend[];
+  /** @deprecated Renamed to `top_suppliers`; will be dropped after migration. */
+  spend_overview?: SupplierSpend[];
   delivery_risks: DeliveryRisk[];
 }
 

@@ -41,7 +41,7 @@ export default function SupplierPage() {
     setPanel({
       ...base,
       stats: [
-        { label: "Suppliers", value: String(data.spend_overview.length) },
+        { label: "Suppliers", value: String(data.top_suppliers.length) },
         { label: "Risk factors", value: String(data.delivery_risks.length) },
         { label: "High risk", value: String(high) },
       ],
@@ -106,7 +106,7 @@ export default function SupplierPage() {
     });
   };
 
-  const spend = data?.spend_overview ?? [];
+  const spend = data?.top_suppliers ?? [];
   const risks = data?.delivery_risks ?? [];
 
   return (
