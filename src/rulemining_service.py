@@ -123,7 +123,44 @@ def mine_rules(client: AitoClient) -> list[RuleCandidate]:
                 ))
 
     candidates.sort(key=lambda r: r.confidence, reverse=True)
-    return candidates
+    return _dedupe_equivalent_rules(candidates)
+
+
+# Mining `_relate` over single-value conditions yields algebraically
+# equivalent rules whenever a supplier↔category mapping is 1:1: every
+# Schneider PO is electrical, so "supplier=Schneider→4225" and
+# "category=electrical→4225" both surface with identical (confidence,
+# support, lift). Two rows; one operational outcome. Collapse them
+# so the candidate list is read-as-distinct-patterns.
+_FIELD_PRIORITY = {"supplier": 0, "description": 1, "category": 2}
+
+
+def _dedupe_equivalent_rules(candidates: list[RuleCandidate]) -> list[RuleCandidate]:
+    """Drop rules with identical (predicted_field, predicted_value,
+    confidence, support, lift) — keep the most specific condition_field.
+
+    Specificity ranking from `_FIELD_PRIORITY`: supplier > description
+    > category > anything else. Ties broken alphabetically on
+    condition_value for determinism.
+    """
+    by_signature: dict[tuple, list[RuleCandidate]] = {}
+    for c in candidates:
+        sig = (c.predicted_field, c.predicted_value, c.confidence, c.support, c.lift)
+        by_signature.setdefault(sig, []).append(c)
+
+    deduped: list[RuleCandidate] = []
+    for group in by_signature.values():
+        if len(group) == 1:
+            deduped.append(group[0])
+            continue
+        group.sort(key=lambda r: (
+            _FIELD_PRIORITY.get(r.condition_field, 99),
+            r.condition_value,
+        ))
+        deduped.append(group[0])
+
+    deduped.sort(key=lambda r: r.confidence, reverse=True)
+    return deduped
 
 
 def get_rule_summary(candidates: list[RuleCandidate]) -> dict:
