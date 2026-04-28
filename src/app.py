@@ -185,13 +185,13 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("catalog_incomplete", compute)
 
     def warm_pricing():
-        warm_or_load("pricing_overview", lambda: get_pricing_overview(aito))
+        warm_or_load("pricing_overview", lambda: get_pricing_overview(aito, tenant=tenant_id))
 
     def warm_demand():
-        warm_or_load("demand_forecast", lambda: get_demand_forecast(aito))
+        warm_or_load("demand_forecast", lambda: get_demand_forecast(aito, tenant=tenant_id))
 
     def warm_inventory():
-        warm_or_load("inventory_status", lambda: get_inventory_status(aito).to_dict())
+        warm_or_load("inventory_status", lambda: get_inventory_status(aito, tenant=tenant_id).to_dict())
 
     def warm_overview():
         warm_or_load("overview_metrics", lambda: get_overview(aito).to_dict())
@@ -555,7 +555,7 @@ def pricing_estimate(request: Request):
     cached = cache.get(cache_key)
     if cached:
         return cached
-    result = get_pricing_overview(aito)
+    result = get_pricing_overview(aito, tenant=tenant)
     cache.set(cache_key, result)
     return result
 
@@ -567,7 +567,7 @@ def demand_forecast(request: Request):
     cached = cache.get(cache_key)
     if cached:
         return cached
-    result = get_demand_forecast(aito)
+    result = get_demand_forecast(aito, tenant=tenant)
     cache.set(cache_key, result)
     return result
 
@@ -579,7 +579,7 @@ def inventory_status(request: Request):
     cached = cache.get(cache_key)
     if cached:
         return cached
-    overview = get_inventory_status(aito)
+    overview = get_inventory_status(aito, tenant=tenant)
     result = overview.to_dict()
     cache.set(cache_key, result)
     return result

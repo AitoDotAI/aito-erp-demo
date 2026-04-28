@@ -49,3 +49,6 @@ playwright-report/
 # OS
 .DS_Store
 Thumbs.db
+
+# Tester scratchpad — bug reports / private notes
+.ai/

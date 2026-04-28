@@ -155,7 +155,7 @@ def forecast_demand(
         else:
             trend = "stable"
 
-    product_name = DEMO_PRODUCTS.get(product_id, {}).get("name", product_id)
+    product_name = _product_name_lookup(product_id)
 
     return DemandForecast(
         product_id=product_id,
@@ -169,21 +169,66 @@ def forecast_demand(
     )
 
 
-# Demo products matching the HTML mock
-DEMO_PRODUCTS = {
-    "SKU-4421": {"name": "Wärtsilä Seal Kit WS-442", "monthly_avg": 8},
-    "SKU-FUEL": {"name": "Neste Fleet Fuel (100L)", "monthly_avg": 42},
-    "SKU-2234": {"name": "Lindström Workwear Set M", "monthly_avg": 6},
-    "SKU-HVAC": {"name": "Caverion HVAC Service (hr)", "monthly_avg": 24},
-    "SKU-5560": {"name": "Fazer Vending Refill Pack", "monthly_avg": 18},
-    "SKU-9901": {"name": "Generic Cable Gland M20", "monthly_avg": 180},
+def _product_name_lookup(product_id: str) -> str:
+    """Walk every tenant's product map to find a friendly name.
+
+    `forecast_demand()` is called from inventory_service which doesn't
+    know the tenant. Falls back to the SKU id if no entry is found.
+    """
+    for tenant_map in DEMO_PRODUCTS_BY_TENANT.values():
+        info = tenant_map.get(product_id)
+        if info:
+            return info["name"]
+    return product_id
+
+
+# Per-tenant hero SKUs for the Demand Forecast view. Picked to match
+# the same SKUs used by Pricing + Inventory (same SKUs ⇒ consistent
+# stories across the three views) and verified against each tenant's
+# `orders` table for sample-size coverage.
+DEMO_PRODUCTS_BY_TENANT: dict[str, dict[str, dict]] = {
+    "metsa": {
+        "SKU-1027": {"name": "AdBlue v2 (10L)", "monthly_avg": 2},
+        "SKU-1271": {"name": "Engine Oil v2 (5L)", "monthly_avg": 1},
+        "SKU-1213": {"name": "Equipment Calibration #231", "monthly_avg": 1},
+        "SKU-1038": {"name": "Electrical Inspection (hr)", "monthly_avg": 1},
+    },
+    "aurora": {
+        "SKU-1231": {"name": "Yogurt 4-pack", "monthly_avg": 1},
+        "SKU-1122": {"name": "Multi-Surface Cleaner 10pk", "monthly_avg": 1},
+        "SKU-1267": {"name": "Paint Roller (refill set)", "monthly_avg": 3},
+        "SKU-1289": {"name": "Body Lotion 250ml", "monthly_avg": 1},
+    },
+    "studio": {
+        "SKU-1087": {"name": "Adobe CC Seat (monthly)", "monthly_avg": 1},
+        "SKU-1029": {"name": "Tea Bags (office pack)", "monthly_avg": 1},
+        "SKU-1113": {"name": "Whiteboard Markers (set of 12)", "monthly_avg": 1},
+        "SKU-1134": {"name": "Pens Pack Pro (50pk)", "monthly_avg": 1},
+    },
 }
 
+
+def demo_products_for(tenant: str | None) -> dict[str, dict]:
+    return DEMO_PRODUCTS_BY_TENANT.get(tenant or "metsa",
+                                        DEMO_PRODUCTS_BY_TENANT["metsa"])
+
+
+def demo_forecast_skus_for(tenant: str | None) -> list[str]:
+    return list(demo_products_for(tenant).keys())
+
+
+# Backward-compat aliases.
+DEMO_PRODUCTS = DEMO_PRODUCTS_BY_TENANT["metsa"]
 DEMO_FORECAST_SKUS = list(DEMO_PRODUCTS.keys())
 
 
-def get_demand_forecast(client: AitoClient, month: str = "2025-06") -> dict:
-    """Get demand forecasts for all demo products plus aggregate impact metrics."""
+def get_demand_forecast(
+    client: AitoClient,
+    month: str = "2025-06",
+    tenant: str | None = None,
+) -> dict:
+    """Get demand forecasts for this tenant's hero SKUs plus aggregate
+    impact metrics."""
     forecasts = []
     spike_count = 0
     drop_count = 0
@@ -191,7 +236,7 @@ def get_demand_forecast(client: AitoClient, month: str = "2025-06") -> dict:
     significant_change_pct_sum = 0.0
     significant_change_count = 0
 
-    for sku in DEMO_FORECAST_SKUS:
+    for sku in demo_forecast_skus_for(tenant):
         fc = forecast_demand(client, sku, month)
         forecasts.append(fc.to_dict())
         if fc.trend == "up":

@@ -192,41 +192,126 @@ def score_quotes(
     return scores
 
 
-# Demo products matching the HTML mock
-DEMO_PRODUCTS = {
-    "seal": {"product_id": "SKU-4421", "name": "Wärtsilä Seal Kit WS-442", "supplier": "Wärtsilä Components"},
-    "fuel": {"product_id": "SKU-FUEL", "name": "Neste Fleet Fuel (per 100L)", "supplier": "Neste Oyj"},
-    "hvac": {"product_id": "SKU-HVAC", "name": "Caverion HVAC Service (hr)", "supplier": "Caverion Suomi"},
-    "workwear": {"product_id": "SKU-2234", "name": "Lindström Workwear Set M", "supplier": "Lindström Oy"},
-}
-
-DEMO_QUOTES = {
-    "seal": [
-        {"supplier": "Wärtsilä", "quoted_price": 142},
-        {"supplier": "Parts Direct", "quoted_price": 189},
-        {"supplier": "Nordic Supply", "quoted_price": 151},
-    ],
-    "fuel": [
-        {"supplier": "Neste", "quoted_price": 91},
-        {"supplier": "Shell Finland", "quoted_price": 98},
-        {"supplier": "ABC Energy", "quoted_price": 118},
-    ],
-    "hvac": [
-        {"supplier": "Caverion", "quoted_price": 78},
-        {"supplier": "YIT Service", "quoted_price": 85},
-        {"supplier": "Granlund", "quoted_price": 112},
-    ],
-    "workwear": [
-        {"supplier": "Lindström", "quoted_price": 84},
-        {"supplier": "Alsico", "quoted_price": 92},
-        {"supplier": "Engel", "quoted_price": 108},
-    ],
+# Per-tenant hero products. Each set picks 4 SKUs from that tenant's
+# real `products` table that have meaningful price_history coverage,
+# so `estimate_price()` returns non-zero estimates and the quote-
+# scoring narrative actually works. Picked by querying each tenant's
+# `price_history` for SKUs with the most rows + cross-checking
+# `orders` for demand coverage. See `.ai/issues/01-...md`.
+DEMO_PRODUCTS_BY_TENANT: dict[str, dict[str, dict]] = {
+    "metsa": {
+        "fuel": {"product_id": "SKU-1027", "name": "AdBlue v2 (10L)", "supplier": "Lyreco"},
+        "engine_oil": {"product_id": "SKU-1271", "name": "Engine Oil v2 (5L)", "supplier": "Neste Oyj"},
+        "calibration": {"product_id": "SKU-1213", "name": "Equipment Calibration #231", "supplier": "Lyreco"},
+        "inspection": {"product_id": "SKU-1038", "name": "Electrical Inspection (hr)", "supplier": "Siemens Finland"},
+    },
+    "aurora": {
+        "yogurt": {"product_id": "SKU-1231", "name": "Yogurt 4-pack", "supplier": "Valio Oy"},
+        "cleaner": {"product_id": "SKU-1122", "name": "Multi-Surface Cleaner 10pk", "supplier": "Berner Beauty"},
+        "paint": {"product_id": "SKU-1267", "name": "Paint Roller (refill set)", "supplier": "Bauhaus"},
+        "body_lotion": {"product_id": "SKU-1289", "name": "Body Lotion 250ml", "supplier": "L'Oréal Finland"},
+    },
+    "studio": {
+        "adobe": {"product_id": "SKU-1087", "name": "Adobe CC Seat (monthly)", "supplier": "Adobe Systems"},
+        "tea": {"product_id": "SKU-1029", "name": "Tea Bags (office pack)", "supplier": "Kespro"},
+        "markers": {"product_id": "SKU-1113", "name": "Whiteboard Markers (set of 12)", "supplier": "Lyreco"},
+        "pens": {"product_id": "SKU-1134", "name": "Pens Pack Pro (50pk)", "supplier": "Lyreco"},
+    },
 }
 
 
-def get_pricing_overview(client: AitoClient) -> dict:
+def demo_products_for(tenant: str | None) -> dict[str, dict]:
+    return DEMO_PRODUCTS_BY_TENANT.get(tenant or "metsa",
+                                        DEMO_PRODUCTS_BY_TENANT["metsa"])
+
+
+# Mocked competing-supplier quote sets per (tenant, product key).
+# These are the rows the Pricing view scores against the Aito-derived
+# fair-price estimate. Suppliers chosen to feel realistic for each
+# vertical without claiming they correspond to real quotes.
+DEMO_QUOTES_BY_TENANT: dict[str, dict[str, list[dict]]] = {
+    "metsa": {
+        "fuel": [
+            {"supplier": "Lyreco", "quoted_price": 88},
+            {"supplier": "Neste Oyj", "quoted_price": 94},
+            {"supplier": "Shell Finland", "quoted_price": 112},
+        ],
+        "engine_oil": [
+            {"supplier": "Neste Oyj", "quoted_price": 162},
+            {"supplier": "Shell Finland", "quoted_price": 175},
+            {"supplier": "ABC Energy", "quoted_price": 219},
+        ],
+        "calibration": [
+            {"supplier": "Lyreco", "quoted_price": 108},
+            {"supplier": "Caverion Suomi", "quoted_price": 122},
+            {"supplier": "YIT Service", "quoted_price": 145},
+        ],
+        "inspection": [
+            {"supplier": "Siemens Finland", "quoted_price": 119},
+            {"supplier": "ABB Finland", "quoted_price": 128},
+            {"supplier": "Caverion Suomi", "quoted_price": 156},
+        ],
+    },
+    "aurora": {
+        "yogurt": [
+            {"supplier": "Valio Oy", "quoted_price": 24},
+            {"supplier": "Atria Oyj", "quoted_price": 26},
+            {"supplier": "Arla Foods", "quoted_price": 31},
+        ],
+        "cleaner": [
+            {"supplier": "Berner Beauty", "quoted_price": 92},
+            {"supplier": "Lyreco", "quoted_price": 98},
+            {"supplier": "Tikkurila", "quoted_price": 124},
+        ],
+        "paint": [
+            {"supplier": "Bauhaus", "quoted_price": 138},
+            {"supplier": "Tikkurila", "quoted_price": 149},
+            {"supplier": "K-Rauta", "quoted_price": 178},
+        ],
+        "body_lotion": [
+            {"supplier": "L'Oréal Finland", "quoted_price": 7},
+            {"supplier": "Berner Beauty", "quoted_price": 9},
+            {"supplier": "Cocoon Imports", "quoted_price": 14},
+        ],
+    },
+    "studio": {
+        "adobe": [
+            {"supplier": "Adobe Systems", "quoted_price": 16},
+            {"supplier": "Insight Enterprises", "quoted_price": 18},
+            {"supplier": "Atea Finland", "quoted_price": 22},
+        ],
+        "tea": [
+            {"supplier": "Kespro", "quoted_price": 42},
+            {"supplier": "Paulig Group", "quoted_price": 46},
+            {"supplier": "Fazer Food Services", "quoted_price": 58},
+        ],
+        "markers": [
+            {"supplier": "Lyreco", "quoted_price": 64},
+            {"supplier": "Staples Oy", "quoted_price": 71},
+            {"supplier": "Wulff Supplies", "quoted_price": 89},
+        ],
+        "pens": [
+            {"supplier": "Lyreco", "quoted_price": 5},
+            {"supplier": "Staples Oy", "quoted_price": 6},
+            {"supplier": "Wulff Supplies", "quoted_price": 9},
+        ],
+    },
+}
+
+
+def demo_quotes_for(tenant: str | None) -> dict[str, list[dict]]:
+    return DEMO_QUOTES_BY_TENANT.get(tenant or "metsa",
+                                      DEMO_QUOTES_BY_TENANT["metsa"])
+
+
+# Backward-compat aliases (single-tenant callers + tests).
+DEMO_PRODUCTS = DEMO_PRODUCTS_BY_TENANT["metsa"]
+DEMO_QUOTES = DEMO_QUOTES_BY_TENANT["metsa"]
+
+
+def get_pricing_overview(client: AitoClient, tenant: str | None = None) -> dict:
     """Get price estimates, quote scores, and PPV (Purchase Price Variance)
-    metrics for all demo products."""
+    metrics for all demo products in this tenant's hero set."""
     products = {}
     total_quotes = 0
     flagged_quotes = 0
@@ -234,9 +319,16 @@ def get_pricing_overview(client: AitoClient) -> dict:
     total_savings = 0.0       # Sum of deviations on accepted quotes (negative = savings)
     ppv_per_product: dict[str, float] = {}
 
-    for key, info in DEMO_PRODUCTS.items():
-        estimate = estimate_price(client, info["product_id"], info["supplier"])
-        quotes = score_quotes(estimate, DEMO_QUOTES.get(key, []))
+    tenant_products = demo_products_for(tenant)
+    tenant_quotes = demo_quotes_for(tenant)
+
+    for key, info in tenant_products.items():
+        # Estimate against the full price-history (all suppliers) — gives
+        # the "market fair price" band rather than one supplier's history.
+        # The product's primary supplier is shown on the card for context
+        # but isn't used as a filter.
+        estimate = estimate_price(client, info["product_id"])
+        quotes = score_quotes(estimate, tenant_quotes.get(key, []))
 
         # PPV per product = (avg actual price - estimate) / estimate
         if quotes:

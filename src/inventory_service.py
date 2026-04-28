@@ -8,51 +8,71 @@ for at-risk SKUs. Also identifies overstock situations.
 from dataclasses import dataclass, field
 
 from src.aito_client import AitoClient
-from src.demand_service import forecast_demand, DEMO_PRODUCTS
+from src.demand_service import forecast_demand, demo_products_for
 
 
-# Current stock levels (units on hand) — matches HTML mock
-STOCK_LEVELS = {
-    "SKU-4421": 4,       # Wärtsilä Seal Kit — 15 days supply, 14-day lead time → 1-day margin
-    "SKU-FUEL": 980,     # Neste Fleet Fuel — 773 days supply → overstock
-    "SKU-2234": 3,       # Lindström Workwear — 9 days supply, 14-day lead time → overdue
-    "SKU-HVAC": 80,      # Caverion HVAC — 109 days supply → OK
-    "SKU-5560": 28,      # Fazer Vending — 40 days supply → reorder soon
-    "SKU-9901": 90,      # Cable Gland — 20 days supply, 21-day lead time → critical
+# Per-tenant inventory state. Stock levels, lead times, reorder
+# points, unit prices, and substitution suggestions are tunable mocks
+# that combine with `demand_service.demo_products_for(tenant)` to
+# produce one critical / one overstock / one OK / one low row per
+# tenant — the canonical "Inventory Intelligence" story shape.
+INVENTORY_BY_TENANT: dict[str, dict[str, dict]] = {
+    "metsa": {
+        # SKU-1027 AdBlue v2 — fast-moving, 14-day lead, hovering low
+        "SKU-1027": {"stock": 18, "lead_time": 14, "reorder_point": 30, "unit_price": 88.97,
+                      "substitutions": [{"product_id": "SKU-1028", "name": "AdBlue v3 (10L)", "similarity": 0.92}]},
+        # SKU-1271 Engine Oil v2 — Neste, healthy buffer
+        "SKU-1271": {"stock": 60, "lead_time": 7, "reorder_point": 25, "unit_price": 163.92,
+                      "substitutions": []},
+        # SKU-1213 Equipment Calibration — service item, lumpy demand → critical
+        "SKU-1213": {"stock": 2, "lead_time": 21, "reorder_point": 6, "unit_price": 111.10,
+                      "substitutions": [{"product_id": "SKU-1214", "name": "Equipment Calibration #240", "similarity": 0.78}]},
+        # SKU-1038 Electrical Inspection — overstocked from a bulk procurement run
+        "SKU-1038": {"stock": 240, "lead_time": 14, "reorder_point": 30, "unit_price": 120.09,
+                      "substitutions": []},
+    },
+    "aurora": {
+        # SKU-1231 Yogurt — perishable, fast-moving, low margin → critical
+        "SKU-1231": {"stock": 80, "lead_time": 3, "reorder_point": 200, "unit_price": 24.98,
+                      "substitutions": [{"product_id": "SKU-1232", "name": "Yogurt 6-pack", "similarity": 0.88}]},
+        # SKU-1122 Multi-Surface Cleaner — household consumable
+        "SKU-1122": {"stock": 140, "lead_time": 7, "reorder_point": 80, "unit_price": 93.70,
+                      "substitutions": []},
+        # SKU-1267 Paint Roller — DIY seasonal spike, low stock → low/critical
+        "SKU-1267": {"stock": 22, "lead_time": 14, "reorder_point": 50, "unit_price": 140.43,
+                      "substitutions": [{"product_id": "SKU-1268", "name": "Paint Roller Pro", "similarity": 0.85}]},
+        # SKU-1289 Body Lotion — overstocked from end-of-season buy
+        "SKU-1289": {"stock": 1800, "lead_time": 14, "reorder_point": 200, "unit_price": 7.98,
+                      "substitutions": []},
+    },
+    "studio": {
+        # SKU-1087 Adobe CC seats — software licenses, 0 lead time, "stock" = paid-but-unallocated
+        "SKU-1087": {"stock": 6, "lead_time": 1, "reorder_point": 10, "unit_price": 16.09,
+                      "substitutions": [{"product_id": "SKU-1088", "name": "Adobe CC Seat (annual)", "similarity": 0.95}]},
+        # SKU-1029 Tea Bags — office consumable
+        "SKU-1029": {"stock": 90, "lead_time": 3, "reorder_point": 30, "unit_price": 42.43,
+                      "substitutions": []},
+        # SKU-1113 Whiteboard markers — slow-moving overstock
+        "SKU-1113": {"stock": 280, "lead_time": 7, "reorder_point": 30, "unit_price": 66.10,
+                      "substitutions": []},
+        # SKU-1134 Pens — about to run out, 14-day lead → critical
+        "SKU-1134": {"stock": 8, "lead_time": 14, "reorder_point": 40, "unit_price": 4.73,
+                      "substitutions": [{"product_id": "SKU-1135", "name": "Pens Pack v2 (50pk)", "similarity": 0.93}]},
+    },
 }
 
-# Supplier lead times in days
-LEAD_TIMES = {
-    "SKU-4421": 14,
-    "SKU-FUEL": 3,
-    "SKU-2234": 14,
-    "SKU-HVAC": 7,
-    "SKU-5560": 3,
-    "SKU-9901": 21,
-}
 
-# Reorder points (units)
-REORDER_POINTS = {
-    "SKU-4421": 12,
-    "SKU-FUEL": 80,
-    "SKU-2234": 10,
-    "SKU-HVAC": 30,
-    "SKU-5560": 20,
-    "SKU-9901": 200,
-}
+def _inventory_for(tenant: str | None) -> dict[str, dict]:
+    return INVENTORY_BY_TENANT.get(tenant or "metsa",
+                                    INVENTORY_BY_TENANT["metsa"])
 
-# Substitution suggestions — matches HTML mock
-SUBSTITUTIONS = {
-    "SKU-4421": [
-        {"product_id": "SKU-4420", "name": "Seal Kit WS-440", "similarity": 0.84},
-    ],
-    "SKU-2234": [
-        {"product_id": "SKU-2235", "name": "Workwear Set L (alt)", "similarity": 0.71},
-    ],
-    "SKU-9901": [
-        {"product_id": "SKU-9902", "name": "Cable Gland M20 (alt brand)", "similarity": 0.91},
-    ],
-}
+
+# Backward-compat: Metsä's STOCK_LEVELS / LEAD_TIMES / REORDER_POINTS /
+# SUBSTITUTIONS exposed as flat dicts so older callers keep working.
+STOCK_LEVELS = {sku: row["stock"] for sku, row in INVENTORY_BY_TENANT["metsa"].items()}
+LEAD_TIMES = {sku: row["lead_time"] for sku, row in INVENTORY_BY_TENANT["metsa"].items()}
+REORDER_POINTS = {sku: row["reorder_point"] for sku, row in INVENTORY_BY_TENANT["metsa"].items()}
+SUBSTITUTIONS = {sku: row["substitutions"] for sku, row in INVENTORY_BY_TENANT["metsa"].items() if row["substitutions"]}
 
 OVERSTOCK_MONTHS = 3
 
@@ -145,8 +165,12 @@ def _classify_status(days_of_supply: float, lead_time: int) -> str:
         return "ok"
 
 
-def get_inventory_status(client: AitoClient, target_month: str = "2025-06") -> InventoryOverview:
-    """Compute inventory status for all demo products.
+def get_inventory_status(
+    client: AitoClient,
+    target_month: str = "2025-06",
+    tenant: str | None = None,
+) -> InventoryOverview:
+    """Compute inventory status for this tenant's hero SKUs.
 
     For each product:
     1. Get demand forecast from demand_service.
@@ -157,27 +181,25 @@ def get_inventory_status(client: AitoClient, target_month: str = "2025-06") -> I
     Args:
         client: Aito API client.
         target_month: Month to forecast demand for.
+        tenant: Persona id; selects which hero SKUs + stock state to use.
 
     Returns:
         InventoryOverview with per-item status and summary counts.
     """
-    # Per-product unit prices for capital calculations.
-    # In a real ERP these come from products table; we use known
-    # prices to ensure the numbers tell the right story.
-    UNIT_PRICES = {
-        "SKU-4421": 148.00, "SKU-FUEL": 94.00, "SKU-2234": 89.00,
-        "SKU-HVAC": 82.00, "SKU-5560": 25.00, "SKU-9901": 3.40,
-    }
     # Target buffer for overstock calculation: 60 days
     TARGET_BUFFER_DAYS = 60
 
+    inventory = _inventory_for(tenant)
+    products = demo_products_for(tenant)
     items: list[InventoryItem] = []
 
-    for product_id, product_info in DEMO_PRODUCTS.items():
-        stock = STOCK_LEVELS.get(product_id, 0)
-        lead_time = LEAD_TIMES.get(product_id, 14)
-        reorder = REORDER_POINTS.get(product_id, 0)
-        unit_price = UNIT_PRICES.get(product_id, 0.0)
+    for product_id, product_info in products.items():
+        row = inventory.get(product_id, {})
+        stock = row.get("stock", 0)
+        lead_time = row.get("lead_time", 14)
+        reorder = row.get("reorder_point", 0)
+        unit_price = row.get("unit_price", 0.0)
+        sub_options = row.get("substitutions", [])
 
         # Get demand forecast
         demand = forecast_demand(client, product_id, target_month)
@@ -190,7 +212,7 @@ def get_inventory_status(client: AitoClient, target_month: str = "2025-06") -> I
             days_of_supply = 999.0  # No demand = effectively infinite supply
 
         status = _classify_status(days_of_supply, lead_time)
-        subs = SUBSTITUTIONS.get(product_id, []) if status in ("critical", "low") else []
+        subs = sub_options if status in ("critical", "low") else []
 
         # Cash impact calculations
         excess_units = 0
