@@ -91,3 +91,22 @@ view notices the gap.
 (co-occurrence aggregation), `get_similar()` (attribute scoring).
 Each result type degrades gracefully to `[]` when the underlying
 table isn't loaded for the active tenant.
+
+## What this demo abstracts away
+
+- **Real-time inventory awareness**. The demo recommends from the
+  full catalogue. Production filters out-of-stock SKUs at query
+  time (or surfaces a "back in stock 12 May" note); recommending a
+  product that can't be ordered erodes user trust fast. Easy
+  addition: `where: { ..., stock_units: { "$gt": 0 } }`.
+- **Customer-segment personalization**. The demo's anchor →
+  cross-sell is the same for every viewer. Real recommenders take
+  customer segment (loyalty tier, geography, lifetime spend) into
+  the `where` clause. Aito supports it directly; the demo doesn't
+  model the customer table.
+- **A/B test framework for recommendation quality**. Real
+  retailers measure recommendation impact by holding out a
+  control group that sees nothing or sees random products.
+  Production wants `(recommendation_id, shown_to, clicked,
+  purchased)` tracking + weekly lift reports. The demo shows the
+  recommendations; it doesn't measure whether they convert.

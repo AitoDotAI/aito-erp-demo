@@ -179,6 +179,24 @@ inverse prediction.
   you'd run anomaly detection on every new PO and surface the top
   N by score. The wiring is the same — just the input list grows.
 
+## What this demo abstracts away
+
+- **Streaming detection vs. hardcoded set**. `DEMO_ANOMALIES_BY_TENANT`
+  is a curated list. Production scores every new PO at creation
+  time, surfaces the top N by score in a queue, and lets the user
+  Investigate / Escalate / Mark legitimate. The wiring is the same
+  — `evaluate_transaction()` is called per row, not per demo seed.
+- **Action-loop persistence**. The demo's Investigate / Escalate /
+  Legitimate buttons don't write anywhere. Real systems persist the
+  decision (`anomaly_id, decision, user, ts`), feed Legitimate
+  decisions back as positive labels (so the same pattern stops
+  flagging), and use Escalate to open tickets in the audit system.
+- **Per-tenant threshold tuning**. `SEVERITY_HIGH=85` is a global
+  constant. Different verticals tolerate different anomaly-rates
+  (a manufacturing firm wants tight thresholds; a high-volume
+  retailer wants looser). Production reads thresholds per-tenant
+  from a config table; the demo sets them globally.
+
 ## Try it live
 
 [**Open Anomaly Detection**](http://localhost:8400/anomalies/) and

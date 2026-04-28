@@ -171,6 +171,23 @@ Anything else in the request body is dropped before the query runs.
   (no history at all) shows as empty with the `!` low-confidence
   trigger. We never pretend to know what we don't.
 
+## What this demo abstracts away
+
+- **Server-side validation of submitted predictions**. The demo
+  trusts the client-side state. Production re-runs `_predict` on
+  submit and persists `(predicted_value, accepted_value, user_id)`
+  to a `prediction_log` table — anyone could otherwise hand-craft
+  a request that bypasses the prediction layer entirely.
+- **Override-as-training-signal persistence**. Every accepted /
+  overridden prediction is the next prediction's training data.
+  The demo writes back into `purchases` directly; production wants
+  a staging table + nightly merge so a single bad override doesn't
+  poison the next batch of predictions.
+- **Permission gating on visible fields**. A junior buyer might be
+  allowed to submit a PO but not see the predicted approver. The
+  demo's `INPUT_FIELDS` / `PREDICT_FIELDS` lists are static —
+  production reads them per-role from your IDP.
+
 ## Try it live
 
 [**Open Smart Entry**](http://localhost:8400/smart-entry/) and pick

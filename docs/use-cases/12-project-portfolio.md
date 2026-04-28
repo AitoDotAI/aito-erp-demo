@@ -121,3 +121,23 @@ The booktest [`tests/test_project_booktest.py`](../../tests/test_project_booktes
 validates that the engineered signal is preserved across all three
 persona fixtures and (when Aito creds are set) that `_predict` and
 `_relate` actually pick that signal up.
+
+## What this demo abstracts away
+
+- **Confounding correction**. The staffing-factors lift score
+  reports raw correlation. A senior engineer who only takes simple
+  maintenance projects will look like a "boost"; a junior who only
+  takes risky greenfields will look like a "drag". Production wants
+  per-(person × project_type) lift, which means filtering the
+  `_relate` query by project_type — Aito supports it; the demo
+  shows the unfiltered version for clarity.
+- **Time-series prediction**. The demo predicts current state
+  (P(success at completion) for each active project). Production
+  wants weekly-trend: how is P(success) moving over time? That
+  requires snapshotting `_predict` outputs into a `project_history`
+  table on a schedule and serving the trend from there.
+- **Project-management tool integration**. Project + assignment
+  data here comes from JSON fixtures. Real deployments feed from
+  Jira, Asana, MS Project, or in-house PM tools — usually via
+  nightly ETL into the `projects` and `assignments` tables. The
+  prediction logic is unchanged; the data pipeline isn't shown.

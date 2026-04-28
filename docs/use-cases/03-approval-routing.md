@@ -181,6 +181,23 @@ distribution.
   Batch processing in `predict_batch()` is sequential — fine for
   the demo's 3-PO queue, would need parallelism for real volumes.
 
+## What this demo abstracts away
+
+- **Delegation chains**. The demo predicts a single approver. Real
+  workflows handle PTO, sick leave, and out-of-office: the system
+  resolves "M. Hakala is OOO Mar 1-15 → delegate to T. Virtanen" by
+  walking a delegation table. The prediction surfaces the *primary*
+  approver; the resolver picks the actual one.
+- **Multi-step sequential approval**. €50K+ purchases need manager
+  → CFO → Board sign-off in order. The demo's `predicted_level`
+  field is one bucket; production wants a sequence of approvers
+  with a status state machine.
+- **Approval expiry / nudges**. The demo flags "needs CFO" but
+  doesn't track whether the CFO ever responds. Production fires a
+  nudge after 24h, escalates after 72h, auto-approves below a tier
+  if the chain stalls. None of that is a prediction problem — it's
+  workflow plumbing on top.
+
 ## Try it live
 
 [**Open Approval Routing**](http://localhost:8400/approval/) and

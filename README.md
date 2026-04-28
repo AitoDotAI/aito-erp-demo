@@ -422,21 +422,27 @@ Mock data is **internally consistent across views** and **deterministic**
 
 ## What this demo intentionally does NOT show
 
-This is a **predictive-database reference**, not a complete ERP.
+This is a **predictive-database reference**, not a complete ERP. The
+table below is the same list of objections that lands in every CTO
+walkthrough — owning the gaps is more credible than papering over them.
 
 | Out of scope | Why it's missing | What you'd add for production |
 |--------------|------------------|-------------------------------|
 | **Three-way matching** (PO ↔ GRN ↔ invoice) | Demo stops at PO routing | Goods-receipt + matching service tied to AP |
-| **GL period control** | Predicted accounts don't check whether the period is open | Period-status check before posting |
-| **Segregation of duties** | Same demo user creates, codes, and approves | Role-based access tied to your IDP |
-| **Multi-entity / multi-currency** | All EUR, single legal entity | `entity_id` column; same pattern as the multi-tenant accounting demo |
-| **Audit trail** | Override events aren't persisted across restarts | Persist to `prediction_log` table |
-| **Schema evolution** | Adding a column means regenerate + reload | Aito accepts column additions in place |
-| **Multi-worker cache coherence** | 2-layer cache assumes single FastAPI worker | Aito-side persistent layer as source of truth |
-| **High-volume p99 latency** | Single-user warm-cache measurements | Load test with concurrent users |
-| **e-Invoice / verkkolasku / ALV** | Finnish formats aren't generated | Wire to Maventa / Apix / similar |
+| **GL period control** | Predicted accounts don't check whether the period is open | Period-status table; gate posting on `period_open=true` and re-route to the next open period when a prediction lands in a locked month |
+| **Multi-country chart of accounts** | Single Finnish CoA hardcoded into fixtures | Per-customer `chart_of_accounts` mapping table; predictions return account_code in the source CoA, then the integration layer remaps to the destination tenant's accounts |
+| **Segregation of duties** | Same demo user creates, codes, and approves | Role-based access tied to your IDP; the prediction call is a *suggestion* — actual posting is gated on the user's role |
+| **Multi-entity / multi-currency** | All EUR, single legal entity | `entity_id` column on every table, FX rates in a side table, same multi-tenant routing pattern shown in the [accounting demo](https://github.com/AitoDotAI/aito-accounting-demo) |
+| **Audit trail** | Override events aren't persisted across restarts | Persist to `prediction_log` table — `(prediction_id, user, accepted, overridden_to, $why_snapshot, ts)` |
+| **Schema evolution** | Adding a column means regenerate + reload | Aito accepts column additions in place — see [data-upload-guide.md](docs/data-upload-guide.md) |
+| **Multi-worker cache coherence** | 2-layer cache assumes single FastAPI worker | Aito-side persistent layer as source of truth (see [scaling.md](docs/scaling.md)) |
+| **High-volume p99 latency** | Single-user warm-cache measurements | Load test with concurrent users — the predict-cache hit path is sub-ms but cold-cache `_predict` round-trips are ~30-100ms |
+| **e-Invoice / verkkolasku / ALV** | Finnish formats aren't generated | Wire to Maventa / Apix / similar — predictions feed the line-item coding *before* the invoice gets serialized |
+| **Aito hosting cost at scale** | Demo uses three small DBs on shared.aito.ai | Pricing tiers depend on row count + QPS — ask Aito sales. The architecture (one DB per tenant) holds at 1K tenants; at 10K+ tenants you'll want pooled DBs sharded by tenant cohort. See [scaling.md](docs/scaling.md) |
 
-Owning the gaps is more credible than papering over them.
+Each row is a real objection raised by ERP-SaaS CTOs evaluating the
+demo. If yours isn't on the list, [open an issue](../../issues) and we
+will add it.
 
 ## 🚀 Available commands
 

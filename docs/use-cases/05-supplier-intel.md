@@ -190,6 +190,25 @@ small (`{"delivery_late": true}` vs. `{"delivery_late": {"$is": "Late"}}`).
   out lines, not because Elenia is bad. Lift surfaces the pattern;
   the human reads the cause.
 
+## What this demo abstracts away
+
+- **External risk feeds**. The demo reasons only from internal PO
+  history. Production combines it with Bisnode / Suomen Asiakastieto
+  credit data, sanctions lists (OFAC, EU consolidated), news scraping
+  — and surfaces those as additional `risk_factors` rows alongside
+  the lift-based ones. Aito covers the data-driven half; the rest is
+  third-party feeds.
+- **Vendor-master integration**. Risk surfaces here, but the demo
+  doesn't gate vendor onboarding. Production injects the same lift
+  query into the new-vendor-creation workflow: a proposed supplier
+  in a high-risk category triggers an extra approval step.
+- **Causal vs. correlational labelling**. `_relate` reports
+  correlation. "Elenia spikes in winter" is correctly surfaced; the
+  demo doesn't say *why* (storms, not Elenia's fault). Real users
+  distinguish between supplier-controllable risk (rate of defects)
+  and uncontrollable risk (weather, force majeure) — the demo
+  doesn't tag rows that way.
+
 ## Try it live
 
 [**Open Supplier Intel**](http://localhost:8400/supplier/) and

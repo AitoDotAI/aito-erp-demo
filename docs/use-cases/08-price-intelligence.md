@@ -194,6 +194,22 @@ its quote history without a join in the application layer.
   counterfeit? typo?). We surface verdict="good" and let the
   reviewer decide.
 
+## What this demo abstracts away
+
+- **Currency normalization**. All prices are EUR. Production
+  catalog data crosses currencies — fair-price requires FX-rate
+  normalization to a base currency at order date, not query date,
+  or the band moves when the EUR/USD rate moves.
+- **Volume-band breaks**. Bulk pricing is non-linear: 1, 10, 100,
+  1000 units have step-changes in unit price. The demo computes a
+  single fair-price band ignoring volume. Production groups
+  `price_history` by volume bucket and surfaces a per-bucket band.
+- **Contract-price overrides**. Negotiated prices that should *not*
+  trigger PPV alerts (master service agreement says €150/unit for
+  the year, regardless of market drift). The demo flags any
+  deviation; production reads a `supplier_contracts` table and
+  excludes contract-priced lines from PPV calculation.
+
 ## Try it live
 
 [**Open Price Intelligence**](http://localhost:8400/pricing/) and

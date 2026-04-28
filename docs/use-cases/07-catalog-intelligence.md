@@ -204,6 +204,24 @@ patterns ("Cable Gland" → electrical). Categorical fields like
   value back to the products table. There's no preview / staging
   area. For a real catalog you'd want a draft state.
 
+## What this demo abstracts away
+
+- **Two-stage commit (preview → apply) with rollback**. Bulk Apply
+  here writes directly to `products`. Production wants a draft
+  state: predictions land in a `products_pending` table, an
+  approver reviews them in batch, only then does the merge happen
+  — with a rollback path if a regression is spotted post-apply.
+- **Master-data governance**. Some attributes (HS code, tax class)
+  are *policy* per customer, not predictable. The demo treats
+  every missing field as fair game; production reads a per-tenant
+  `predictable_fields` list so policy attributes are surfaced for
+  manual entry rather than predicted.
+- **Image / OCR ingestion**. Real catalog gaps come from
+  spec-sheet PDFs that suppliers email. Production runs OCR over
+  the PDF, extracts candidate values, runs `_predict` to validate
+  them against history. The demo skips ingestion entirely and
+  starts from "the field is null in the DB".
+
 ## Try it live
 
 [**Open Catalog Intelligence**](http://localhost:8400/catalog/) and

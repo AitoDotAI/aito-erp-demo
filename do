@@ -45,6 +45,7 @@ Commands:
   screenshot      Capture screenshot(s): ./do screenshot [view|all]
                   Views: po-queue smart-entry approval anomalies supplier
                          rules catalog pricing demand inventory overview
+  product-sheet   Compile docs/product-sheet/product-sheet.typ → PDF
 
 EOF
 }
@@ -396,6 +397,17 @@ cmd_lint() {
   npx next lint 2>/dev/null || echo "No linter configured."
 }
 
+cmd_product_sheet() {
+  echo "Compiling product sheet..."
+  cd "$SCRIPT_DIR"
+  if ! command -v typst >/dev/null 2>&1; then
+    echo "  typst not on PATH — try: nix-shell"
+    exit 1
+  fi
+  typst compile docs/product-sheet/product-sheet.typ docs/product-sheet/product-sheet.pdf
+  echo "  ✓ docs/product-sheet/product-sheet.pdf"
+}
+
 case "${1:-help}" in
   help)            cmd_help ;;
   dev)             cmd_dev ;;
@@ -419,6 +431,7 @@ case "${1:-help}" in
   typecheck)       cmd_typecheck ;;
   lint)            cmd_lint ;;
   screenshot)      cmd_screenshot "$@" ;;
+  product-sheet)   cmd_product_sheet ;;
   *)
     echo "Unknown command: $1" >&2
     cmd_help

@@ -188,6 +188,26 @@ warehouse-management system. The schema-side dependency is
   what the user wants to see first. Reasonable for the demo;
   consider a "by impact" toggle for real volumes.
 
+## What this demo abstracts away
+
+- **Per-SKU lead-time variance**. The demo uses a single lead-time
+  number per SKU. Real lead times have variance: Wärtsilä's seal
+  kit is "14 days ± 3 days, 95th percentile 22 days". Production
+  computes the safety buffer from the lead-time *distribution*, not
+  the mean — and surfaces lead-time-variance as its own risk signal.
+- **Reorder approval workflow**. Click Reorder here creates a PO
+  directly. Production gates that on a buyer's approval (or
+  category-specific auto-approve thresholds), with the predicted
+  fields surfaced for review. The wiring already exists — the
+  generated PO flows through the PO Queue — but the demo skips the
+  approval step.
+- **Multi-location stock with transfers**. One stock number per
+  SKU. Real chains have stock at HQ, regional warehouses, retail
+  stores, and the right move when SKU-X is critical at Store-3 is
+  often "transfer from Warehouse-EU" not "reorder from supplier".
+  Production adds a `stock_locations` table and a transfer-vs-buy
+  decision layer.
+
 ## Try it live
 
 [**Open Inventory Intelligence**](http://localhost:8400/inventory/)

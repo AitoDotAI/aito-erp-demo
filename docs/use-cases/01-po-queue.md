@@ -175,6 +175,25 @@ patterns. Categorical fields are `String` for exact match.
   `$why` tree is the largest element and slows JSON parsing if you
   request it on hits you don't display.
 
+## What this demo abstracts away
+
+A real ERP wraps the prediction in three layers the demo skips:
+
+- **GL period control**. The demo predicts an account_code and lets
+  you post it. Production gates posting on `period_open=true` for the
+  posting date; if the predicted account is in a closed period, the
+  PO either re-routes to the next open period or surfaces an
+  exception. The prediction logic is unchanged — the gate sits *after*.
+- **Three-way matching**. The demo stops at PO routing. Real AP
+  workflows match PO ↔ goods receipt note ↔ supplier invoice before
+  posting. The predicted account_code on the PO is the *intent*; the
+  invoice line items match against it at receipt time.
+- **Multi-entity routing**. All POs here belong to a single legal
+  entity. Production adds an `entity_id` column on `purchases` and
+  filters predictions by entity (cross-entity history is allowed for
+  category-level signal but the predicted approver must belong to
+  the same entity as the PO).
+
 ## Try it live
 
 [**Open the PO Queue**](http://localhost:8400/po-queue/) once the demo

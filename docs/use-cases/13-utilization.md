@@ -85,3 +85,23 @@ shape as PO Queue's account-code prediction, just on a different domain.
 [`src/utilization_service.py`](../../src/utilization_service.py) —
 `get_overview()` aggregates from `_search` (no per-row Aito calls),
 `forecast_assignment()` runs the per-person predictive layer.
+
+## What this demo abstracts away
+
+- **Skills-vs-roles richer model**. The demo flattens "person on
+  assignment with role". Real consultancies track skills (Python,
+  M&A, growth strategy) separately from roles (Lead, Senior, Analyst);
+  one person has many skills + a current role. Production splits
+  `assignments` into `(person, project, role, skills_used)` so the
+  forecast can predict role fit *and* skill match.
+- **Time-tracking integration**. Allocation here is the *plan*.
+  Real utilization reads from a timesheet system (Harvest, Toggl,
+  internal time-tracking) to compare planned-vs-actual. The
+  variance is itself a predictive signal: people who consistently
+  overrun planned allocation predict project slip.
+- **Forward booking with capacity constraints**. The demo predicts
+  "if we put A. Lindgren on this project type, what role + %?".
+  Production's harder question is "given everyone's current
+  bookings + the pipeline of likely-won deals, where will we be
+  understaffed in Q3?" — that's an optimization problem on top of
+  the per-person forecast, not a single `_predict`.

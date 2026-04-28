@@ -202,6 +202,25 @@ the seasonal grouping.
   with one procurement manager. Sensitivity analysis is on the
   TODO list.
 
+## What this demo abstracts away
+
+- **External signal injection**. The demo reasons only from
+  internal order history. Real forecasting blends weather, marketing
+  calendar (campaign launches drive August workwear), school year,
+  bank holidays, even macro indicators (purchasing managers' index).
+  Each becomes an additional column on `orders` and `_predict` picks
+  up the lift; the architecture is unchanged.
+- **Daily / weekly granularity**. The demo's monthly bucket hides
+  day-of-week effects (workwear orders on Mondays, fuel cards mid-
+  week). Production forecasts at weekly-or-finer granularity; the
+  same-month aggregation logic generalizes but the seasonal lift
+  computation needs more samples to be stable.
+- **Multi-location splits**. One forecast per SKU. Real chain
+  retailers want per-store / per-warehouse forecasts; the demo's
+  `where: { product_id, month }` becomes
+  `where: { product_id, month, location_id }` with sample-size
+  guards on the long tail.
+
 ## Try it live
 
 [**Open Demand Forecast**](http://localhost:8400/demand/) and step

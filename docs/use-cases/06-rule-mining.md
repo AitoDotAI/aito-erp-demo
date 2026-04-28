@@ -195,6 +195,25 @@ already present in the data.
   would want an "Unpromote" path that closes the original audit
   entry rather than appending a new one.
 
+## What this demo abstracts away
+
+- **Promote → policy-export**. The demo's Promote button records an
+  audit entry but doesn't export the rule anywhere. Production wires
+  Promote into your real rules engine (Drools, ERP rule table, the
+  hardcoded `RULES` list in `po_service.py`) so the next prediction
+  call short-circuits on the promoted pattern. The audit log is the
+  source of truth; the rules engine is the runtime.
+- **Reversible un-promote with lineage**. Promotion in the demo is
+  one-way. Production un-promote needs to close the original audit
+  entry (not delete it), capture the reason, and re-emit the
+  candidate the next time mining runs.
+- **Multi-condition mining**. The demo mines single-field → field
+  patterns. Real procurement rules often look like
+  `category=security AND amount > 5000 → CFO`. Aito's `_relate`
+  supports composite `where` conditions; the search space explodes
+  combinatorially, so production wants a *seeded* miner that mines
+  combinations ranked by user-curated priors rather than blindly.
+
 ## Try it live
 
 [**Open Rule Mining**](http://localhost:8400/rules/) and Promote

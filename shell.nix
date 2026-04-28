@@ -16,6 +16,7 @@ pkgs.mkShell {
     # For PDF/screenshot generation of the product sheet
     python3
     python3Packages.weasyprint
+    typst
 
     # Static file serving during development
     nodePackages.serve

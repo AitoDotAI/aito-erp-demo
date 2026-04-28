@@ -185,6 +185,26 @@ to match the routing decisions a real run of the system would make.
   half the annualised; we report YTD because it's what the user
   actually sees. The constant is in the code.
 
+## What this demo abstracts away
+
+- **Per-tenant savings calculation**. The demo shows aggregate
+  savings. Each customer wants their own dollar figure, computed
+  with their own labor cost, their own miscoding-rate baseline,
+  their own pre-Aito ceiling. Production reads `cost_per_minute`,
+  `baseline_automation_rate`, and `miscoding_cost_eur` per tenant
+  from a config table; the math is unchanged.
+- **Real wage data integration**. The "5min/PO" labor figure is a
+  demo constant. Production pulls from the customer's HRIS or
+  finance system (average loaded buyer cost / minute). The
+  methodology footnote already discloses the assumption — production
+  needs the input live, not hardcoded.
+- **A/B comparison vs. a counterfactual**. The demo's learning
+  curve compares to itself over time. CFOs want "what would
+  automation be if Aito were turned off today?" — that requires a
+  hold-out group (rules-only, parallel-routed) and isn't
+  computable from observational history alone. Production wants
+  shadow-mode predictions on a sample to enable the comparison.
+
 ## Try it live
 
 [**Open Automation Overview**](http://localhost:8400/overview/)
