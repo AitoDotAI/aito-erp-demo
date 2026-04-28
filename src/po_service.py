@@ -57,30 +57,94 @@ class POPrediction:
 
 REVIEW_THRESHOLD = 0.50
 
-# Rules that cover deterministic patterns — checked before Aito
-RULES = [
-    {
-        "name": "Elenia → Facilities/6110",
-        "match": lambda inv: inv["supplier"] == "Elenia Oy",
-        "cost_center": "Facilities",
-        "account_code": "6110",
-        "approver": "M. Hakala",
-    },
-    {
-        "name": "Telia → IT/5510",
-        "match": lambda inv: inv["supplier"] == "Telia Finland Oyj",
-        "cost_center": "IT",
-        "account_code": "5510",
-        "approver": "J. Lehtinen",
-    },
-    {
-        "name": "Elisa → IT/5510",
-        "match": lambda inv: inv["supplier"] == "Elisa Oyj",
-        "cost_center": "IT",
-        "account_code": "5510",
-        "approver": "J. Lehtinen",
-    },
-]
+# Rules that cover deterministic patterns — checked before Aito.
+# Per-tenant: each persona's rules use suppliers from that persona's
+# DEMO_POS set and account codes from that persona's chart of accounts.
+# A real ERP-SaaS deployment would source these from a customer-specific
+# rules table; the demo hardcodes them so the rules-then-Aito hybrid
+# story has something deterministic to fall back on.
+RULES_BY_TENANT: dict[str, list[dict]] = {
+    "metsa": [
+        {
+            "name": "Elenia → Facilities/6110",
+            "match": lambda inv: inv["supplier"] == "Elenia Oy",
+            "cost_center": "Facilities",
+            "account_code": "6110",
+            "approver": "M. Hakala",
+        },
+        {
+            "name": "Telia → IT/5510",
+            "match": lambda inv: inv["supplier"] == "Telia Finland Oyj",
+            "cost_center": "IT",
+            "account_code": "5510",
+            "approver": "J. Lehtinen",
+        },
+        {
+            "name": "Elisa → IT/5510",
+            "match": lambda inv: inv["supplier"] == "Elisa Oyj",
+            "cost_center": "IT",
+            "account_code": "5510",
+            "approver": "J. Lehtinen",
+        },
+    ],
+    "aurora": [
+        {
+            "name": "Posti → Logistics/4310",
+            "match": lambda inv: inv["supplier"] == "Posti",
+            "cost_center": "Logistics",
+            "account_code": "4310",
+            "approver": "L. Korhonen",
+        },
+        {
+            "name": "Tikkurila → Household/4050",
+            "match": lambda inv: inv["supplier"] == "Tikkurila",
+            "cost_center": "Store Ops",
+            "account_code": "4050",
+            "approver": "S. Mäkelä",
+        },
+        {
+            "name": "Valio → Groceries/4010",
+            "match": lambda inv: inv["supplier"] == "Valio Oy",
+            "cost_center": "Grocery",
+            "account_code": "4010",
+            "approver": "P. Niemi",
+        },
+    ],
+    "studio": [
+        {
+            "name": "Microsoft Ireland → IT/5510",
+            "match": lambda inv: inv["supplier"] == "Microsoft Ireland",
+            "cost_center": "IT",
+            "account_code": "5510",
+            "approver": "A. Lindgren",
+        },
+        {
+            "name": "Telia → IT/5510",
+            "match": lambda inv: inv["supplier"] == "Telia Finland Oyj",
+            "cost_center": "IT",
+            "account_code": "5510",
+            "approver": "A. Lindgren",
+        },
+        {
+            "name": "Fazer Food → Office/5710",
+            "match": lambda inv: inv["supplier"] == "Fazer Food Services",
+            "cost_center": "Office",
+            "account_code": "5710",
+            "approver": "K. Saari",
+        },
+    ],
+}
+
+
+def rules_for(tenant: str | None) -> list[dict]:
+    """Return the deterministic rule set for a tenant; falls back to
+    Metsä's set when no tenant is supplied (single-tenant deployments)."""
+    return RULES_BY_TENANT.get(tenant or "metsa", RULES_BY_TENANT["metsa"])
+
+
+# Backward-compat alias — single-tenant code paths and tests keep
+# working without changes.
+RULES = RULES_BY_TENANT["metsa"]
 
 
 def _extract_why(hit: dict) -> list[dict]:
@@ -125,10 +189,19 @@ def _extract_alternatives(hits: list[dict]) -> list[dict]:
     return alts
 
 
-def predict_single(client: AitoClient, invoice: dict) -> POPrediction:
-    """Predict cost_center, account_code, and approver for a single PO."""
+def predict_single(
+    client: AitoClient,
+    invoice: dict,
+    tenant: str | None = None,
+) -> POPrediction:
+    """Predict cost_center, account_code, and approver for a single PO.
+
+    `tenant` selects which deterministic rules apply — each persona has
+    its own rule set with suppliers and account codes drawn from that
+    tenant's CoA. Falls back to Metsä's rules in single-tenant mode.
+    """
     # Check rules first
-    for rule in RULES:
+    for rule in rules_for(tenant):
         if rule["match"](invoice):
             return POPrediction(
                 purchase_id=invoice["purchase_id"],
@@ -194,9 +267,13 @@ def predict_single(client: AitoClient, invoice: dict) -> POPrediction:
     )
 
 
-def predict_batch(client: AitoClient, invoices: list[dict]) -> list[POPrediction]:
+def predict_batch(
+    client: AitoClient,
+    invoices: list[dict],
+    tenant: str | None = None,
+) -> list[POPrediction]:
     """Predict all fields for a batch of POs."""
-    return [predict_single(client, inv) for inv in invoices]
+    return [predict_single(client, inv, tenant=tenant) for inv in invoices]
 
 
 def compute_metrics(predictions: list[POPrediction]) -> dict:

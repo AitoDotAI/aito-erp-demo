@@ -148,7 +148,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
 
     def warm_po():
         def compute():
-            predictions = predict_batch(aito, demo_pos_for(tenant_id))
+            predictions = predict_batch(aito, demo_pos_for(tenant_id), tenant=tenant_id)
             return {
                 "pos": [p.to_dict() for p in predictions],
                 "metrics": compute_metrics(predictions),
@@ -380,7 +380,7 @@ def po_pending(request: Request):
     if cached and not submissions:
         return cached
 
-    demo_predictions = predict_batch(aito, demo_pos_for(tenant))
+    demo_predictions = predict_batch(aito, demo_pos_for(tenant), tenant=tenant)
 
     submitted_predictions = []
     for sub in submissions:
@@ -392,7 +392,7 @@ def po_pending(request: Request):
             "category": sub.get("category", "general"),
         }
         try:
-            pred = predict_single(aito, po_input)
+            pred = predict_single(aito, po_input, tenant=tenant)
             submitted_predictions.append(pred)
         except Exception:
             continue
