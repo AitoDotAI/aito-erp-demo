@@ -495,6 +495,47 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         return []
     products: list[dict] = []
     counter = 1000
+
+    # Map product category → set of supplier categories that fit. Lets
+    # suppliers be picked sensibly without having to align every name
+    # downstream. Categories not in the map fall through to "any
+    # supplier" — currently fine for the three personas because each
+    # one's product categories are covered by one of these keys.
+    PRODUCT_CAT_TO_SUPPLIER_CATS: dict[str, set[str]] = {
+        # Metsä product categories
+        "spare parts":           {"production", "electrical"},
+        "electrical components": {"electrical", "production"},
+        "ppe & workwear":        {"ppe"},
+        "maintenance services":  {"maintenance", "production"},
+        "fleet & fuel":          {"fuel"},
+        # Aurora product categories
+        "groceries":             {"groceries"},
+        "fashion":               {"fashion"},
+        "homeware":              {"household", "fashion"},
+        "beauty":                {"beauty", "cleaning"},
+        "electronics":           {"electronics"},
+        "household":             {"household", "cleaning"},
+        "diy":                   {"diy", "household"},
+        # Studio product categories
+        "software licenses":     {"software"},
+        "office supplies":       {"office"},
+        "catering":              {"catering"},
+    }
+
+    # Suffix policy by category. SaaS/services/groceries shouldn't get
+    # physical-quality suffixes ("HD", "Pro", "v2") — they're meaningless
+    # on a Notion seat, a yoghurt 4-pack, or "Milk 1L HD". Each
+    # category gets its own pool; physical-tooling categories keep
+    # the variety suffixes for sample-size diversity.
+    SUFFIX_POOL: dict[str, list[str]] = {
+        "software licenses":   ["", " (monthly)", " (annual)", " — Team"],
+        "maintenance services":["", " (hr)", " — site visit"],
+        "catering":            ["", " (office pack)", " — barista grade"],
+        "groceries":           ["", " 4-pack", " 6-pack", " (family pack)"],
+        "beauty":              ["", " 50ml", " 100ml", " 250ml"],
+    }
+    DEFAULT_SUFFIXES = ["", " v2", " HD", " Pro", " 10pk"]
+
     while len(products) < persona.n_products:
         counter += 1
         sku = f"SKU-{counter}"
@@ -502,7 +543,14 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         spec = persona.product_categories[cat]
         templates = persona.product_name_templates.get(cat, ["Item"])
         name = random.choice(templates)
-        suffix = random.choice(["", " v2", " HD", " Pro", " 10pk", " #" + str(random.randint(100, 999))])
+
+        suffix_pool = SUFFIX_POOL.get(cat.lower(), DEFAULT_SUFFIXES)
+        suffix = random.choice(suffix_pool)
+        # Add a random "#NNN" code on the unsuffixed default-pool path
+        # ~10% of the time — gives the same realistic-SKU-name texture
+        # the original generator had without making it the only option.
+        if suffix == "" and suffix_pool is DEFAULT_SUFFIXES and random.random() < 0.10:
+            suffix = " #" + str(random.randint(100, 999))
 
         # 5% incomplete — drives the Catalog Intelligence demo.
         incomplete = random.random() < 0.05
@@ -510,10 +558,24 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
                      "weight_kg", "account_code", "tax_class"]
         dropped = set(random.sample(droppable, random.randint(2, 4))) if incomplete else set()
 
-        # Pick a supplier that touches this category roughly.
-        sup_candidates = [s.name for s in persona.suppliers
-                          if s.category in (cat.lower(), "office") or random.random() < 0.06]
-        supplier = random.choice(sup_candidates) if sup_candidates else random.choice([s.name for s in persona.suppliers])
+        # Pick a supplier whose category fits this product category.
+        # Falls back to any office/general supplier if no category
+        # match (rare — only happens if the persona ships a product
+        # category not in PRODUCT_CAT_TO_SUPPLIER_CATS).
+        wanted_supplier_cats = PRODUCT_CAT_TO_SUPPLIER_CATS.get(cat.lower(), set())
+        if wanted_supplier_cats:
+            sup_candidates = [s.name for s in persona.suppliers
+                              if s.category in wanted_supplier_cats]
+        else:
+            sup_candidates = []
+        if not sup_candidates:
+            # 8% of the time even with a clean category match, fall
+            # through to a generic supplier — that messy-real-world
+            # signal is what Catalog Intelligence learns from.
+            sup_candidates = [s.name for s in persona.suppliers
+                              if s.category == "office"] \
+                             or [s.name for s in persona.suppliers]
+        supplier = random.choice(sup_candidates)
 
         products.append({
             "sku": sku,
