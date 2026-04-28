@@ -158,27 +158,32 @@ def predict_batch(client: AitoClient, items: list[dict]) -> list[ApprovalPredict
     return [predict_approval(client, item) for item in items]
 
 
-# Demo approval queue items — matches the HTML mock
-DEMO_APPROVAL_QUEUE = [
-    {
-        "purchase_id": "PO-7845",
-        "supplier": "Abloy Oy",
-        "amount": 6100.00,
-        "category": "security",
-        "description": "Security upgrade — door locks",
-    },
-    {
-        "purchase_id": "PO-7831",
-        "supplier": "Siemens Oy",
-        "amount": 24500.00,
-        "category": "capex",
-        "description": "PLC controller upgrade — Line 3",
-    },
-    {
-        "purchase_id": "PO-7838",
-        "supplier": "Harjula Consulting",
-        "amount": 8900.00,
-        "category": "consulting",
-        "description": "ERP integration consulting",
-    },
-]
+# Per-tenant approval queue items. Each set has one CFO-threshold row
+# (>€5K) and one board-threshold row (>€20K capex) so the predicted
+# `approval_level` and escalation reason exercise both paths.
+DEMO_APPROVAL_QUEUE_BY_TENANT: dict[str, list[dict]] = {
+    "metsa": [
+        {"purchase_id": "PO-7845", "supplier": "Abloy Oy",            "amount": 6100.00,  "category": "security",   "description": "Security upgrade — door locks"},
+        {"purchase_id": "PO-7831", "supplier": "Siemens Finland",     "amount": 24500.00, "category": "capex",      "description": "PLC controller upgrade — Line 3"},
+        {"purchase_id": "PO-7838", "supplier": "Harjula Consulting",  "amount": 8900.00,  "category": "consulting", "description": "ERP integration consulting"},
+    ],
+    "aurora": [
+        {"purchase_id": "PO-7845", "supplier": "L'Oréal Finland",     "amount": 9800.00,  "category": "beauty",     "description": "Premium fragrance launch — flagship store"},
+        {"purchase_id": "PO-7831", "supplier": "Verkkokauppa.com",    "amount": 26500.00, "category": "electronics","description": "TV restock — winter campaign"},
+        {"purchase_id": "PO-7838", "supplier": "Adobe Systems",       "amount": 7200.00,  "category": "software",   "description": "Marketing tools — campaign Q2"},
+    ],
+    "studio": [
+        {"purchase_id": "PO-7845", "supplier": "Amazon Web Services", "amount": 12800.00, "category": "software",   "description": "AWS overage — production env"},
+        {"purchase_id": "PO-7831", "supplier": "RecruitFinland",      "amount": 22500.00, "category": "recruitment","description": "Engineering team hire — 3 placements"},
+        {"purchase_id": "PO-7838", "supplier": "Eficode Training",    "amount": 8400.00,  "category": "training",   "description": "Engineering bootcamp cohort"},
+    ],
+}
+
+
+def demo_approval_queue_for(tenant: str | None) -> list[dict]:
+    return DEMO_APPROVAL_QUEUE_BY_TENANT.get(tenant or "metsa",
+                                              DEMO_APPROVAL_QUEUE_BY_TENANT["metsa"])
+
+
+# Backward-compat alias.
+DEMO_APPROVAL_QUEUE = DEMO_APPROVAL_QUEUE_BY_TENANT["metsa"]

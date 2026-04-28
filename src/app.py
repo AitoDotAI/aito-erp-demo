@@ -34,10 +34,10 @@ from src import cache
 from src.config import DEFAULT_TENANT, TENANT_IDS, TenantId, load_config
 from src.rate_limit import check_rate_limit
 
-from src.po_service import DEMO_POS, compute_metrics, predict_batch, predict_single
+from src.po_service import DEMO_POS, compute_metrics, demo_pos_for, predict_batch, predict_single
 from src import submission_store
-from src.smartentry_service import INPUT_FIELDS, KNOWN_SUPPLIERS, predict_fields
-from src.approval_service import DEMO_APPROVAL_QUEUE, predict_batch as predict_approval_batch
+from src.smartentry_service import INPUT_FIELDS, KNOWN_SUPPLIERS, known_suppliers_for, predict_fields
+from src.approval_service import DEMO_APPROVAL_QUEUE, demo_approval_queue_for, predict_batch as predict_approval_batch
 from src.anomaly_service import get_demo_anomalies
 from src.supplier_service import get_supplier_intelligence
 from src.rulemining_service import mine_rules, get_rule_summary
@@ -148,7 +148,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
 
     def warm_po():
         def compute():
-            predictions = predict_batch(aito, DEMO_POS)
+            predictions = predict_batch(aito, demo_pos_for(tenant_id))
             return {
                 "pos": [p.to_dict() for p in predictions],
                 "metrics": compute_metrics(predictions),
@@ -157,13 +157,13 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
 
     def warm_approval():
         def compute():
-            predictions = predict_approval_batch(aito, DEMO_APPROVAL_QUEUE)
+            predictions = predict_approval_batch(aito, demo_approval_queue_for(tenant_id))
             return {"approvals": [p.to_dict() for p in predictions]}
         warm_or_load("approval_queue", compute)
 
     def warm_anomalies():
         warm_or_load("anomalies_scan", lambda: {
-            "anomalies": [f.to_dict() for f in get_demo_anomalies(aito)],
+            "anomalies": [f.to_dict() for f in get_demo_anomalies(aito, tenant_id)],
         })
 
     def warm_supplier():
@@ -217,7 +217,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
             key = "smartentry:" + _json.dumps(where, sort_keys=True)
             warm_or_load(key, lambda: predict_fields(aito, where).to_dict())
         with TPE(max_workers=4) as vpool:
-            list(vpool.map(warm_supplier_entry, KNOWN_SUPPLIERS))
+            list(vpool.map(warm_supplier_entry, known_suppliers_for(tenant_id)))
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         futures = [
@@ -380,7 +380,7 @@ def po_pending(request: Request):
     if cached and not submissions:
         return cached
 
-    demo_predictions = predict_batch(aito, DEMO_POS)
+    demo_predictions = predict_batch(aito, demo_pos_for(tenant))
 
     submitted_predictions = []
     for sub in submissions:
@@ -408,8 +408,9 @@ def po_pending(request: Request):
 
 
 @app.get("/api/smartentry/suppliers")
-def smartentry_suppliers():
-    return {"suppliers": KNOWN_SUPPLIERS}
+def smartentry_suppliers(request: Request):
+    tenant, _ = client_from_request(request)
+    return {"suppliers": known_suppliers_for(tenant)}
 
 
 @app.post("/api/smartentry/predict")
@@ -466,7 +467,7 @@ def approval_queue(request: Request):
     cached = cache.get(cache_key)
     if cached:
         return cached
-    predictions = predict_approval_batch(aito, DEMO_APPROVAL_QUEUE)
+    predictions = predict_approval_batch(aito, demo_approval_queue_for(tenant))
     result = {"approvals": [p.to_dict() for p in predictions]}
     cache.set(cache_key, result)
     return result
@@ -481,7 +482,7 @@ def anomalies_scan(request: Request):
     cached = cache.get(cache_key)
     if cached:
         return cached
-    flags = get_demo_anomalies(aito)
+    flags = get_demo_anomalies(aito, tenant)
     result = {"anomalies": [f.to_dict() for f in flags]}
     cache.set(cache_key, result)
     return result

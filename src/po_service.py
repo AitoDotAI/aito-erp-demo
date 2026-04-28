@@ -219,12 +219,45 @@ def compute_metrics(predictions: list[POPrediction]) -> dict:
     }
 
 
-# Demo POs shown in the PO Queue view — matches the HTML mock
-DEMO_POS = [
-    {"purchase_id": "PO-7841", "supplier": "Elenia Oy", "description": "Electricity Q2 2025", "amount_eur": 4820.00, "category": "utilities"},
-    {"purchase_id": "PO-7842", "supplier": "Wärtsilä Components", "description": "Hydraulic seals #WS-442", "amount_eur": 1240.00, "category": "production"},
-    {"purchase_id": "PO-7843", "supplier": "Telia Finland Oyj", "description": "Mobile subscriptions May", "amount_eur": 780.00, "category": "telecom"},
-    {"purchase_id": "PO-7844", "supplier": "Berner Oy", "description": "Cleaning chemicals bulk", "amount_eur": 392.00, "category": "cleaning"},
-    {"purchase_id": "PO-7845", "supplier": "Abloy Oy", "description": "Security upgrade — door locks", "amount_eur": 6100.00, "category": "security"},
-    {"purchase_id": "PO-7846", "supplier": "Neste Oyj", "description": "Fleet fuel card top-up", "amount_eur": 2150.00, "category": "fuel"},
-]
+# Per-tenant demo POs shown in the PO Queue view. Each persona's set
+# uses suppliers that appear in that persona's `purchases` history,
+# so Aito's `_predict` call has signal to draw on. Routing in app.py
+# selects the right list via `demo_pos_for(tenant)`.
+DEMO_POS_BY_TENANT: dict[str, list[dict]] = {
+    "metsa": [
+        {"purchase_id": "PO-7841", "supplier": "Elenia Oy",            "description": "Electricity Q2 2025",          "amount_eur": 4820.00, "category": "utilities"},
+        {"purchase_id": "PO-7842", "supplier": "Wärtsilä Components",  "description": "Hydraulic seals #WS-442",       "amount_eur": 1240.00, "category": "production"},
+        {"purchase_id": "PO-7843", "supplier": "Telia Finland Oyj",    "description": "Mobile subscriptions May",       "amount_eur": 780.00,  "category": "telecom"},
+        {"purchase_id": "PO-7844", "supplier": "Berner Oy",            "description": "Cleaning chemicals bulk",        "amount_eur": 392.00,  "category": "cleaning"},
+        {"purchase_id": "PO-7845", "supplier": "Abloy Oy",             "description": "Security upgrade — door locks", "amount_eur": 6100.00, "category": "security"},
+        {"purchase_id": "PO-7846", "supplier": "Neste Oyj",            "description": "Fleet fuel card top-up",         "amount_eur": 2150.00, "category": "fuel"},
+    ],
+    "aurora": [
+        {"purchase_id": "PO-7841", "supplier": "Valio Oy",             "description": "Weekly delivery — dairy",        "amount_eur": 5200.00, "category": "groceries"},
+        {"purchase_id": "PO-7842", "supplier": "Marimekko",            "description": "SS25 collection drop",            "amount_eur": 12400.00, "category": "fashion"},
+        {"purchase_id": "PO-7843", "supplier": "L'Oréal Finland",      "description": "Skincare restock — Helsinki",    "amount_eur": 4800.00, "category": "beauty"},
+        {"purchase_id": "PO-7844", "supplier": "Berner Beauty",        "description": "Cosmetics restock — Tampere",    "amount_eur": 1850.00, "category": "beauty"},
+        {"purchase_id": "PO-7845", "supplier": "Posti",                "description": "Pallet shipping — week 17",      "amount_eur": 8200.00, "category": "logistics"},
+        {"purchase_id": "PO-7846", "supplier": "Tikkurila",            "description": "Paint batch — interior",         "amount_eur": 2100.00, "category": "household"},
+    ],
+    "studio": [
+        {"purchase_id": "PO-7841", "supplier": "Amazon Web Services",  "description": "AWS monthly bill",                "amount_eur": 8400.00, "category": "software"},
+        {"purchase_id": "PO-7842", "supplier": "Adobe Systems",        "description": "Adobe CC team licenses",          "amount_eur": 1640.00, "category": "software"},
+        {"purchase_id": "PO-7843", "supplier": "Telia Finland Oyj",    "description": "Mobile subscriptions May",        "amount_eur": 720.00,  "category": "telecom"},
+        {"purchase_id": "PO-7844", "supplier": "Fazer Food Services",  "description": "Office lunch catering",           "amount_eur": 1280.00, "category": "catering"},
+        {"purchase_id": "PO-7845", "supplier": "RecruitFinland",       "description": "Senior engineer placement",       "amount_eur": 8900.00, "category": "recruitment"},
+        {"purchase_id": "PO-7846", "supplier": "Microsoft Ireland",    "description": "Microsoft 365 seats Q2",          "amount_eur": 3850.00, "category": "software"},
+    ],
+}
+
+
+def demo_pos_for(tenant: str | None) -> list[dict]:
+    """Return the demo PO set for a tenant; falls back to Metsä's set
+    when an unknown tenant is supplied (keeps single-tenant deployments
+    rendering correctly)."""
+    return DEMO_POS_BY_TENANT.get(tenant or "metsa", DEMO_POS_BY_TENANT["metsa"])
+
+
+# Backward-compat alias — single-tenant code paths and tests keep
+# working without changes.
+DEMO_POS = DEMO_POS_BY_TENANT["metsa"]

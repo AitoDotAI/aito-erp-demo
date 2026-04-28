@@ -52,18 +52,14 @@ def _classify_severity(score: int) -> str:
         return "low"
 
 
-def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag:
+def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag | None:
     """Evaluate a single transaction for anomalies.
 
-    Calls Aito _evaluate with the supplier + account_code combination
-    to get the probability of that pairing in historical data.
-
-    Args:
-        client: Aito API client.
-        transaction: Dict with keys matching DEMO_ANOMALIES structure.
-
-    Returns:
-        AnomalyFlag with anomaly score and severity classification.
+    Returns `None` when there isn't enough signal to score honestly —
+    e.g. the supplier has no purchase history at all on the active
+    tenant. Without this guard, a missing history collapses to
+    `p_actual = 0` and every anomaly inflates to score 100,
+    giving the demo a misleading "everything is broken" first look.
     """
     # Inverse prediction. The scoring approach depends on which field is
     # flagged — different anomaly types call for different probability bases.
@@ -71,31 +67,35 @@ def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag:
     where = {"supplier": transaction["supplier"]}
 
     if flagged_field == "supplier":
-        # Unknown supplier: search history for any prior PO from this supplier.
+        # Unknown-vendor anomaly: "no prior PO from this supplier" IS
+        # the signal. Empty history → high anomaly score is correct.
         result = client.search("purchases", {"supplier": transaction["supplier"]}, limit=1)
         hits = result.get("hits", [])
-        # No prior history at all → very high anomaly. Some history → moderate.
         p = 0.02 if not hits else 0.15
     elif flagged_field == "amount":
-        # Amount anomaly: typical Neste range is €2-3K. Score by deviation.
-        # We approximate by querying typical amounts for this supplier and
-        # comparing to the actual.
+        # Amount anomaly: ratio against the supplier's average requires
+        # at least some prior orders. Without history the score is
+        # meaningless — drop the row instead of fabricating one.
         actual_amount = transaction.get("amount", 0)
         result = client.search("purchases", {"supplier": transaction["supplier"]}, limit=50)
         hits = result.get("hits", [])
-        if hits:
-            amounts = [h.get("amount_eur", 0) for h in hits]
-            avg = sum(amounts) / len(amounts) if amounts else 1
-            ratio = actual_amount / avg if avg > 0 else 1
-            # 4x → ~p=0.06, 2x → p=0.18, 1x → p=0.6
-            p = max(0.04, min(0.60, 0.60 / (ratio if ratio > 0 else 1)))
-        else:
-            p = 0.10
+        if not hits:
+            return None
+        amounts = [h.get("amount_eur", 0) for h in hits]
+        avg = sum(amounts) / len(amounts) if amounts else 1
+        ratio = actual_amount / avg if avg > 0 else 1
+        # 4x → ~p=0.06, 2x → p=0.18, 1x → p=0.6
+        p = max(0.04, min(0.60, 0.60 / (ratio if ratio > 0 else 1)))
     else:
-        # account_code or other categorical field — inverse prediction.
+        # account_code (or other categorical) anomaly: needs a
+        # prediction distribution to compare against. Empty hits =
+        # supplier doesn't exist in this tenant's `purchases` (or the
+        # table is missing). Drop the row to avoid fake 100% scores.
         result = client.predict("purchases", where, flagged_field)
         hits = result.get("hits", [])
-        actual_value = transaction.get(flagged_field, transaction["account_code"])
+        if not hits:
+            return None
+        actual_value = transaction.get(flagged_field, transaction.get("account_code"))
         p = 0.0
         found = False
         for hit in hits:
@@ -103,7 +103,8 @@ def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag:
                 p = hit.get("$p", 0.0)
                 found = True
                 break
-        if not found and hits:
+        if not found:
+            # The actual value isn't even in the top hits → tail mass.
             top_mass = sum(h.get("$p", 0.0) for h in hits[:5])
             residual = max(0.0, 1.0 - top_mass)
             p = residual * 0.05
@@ -126,48 +127,48 @@ def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag:
 def detect_anomalies(client: AitoClient, transactions: list[dict]) -> list[AnomalyFlag]:
     """Evaluate a batch of transactions for anomalies.
 
-    Returns results sorted by anomaly score (highest first).
+    Drops transactions that returned `None` from `evaluate_transaction`
+    (no historical signal to score against). Returns the remainder
+    sorted by anomaly score, highest first.
     """
     flags = [evaluate_transaction(client, t) for t in transactions]
+    flags = [f for f in flags if f is not None]
     flags.sort(key=lambda f: f.anomaly_score, reverse=True)
     return flags
 
 
-def get_demo_anomalies(client: AitoClient) -> list[AnomalyFlag]:
-    """Run anomaly detection on the demo transactions."""
-    return detect_anomalies(client, DEMO_ANOMALIES)
+def get_demo_anomalies(client: AitoClient, tenant: str | None = None) -> list[AnomalyFlag]:
+    """Run anomaly detection on the demo transactions for a tenant."""
+    return detect_anomalies(client, demo_anomalies_for(tenant))
 
 
-# Demo anomalies — matches the HTML mock
-DEMO_ANOMALIES = [
-    {
-        "purchase_id": "PO-7812",
-        "supplier": "Fazer Food Services",
-        "amount": 1450.00,
-        "account_code": "4220",
-        "flagged_field": "account_code",
-        "expected_value": "5710",
-        "actual_value": "4220",
-        "explanation": "Fazer is a food supplier — account 4220 (office supplies) is unusual, expected 5710 (catering)",
-    },
-    {
-        "purchase_id": "PO-7799",
-        "supplier": "Harjula Consulting",
-        "amount": 3200.00,
-        "account_code": "7100",
-        "flagged_field": "supplier",
-        "expected_value": "Known vendor",
-        "actual_value": "Unknown vendor",
-        "explanation": "Harjula Consulting is not in the approved vendor list — new supplier with no purchase history",
-    },
-    {
-        "purchase_id": "PO-7827",
-        "supplier": "Neste Oyj",
-        "amount": 9800.00,
-        "account_code": "6210",
-        "flagged_field": "amount",
-        "expected_value": "~€2,400 avg",
-        "actual_value": "€9,800",
-        "explanation": "Amount is approximately 4x the average for Neste Oyj fuel purchases",
-    },
-]
+# Per-tenant anomaly seed rows. Each persona's set covers the three
+# canonical anomaly types: mis-coded account, unknown vendor, and
+# amount spike. The suppliers used in each set exist in that
+# persona's `purchases` history, so the inverse-prediction has signal.
+DEMO_ANOMALIES_BY_TENANT: dict[str, list[dict]] = {
+    "metsa": [
+        {"purchase_id": "PO-7812", "supplier": "Fazer Food Services",  "amount": 1450.00, "account_code": "4220", "flagged_field": "account_code", "expected_value": "5710",        "actual_value": "4220",   "explanation": "Fazer is a food supplier — account 4220 (production parts) is unusual, expected 5710 (catering)"},
+        {"purchase_id": "PO-7799", "supplier": "Harjula Consulting",   "amount": 3200.00, "account_code": "7100", "flagged_field": "supplier",     "expected_value": "Known vendor","actual_value": "Unknown vendor","explanation": "Harjula Consulting is not in the approved vendor list — new supplier with no purchase history"},
+        {"purchase_id": "PO-7827", "supplier": "Neste Oyj",            "amount": 9800.00, "account_code": "4310", "flagged_field": "amount",       "expected_value": "~€2,400 avg","actual_value": "€9,800",      "explanation": "Amount is approximately 4× the average for Neste Oyj fuel purchases"},
+    ],
+    "aurora": [
+        {"purchase_id": "PO-7812", "supplier": "Valio Oy",             "amount": 4800.00, "account_code": "4030", "flagged_field": "account_code", "expected_value": "4010",        "actual_value": "4030",   "explanation": "Valio is a grocery supplier — account 4030 (fashion) is unusual, expected 4010 (groceries)"},
+        {"purchase_id": "PO-7799", "supplier": "Bauhaus",              "amount": 2200.00, "account_code": "4060", "flagged_field": "supplier",     "expected_value": "Known vendor","actual_value": "Unknown vendor","explanation": "Bauhaus is not yet a registered vendor in Aurora's master list — first PO"},
+        {"purchase_id": "PO-7827", "supplier": "Posti",                "amount": 18400.00,"account_code": "4310", "flagged_field": "amount",       "expected_value": "~€7,500 avg","actual_value": "€18,400",     "explanation": "Amount is approximately 2.5× the average for Posti shipping invoices"},
+    ],
+    "studio": [
+        {"purchase_id": "PO-7812", "supplier": "Adobe Systems",        "amount": 2400.00, "account_code": "6810", "flagged_field": "account_code", "expected_value": "5530",        "actual_value": "6810",   "explanation": "Adobe is a software vendor — account 6810 (office supplies) is unusual, expected 5530 (design software)"},
+        {"purchase_id": "PO-7799", "supplier": "LinkedIn Talent",      "amount": 4200.00, "account_code": "5750", "flagged_field": "supplier",     "expected_value": "Known vendor","actual_value": "Unknown vendor","explanation": "LinkedIn Talent appears as a new supplier — no prior placements on file"},
+        {"purchase_id": "PO-7827", "supplier": "Amazon Web Services",  "amount": 32000.00,"account_code": "5512", "flagged_field": "amount",       "expected_value": "~€8,800 avg","actual_value": "€32,000",     "explanation": "Amount is approximately 3.6× the average for AWS monthly invoices"},
+    ],
+}
+
+
+def demo_anomalies_for(tenant: str | None) -> list[dict]:
+    return DEMO_ANOMALIES_BY_TENANT.get(tenant or "metsa",
+                                         DEMO_ANOMALIES_BY_TENANT["metsa"])
+
+
+# Backward-compat alias.
+DEMO_ANOMALIES = DEMO_ANOMALIES_BY_TENANT["metsa"]

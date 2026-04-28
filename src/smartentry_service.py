@@ -14,13 +14,41 @@ from typing import Any
 from src.aito_client import AitoClient
 
 
-KNOWN_SUPPLIERS = [
-    "Lindström Oy",
-    "Caverion Suomi",
-    "Elisa Oyj",
-    "Fazer Food Services",
-    "Neste Oyj",
-]
+# Suppliers offered in the Smart Entry dropdown, per tenant. Each
+# list is curated to suppliers that exist in that persona's purchase
+# history so the multi-field `_predict` has signal to draw from.
+KNOWN_SUPPLIERS_BY_TENANT: dict[str, list[str]] = {
+    "metsa": [
+        "Lindström Oy",
+        "Caverion Suomi",
+        "Wärtsilä Components",
+        "Berner Oy",
+        "Neste Oyj",
+    ],
+    "aurora": [
+        "Valio Oy",
+        "Marimekko",
+        "L'Oréal Finland",
+        "Posti",
+        "Tikkurila",
+    ],
+    "studio": [
+        "Adobe Systems",
+        "Amazon Web Services",
+        "Microsoft Ireland",
+        "Figma Inc.",
+        "Slack Technologies",
+    ],
+}
+
+
+def known_suppliers_for(tenant: str | None) -> list[str]:
+    return KNOWN_SUPPLIERS_BY_TENANT.get(tenant or "metsa",
+                                          KNOWN_SUPPLIERS_BY_TENANT["metsa"])
+
+
+# Backward-compat alias.
+KNOWN_SUPPLIERS = KNOWN_SUPPLIERS_BY_TENANT["metsa"]
 
 # Fields that can be provided as input context
 INPUT_FIELDS = {"supplier", "category", "description", "cost_center", "account_code"}
