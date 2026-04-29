@@ -15,6 +15,7 @@ import type {
 
 const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_search + _predict",
+  endpoints: ["_search", "_predict"],
   stats: [
     { label: "Tables", value: "assignments + projects" },
     { label: "Target", value: "role / allocation_pct" },
@@ -101,6 +102,7 @@ export default function UtilizationPage() {
     }
     setPanel({
       operation: "_predict",
+      endpoints: ["_predict"],
       stats: [
         { label: "Person", value: selected.person },
         { label: "Current load", value: `${selected.current_allocation_pct}%` },

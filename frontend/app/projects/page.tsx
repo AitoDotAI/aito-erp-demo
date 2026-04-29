@@ -17,6 +17,7 @@ import type {
 
 const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_predict + _relate",
+  endpoints: ["_predict", "_relate"],
   stats: [
     { label: "Tables", value: "projects" },
     { label: "Target", value: "success" },
@@ -98,6 +99,7 @@ export default function ProjectsPage() {
     setSelected(p.project_id);
     setPanel({
       operation: "_predict",
+      endpoints: ["_predict"],
       stats: [
         { label: "P(success)", value: pct(p.success_p) },
         { label: "Team", value: String(p.team_size) },
@@ -130,6 +132,7 @@ export default function ProjectsPage() {
   const handleStaffingClick = (f: StaffingFactor) => {
     setPanel({
       operation: "_relate",
+      endpoints: ["_relate"],
       stats: [
         { label: "Person", value: f.person },
         { label: "Lift", value: `× ${f.lift.toFixed(2)}` },

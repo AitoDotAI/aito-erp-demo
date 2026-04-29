@@ -11,6 +11,7 @@ import type { ApprovalResponse, ApprovalPrediction, AitoPanelConfig } from "@/li
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_predict",
+  endpoints: ["_predict"],
   stats: [
     { label: "Auto-routed", value: "71%" },
     { label: "Escalations", value: "6" },
@@ -84,6 +85,7 @@ export default function ApprovalPage() {
     setSelected(item.purchase_id);
     setPanel({
       operation: "_predict",
+      endpoints: ["_predict"],
       stats: [
         { label: "Confidence", value: `${Math.round(item.confidence * 100)}%` },
         { label: "Level", value: item.predicted_level },

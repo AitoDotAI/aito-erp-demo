@@ -53,6 +53,7 @@ export default function SupplierPage() {
     setSelectedRisk(null);
     setPanel({
       operation: "_relate",
+      endpoints: ["_relate"],
       stats: [
         { label: "Spend", value: fmtAmount(item.total_amount) },
         { label: "POs", value: `${item.po_count}` },
@@ -81,6 +82,7 @@ export default function SupplierPage() {
     setSelectedSpend(null);
     setPanel({
       operation: "_relate",
+      endpoints: ["_relate"],
       stats: [
         { label: "Supplier", value: item.supplier },
         { label: "Lift", value: `${item.lift.toFixed(1)}x` },

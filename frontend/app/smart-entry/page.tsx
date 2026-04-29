@@ -54,6 +54,7 @@ const emptyField: FieldState = { value: "", source: "empty", confidence: 0 };
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_predict (multi-field)",
+  endpoints: ["_predict"],
   stats: [
     { label: "Fields", value: "4" },
     { label: "Avg latency", value: "18ms" },

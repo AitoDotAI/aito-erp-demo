@@ -10,6 +10,7 @@ import type { PricingResponse, PricingProduct, PriceEstimate, QuoteScore, AitoPa
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_estimate",
+  endpoints: ["_search"],
   stats: [
     { label: "Quotes/mo", value: "38" },
     { label: "Flagged", value: "4" },

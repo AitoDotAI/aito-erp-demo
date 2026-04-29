@@ -16,6 +16,7 @@ import type {
 
 const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_search + _match",
+  endpoints: ["_search", "_match"],
   stats: [
     { label: "Tables", value: "products + orders" },
     { label: "Pattern", value: "co-occurrence" },

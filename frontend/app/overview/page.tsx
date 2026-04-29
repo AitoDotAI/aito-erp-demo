@@ -10,6 +10,7 @@ import type { OverviewMetrics, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
   operation: "automation overview",
+  endpoints: ["_search"],
   stats: [
     { label: "Rules", value: "—" },
     { label: "aito..", value: "—" },

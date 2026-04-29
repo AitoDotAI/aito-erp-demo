@@ -10,6 +10,7 @@ import type { DemandResponse, DemandForecast, AitoPanelConfig } from "@/lib/type
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_estimate",
+  endpoints: ["_predict", "_search"],
   stats: [
     { label: "Tracked", value: "—" },
     { label: "Accuracy", value: "—" },
@@ -60,6 +61,7 @@ export default function DemandPage() {
     setSelected(idx);
     setPanel({
       operation: "_estimate",
+      endpoints: ["_predict", "_search"],
       stats: [
         { label: "Forecast", value: String(f.forecast) },
         { label: "Baseline", value: String(f.baseline) },

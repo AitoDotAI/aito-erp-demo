@@ -65,6 +65,7 @@ export default function AnomaliesPage() {
     setSelected(item.purchase_id);
     setPanel({
       operation: "_evaluate",
+      endpoints: ["_evaluate"],
       stats: [
         { label: "Score", value: `${item.anomaly_score}` },
         { label: "Flagged field", value: item.flagged_field },

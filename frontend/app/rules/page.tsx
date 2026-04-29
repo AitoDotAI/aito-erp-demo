@@ -10,6 +10,7 @@ import type { RulesResponse, RuleCandidate, AitoPanelConfig } from "@/lib/types"
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_relate",
+  endpoints: ["_relate"],
   stats: [
     { label: "Candidates", value: "12" },
     { label: "Strong", value: "4" },
@@ -71,6 +72,7 @@ export default function RulesPage() {
     const coverage = rule.support_total > 0 ? rule.support_match / rule.support_total : 0;
     setPanel({
       operation: "_relate",
+      endpoints: ["_relate"],
       stats: [
         { label: "Support", value: `${rule.support_match}/${rule.support_total}` },
         { label: "Lift", value: `${rule.lift.toFixed(1)}x` },

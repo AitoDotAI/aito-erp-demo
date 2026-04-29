@@ -63,6 +63,7 @@ export default function POQueuePage() {
     setSelected(order.purchase_id);
     setPanel({
       operation: "_predict",
+      endpoints: ["_predict"],
       stats: [
         { label: "Confidence", value: `${Math.round(order.confidence * 100)}%` },
         { label: "Cost center", value: order.cost_center ?? "—" },

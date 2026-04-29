@@ -78,6 +78,7 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
   const c = CONTEXT[tenant];
   return {
     operation: "_predict",
+    endpoints: ["_predict"],
     stats: [
       { label: "Avg latency", value: "12ms" },
       { label: "Predict fields", value: "3" },
@@ -113,6 +114,7 @@ export function supplierPanel(tenant: TenantId): AitoPanelConfig {
   const c = CONTEXT[tenant];
   return {
     operation: "_relate",
+    endpoints: ["_relate"],
     stats: [
       { label: "Patterns", value: "spend × delivery" },
       { label: "Discovery", value: "lift threshold" },
@@ -144,6 +146,7 @@ export function anomaliesPanel(tenant: TenantId): AitoPanelConfig {
   const c = CONTEXT[tenant];
   return {
     operation: "_predict (inverse)",
+    endpoints: ["_predict"],
     stats: [
       { label: "Patterns", value: "amount × code × CC" },
       { label: "Method", value: "low p = anomaly" },

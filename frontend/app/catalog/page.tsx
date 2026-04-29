@@ -10,6 +10,7 @@ import type { CatalogResponse, IncompleteProduct, AitoPanelConfig } from "@/lib/
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_predict",
+  endpoints: ["_predict"],
   stats: [
     { label: "Incomplete", value: "12" },
     { label: "Predictable", value: "9" },
@@ -111,6 +112,7 @@ export default function CatalogPage() {
     setPredictedFields(null);
     setPanel({
       operation: "_predict",
+      endpoints: ["_predict"],
       stats: [
         { label: "Missing", value: String(p.missing_count) },
         { label: "Completeness", value: `${Math.round(p.completeness * 100)}%` },

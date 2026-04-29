@@ -10,6 +10,7 @@ import type { InventoryResponse, InventoryItem, AitoPanelConfig } from "@/lib/ty
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_estimate + _relate",
+  endpoints: ["_predict", "_relate", "_search"],
   stats: [
     { label: "Critical", value: "—" },
     { label: "Low", value: "—" },
@@ -109,6 +110,7 @@ export default function InventoryPage() {
       : "";
     setPanel({
       operation: "_estimate",
+      endpoints: ["_predict", "_search"],
       stats: [
         { label: "In stock", value: String(item.stock_on_hand) },
         { label: "Daily demand", value: String(item.daily_demand) },
