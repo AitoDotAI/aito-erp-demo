@@ -24,7 +24,9 @@ interface NavSection {
  *   - Section headers with emoji + uppercase label
  *   - Active item: orange accent (--aito-accent) on left border + text
  *   - Collapsible to 56px (just keeps emojis + initial letters)
- *   - "Try Aito" CTA at the bottom (the Aito-demo signup)
+ *   - The "Try Aito" CTA lives in the right-rail AitoPanel — see
+ *     aito-demo/src/app/components/ContextPanel.{js,css} for the
+ *     pattern this mirrors.
  */
 const SECTIONS: NavSection[] = [
   {
@@ -177,24 +179,8 @@ export default function Nav() {
         </nav>
       </div>
 
-      <div className="NavBar__signupCTA">
-        <a
-          href="https://aito.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="NavBar__signupLink"
-          title="Try Aito"
-        >
-          {collapsed ? (
-            <span aria-hidden="true">→</span>
-          ) : (
-            <>
-              <span className="NavBar__signupText">Try Aito</span>
-              <span className="NavBar__signupArrow" aria-hidden="true">→</span>
-            </>
-          )}
-        </a>
-      </div>
+      {/* "Try Aito" CTA used to live here; moved to the right-rail
+          AitoPanel to match aito-demo's ContextPanel placement. */}
     </aside>
   );
 }

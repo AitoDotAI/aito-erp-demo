@@ -707,8 +707,9 @@ body {
 }
 
 .aito-side-stats {
+  /* 4-column stat row to match aito-demo's ContextPanel exactly. */
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   margin-top: 10px;
   padding: 10px 4px 6px;
@@ -742,6 +743,91 @@ body {
   overflow-y: auto;
   padding: 16px 18px;
   background-color: rgba(12, 15, 65, 0.88);
+}
+
+/* ─── ENDPOINT PILLS ─── */
+/* Mirrors ContextPanel__badge / ContextPanel__endpoints — purple-
+   tinted code-style pills naming the Aito endpoints used on this page. */
+.aito-endpoints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.aito-endpoint-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  color: var(--aito-purple);
+  background-color: rgba(155, 105, 255, 0.15);
+  border: 1px solid rgba(155, 105, 255, 0.3);
+  border-radius: 3px;
+}
+
+/* ─── LINK ROWS ─── */
+.aito-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aito-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+  color: var(--aito-text);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.aito-link:hover { color: var(--aito-teal); }
+
+.aito-link-icon {
+  width: 14px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  flex-shrink: 0;
+}
+
+.aito-link:hover .aito-link-icon { color: var(--aito-teal); }
+
+/* ─── BOTTOM CTA ─── */
+/* The "Try Aito → Start free trial" call-to-action. Lives at the
+   bottom of the right-rail panel, next to the per-page query. Same
+   placement as aito-demo's ContextPanel__cta. */
+.aito-side-cta {
+  padding: 14px 18px;
+  border-top: 1px solid rgba(93, 80, 255, 0.2);
+  background-color: rgba(12, 15, 65, 0.92);
+  flex-shrink: 0;
+}
+
+.aito-side-cta-link,
+.aito-side-cta-link:visited {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background-color: var(--aito-teal);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.aito-side-cta-link:hover {
+  background-color: #0fa39b;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 12px rgba(18, 181, 173, 0.4);
 }
 
 /* ─── AITO QUERY BLOCK ─── */
@@ -853,7 +939,8 @@ body {
 }
 
 .aito-side.collapsed .aito-side-header,
-.aito-side.collapsed .aito-side-body {
+.aito-side.collapsed .aito-side-body,
+.aito-side.collapsed .aito-side-cta {
   display: none;
 }
 

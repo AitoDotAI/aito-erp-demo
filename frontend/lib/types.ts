@@ -437,7 +437,10 @@ export interface AitoPanelConfig {
   stats?: Array<{ label: string; value: string }>;
   description: string;
   query: string;
-  links?: Array<{ label: string; url: string }>;
+  links?: Array<{ label: string; url: string; kind?: "doc" | "github" | "external" }>;
+  /** Aito endpoints used on this page — rendered as purple-tinted pills,
+   * matches aito-demo's ContextPanel. */
+  endpoints?: string[];
 }
 
 /* ─── Shared ─── */
