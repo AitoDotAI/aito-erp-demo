@@ -46,6 +46,7 @@ Commands:
                   Views: po-queue smart-entry approval anomalies supplier
                          rules catalog pricing demand inventory overview
   product-sheet   Compile docs/product-sheet/product-sheet.typ → PDF
+  teaser          Render assets/teaser.html → assets/teaser.png (for README)
 
 EOF
 }
@@ -408,6 +409,39 @@ cmd_product_sheet() {
   echo "  ✓ docs/product-sheet/product-sheet.pdf"
 }
 
+cmd_teaser() {
+  # Render assets/teaser.html → assets/teaser.png via headless chromium.
+  # Uses chromium's --screenshot flag directly (rather than Playwright)
+  # because the Playwright-managed launch path is unreliable in this
+  # environment under --no-sandbox. A transient python http.server is
+  # used so the HTML's relative ../screenshots/... paths resolve as
+  # http URLs (chromium denies cross-dir subresources from file://).
+  local chrome
+  chrome=$(_find_chrome)
+  if [[ -z "$chrome" ]]; then
+    echo "Error: chromium not found. Install chromium or set PLAYWRIGHT_BROWSERS_PATH." >&2
+    exit 1
+  fi
+  cd "$SCRIPT_DIR"
+
+  python3 -m http.server 8765 --bind 127.0.0.1 --directory "$SCRIPT_DIR" \
+    > /tmp/teaser_http.log 2>&1 &
+  local http_pid=$!
+  trap "kill $http_pid 2>/dev/null" EXIT
+  sleep 1
+
+  "$chrome" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --hide-scrollbars \
+    --window-size=1500,1900 \
+    --force-device-scale-factor=2 \
+    --screenshot="$SCRIPT_DIR/assets/teaser.png" \
+    "http://127.0.0.1:8765/assets/teaser.html" 2>&1 | tail -2
+
+  kill $http_pid 2>/dev/null
+  trap - EXIT
+  echo "  ✓ assets/teaser.png"
+}
+
 case "${1:-help}" in
   help)            cmd_help ;;
   dev)             cmd_dev ;;
@@ -432,6 +466,7 @@ case "${1:-help}" in
   lint)            cmd_lint ;;
   screenshot)      cmd_screenshot "$@" ;;
   product-sheet)   cmd_product_sheet ;;
+  teaser)          cmd_teaser ;;
   *)
     echo "Unknown command: $1" >&2
     cmd_help

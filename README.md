@@ -22,6 +22,8 @@ Aito DB, swap profiles in the TopBar.
 [![Tests](https://img.shields.io/badge/tests-39%20passing-brightgreen)](tests/)
 [![Records](https://img.shields.io/badge/records-48%2C000+-blue)](data/)
 
+[![14 use cases. One predictive database.](assets/teaser.png)](assets/teaser.html)
+
 ---
 
 ## Try it now

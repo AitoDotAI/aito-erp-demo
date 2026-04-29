@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aito Predictive ERP — 14 use cases</title>
+<style>
+  /* ── Tokens (project design system) ───────────────────────────── */
+  :root {
+    --nav-bg:    #0c0f0a;
+    --aito-bg:   #0c0f41;
+    --aito-bg2:  #16194d;
+    --teal:      #12B5AD;
+    --purple:    #9B69FF;
+    --orange:    #ff5a1f;
+    --gold:      #d4a030;
+    --gold-soft: #f5e9c8;
+    --gold-deep: #6b4f0e;
+    --text:      #1b2236;
+    --muted:     #5a6378;
+    --line:      #e3e6ee;
+    --bg-sub:    #f8f6f0;
+  }
+
+  @import url("https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap");
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+    background: var(--aito-bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    width: 1400px;
+    margin: 0 auto;
+    padding: 56px 64px 64px;
+    background: linear-gradient(180deg, #0c0f41 0%, #0a0d36 100%);
+  }
+
+  /* ── Header ───────────────────────────────────────────────────── */
+  .hdr {
+    text-align: center;
+    margin-bottom: 40px;
+    color: #fff;
+  }
+  .hdr .eyebrow {
+    font-family: "DM Mono", monospace;
+    font-size: 13px;
+    letter-spacing: 2.5px;
+    color: var(--teal);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .hdr h1 {
+    font-family: "DM Serif Display", Georgia, serif;
+    font-size: 50px;
+    font-weight: 400;
+    margin: 0 0 14px;
+    letter-spacing: -0.5px;
+  }
+  .hdr h1 .accent { color: var(--gold); font-style: italic; }
+  .hdr p {
+    font-size: 16px;
+    color: rgba(255,255,255,0.72);
+    max-width: 720px;
+    margin: 0 auto;
+    line-height: 1.55;
+  }
+
+  /* ── Category grid (2x2) ──────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .cat {
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 28px;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.18);
+  }
+
+  .cat-hdr {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 6px;
+  }
+  .cat-hdr .icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--gold-soft);
+    color: var(--gold-deep);
+    font-size: 22px;
+  }
+  .cat-hdr .icon.teal   { background: rgba(18,181,173,0.14); color: var(--teal);  }
+  .cat-hdr .icon.purple { background: rgba(155,105,255,0.14); color: var(--purple); }
+  .cat-hdr .icon.orange { background: rgba(255,90,31,0.14);   color: var(--orange); }
+  .cat-hdr h2 {
+    font-family: "DM Serif Display", Georgia, serif;
+    font-size: 22px;
+    font-weight: 400;
+    margin: 0;
+  }
+  .cat-tag {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 0 0 22px 58px;
+  }
+
+  /* ── Use-case cards (2x2 inside each category) ───────────────── */
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+  }
+  .card .thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: var(--bg-sub) center/cover no-repeat;
+    border-bottom: 1px solid var(--line);
+  }
+  .card .body {
+    padding: 12px 14px 14px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    color: var(--text);
+    letter-spacing: -0.1px;
+  }
+  .card p {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.45;
+    margin: 0 0 10px;
+    flex: 1;
+  }
+  .card .link {
+    font-family: "DM Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 1.4px;
+    color: var(--orange);
+    text-transform: uppercase;
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  /* ── Foot ─────────────────────────────────────────────────────── */
+  .foot {
+    text-align: center;
+    margin-top: 40px;
+    color: rgba(255,255,255,0.6);
+    font-size: 13px;
+    font-family: "DM Mono", monospace;
+    letter-spacing: 1.5px;
+  }
+  .foot a { color: var(--teal); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hdr">
+    <div class="eyebrow">Aito.ai · ERP that learns from your transactions</div>
+    <h1>14 use cases. <span class="accent">One predictive database.</span></h1>
+    <p>
+      Procurement, intelligence, products, services — every view in this open-source
+      reference is built on Aito's <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_predict</code>,
+      <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_relate</code>,
+      <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_evaluate</code>,
+      <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_search</code>, and
+      <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_match</code>
+      operators. No model training. No retraining schedule. Three industry profiles in one demo.
+    </p>
+  </header>
+
+  <main class="grid">
+
+    <!-- 1. Procurement ─────────────────────────────────────────── -->
+    <section class="cat">
+      <div class="cat-hdr">
+        <div class="icon">📋</div>
+        <h2>Procurement</h2>
+      </div>
+      <p class="cat-tag">Predict the routine that ate your AP team's morning.</p>
+      <div class="cards">
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/01-po-queue.png')"></div>
+          <div class="body">
+            <h3>PO Queue</h3>
+            <p>Cost center, account code, approver predicted from supplier + description.</p>
+            <a class="link" href="../docs/use-cases/01-po-queue.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/02-smart-entry.png')"></div>
+          <div class="body">
+            <h3>Smart Entry</h3>
+            <p>Pick a supplier; four fields fill in parallel with per-field confidence.</p>
+            <a class="link" href="../docs/use-cases/02-smart-entry.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/03-approval.png')"></div>
+          <div class="body">
+            <h3>Approval Routing</h3>
+            <p>Predicted approval level + escalation banner; rule + Aito hybrid.</p>
+            <a class="link" href="../docs/use-cases/03-approval-routing.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/14-overview.png')"></div>
+          <div class="body">
+            <h3>Automation Overview</h3>
+            <p>Real learning curve from <code style="font-family:DM Mono,monospace;font-size:11.5px">routed_by × order_month</code>.</p>
+            <a class="link" href="../docs/use-cases/11-automation-overview.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 2. Intelligence ────────────────────────────────────────── -->
+    <section class="cat">
+      <div class="cat-hdr">
+        <div class="icon teal">⚠️</div>
+        <h2>Intelligence</h2>
+      </div>
+      <p class="cat-tag">Anomalies, supplier risk, pattern discovery — surfaced, not coded.</p>
+      <div class="cards">
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/04-anomalies.png')"></div>
+          <div class="body">
+            <h3>Anomaly Detection</h3>
+            <p>Inverse <code style="font-family:DM Mono,monospace;font-size:11.5px">_predict</code>: low <code style="font-family:DM Mono,monospace;font-size:11.5px">p_actual</code> = unusual combination.</p>
+            <a class="link" href="../docs/use-cases/04-anomaly-detection.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/05-supplier.png')"></div>
+          <div class="body">
+            <h3>Supplier Intel</h3>
+            <p>Spend leaderboard plus delivery-risk discovery via <code style="font-family:DM Mono,monospace;font-size:11.5px">_relate</code>.</p>
+            <a class="link" href="../docs/use-cases/05-supplier-intel.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/06-rules.png')"></div>
+          <div class="body">
+            <h3>Rule Mining</h3>
+            <p>High-lift patterns ranked for governance promote/dismiss.</p>
+            <a class="link" href="../docs/use-cases/06-rule-mining.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/13-recommendations.png')"></div>
+          <div class="body">
+            <h3>Recommendations</h3>
+            <p>Cross-sell + similar-product retrieval (<code style="font-family:DM Mono,monospace;font-size:11.5px">_search</code> + <code style="font-family:DM Mono,monospace;font-size:11.5px">_match</code>).</p>
+            <a class="link" href="../docs/use-cases/14-recommendations.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 3. Product & Pricing ───────────────────────────────────── -->
+    <section class="cat">
+      <div class="cat-hdr">
+        <div class="icon orange">📦</div>
+        <h2>Product &amp; Pricing</h2>
+      </div>
+      <p class="cat-tag">Catalogue gaps, fair-price bands, demand, replenishment.</p>
+      <div class="cards">
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/07-catalog.png')"></div>
+          <div class="body">
+            <h3>Catalog Intelligence</h3>
+            <p>Multi-field gap-fill on workflow-blocking products.</p>
+            <a class="link" href="../docs/use-cases/07-catalog-intelligence.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/08-pricing.png')"></div>
+          <div class="body">
+            <h3>Price Intelligence</h3>
+            <p>Fair-price band + Purchase Price Variance from history.</p>
+            <a class="link" href="../docs/use-cases/08-price-intelligence.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/09-demand.png')"></div>
+          <div class="body">
+            <h3>Demand Forecast</h3>
+            <p>Seasonal blend; same-month aggregates with sample-size guards.</p>
+            <a class="link" href="../docs/use-cases/09-demand-forecast.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/10-inventory.png')"></div>
+          <div class="body">
+            <h3>Inventory Intelligence</h3>
+            <p>Critical / low / overstock + tied-capital and stockout risk in €.</p>
+            <a class="link" href="../docs/use-cases/10-inventory-intelligence.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 4. Services & Operations ───────────────────────────────── -->
+    <section class="cat">
+      <div class="cat-hdr">
+        <div class="icon purple">💼</div>
+        <h2>Services &amp; Operations</h2>
+      </div>
+      <p class="cat-tag">Project success, utilisation, capacity — beyond procurement.</p>
+      <div class="cards">
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/11-projects.png')"></div>
+          <div class="body">
+            <h3>Project Portfolio</h3>
+            <p>Predicted <code style="font-family:DM Mono,monospace;font-size:11.5px">success=true</code> with staffing-factor decomposition.</p>
+            <a class="link" href="../docs/use-cases/12-project-portfolio.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/12-utilization.png')"></div>
+          <div class="body">
+            <h3>Utilization &amp; Capacity</h3>
+            <p>Per-consultant load + role-and-allocation forecast.</p>
+            <a class="link" href="../docs/use-cases/13-utilization.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/00-landing-metsa.png')"></div>
+          <div class="body">
+            <h3>Multi-tenant Metsä</h3>
+            <p>Industrial maintenance · 3.2K POs · 320 SKUs · 285 projects.</p>
+            <a class="link" href="../README.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="thumb" style="background-image:url('../screenshots/00-landing-aurora.png')"></div>
+          <div class="body">
+            <h3>Multi-tenant Aurora</h3>
+            <p>Multi-channel retail · 5.3K POs · 3.2K SKUs · 18K orders.</p>
+            <a class="link" href="../README.md">VIEW IMPLEMENTATION →</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    POWERED BY <a href="https://aito.ai">aito.ai</a> · APACHE 2.0 · github.com/AitoDotAI/aito-erp-demo
+  </footer>
+
+</div>
+</body>
+</html>
