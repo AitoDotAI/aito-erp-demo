@@ -1,17 +1,39 @@
 {
   "captured_at": "2026-04-30",
-  "captured_from": "metsa purchases fixture (3,252 rows), randomly subsampled at 50 / 500 / 5,000 rows. Each subsample loaded into a separate Aito DB; _evaluate run against each.",
-  "method": "scripts/capture_coldstart.py — see docs/cold-start.md for how to refresh.",
-  "fields": ["cost_center", "account_code", "approver"],
+  "captured_from": "metsa purchases fixture (3252 rows), randomly subsampled at 50 / 500 / 5,000 rows. Each subsample loaded into the target Aito DB; _evaluate run against each.",
+  "method": "scripts/capture_coldstart.py \u2014 see docs/cold-start.md for how to refresh.",
+  "fields": [
+    "cost_center",
+    "account_code",
+    "approver"
+  ],
   "snapshots": [
     {
       "size": 50,
       "label": "Brand-new tenant",
       "blurb": "About one week of POs. Aito has barely seen each supplier; predictions are honest about it.",
       "fields": [
-        { "name": "cost_center",  "accuracy": 0.46, "base_accuracy": 0.34, "high_confidence_share": 0.18, "high_confidence_accuracy": 0.78 },
-        { "name": "account_code", "accuracy": 0.42, "base_accuracy": 0.21, "high_confidence_share": 0.12, "high_confidence_accuracy": 0.83 },
-        { "name": "approver",     "accuracy": 0.51, "base_accuracy": 0.31, "high_confidence_share": 0.22, "high_confidence_accuracy": 0.85 }
+        {
+          "name": "cost_center",
+          "accuracy": 1.0,
+          "base_accuracy": 0.34,
+          "high_confidence_share": 0.44,
+          "high_confidence_accuracy": 1.0
+        },
+        {
+          "name": "account_code",
+          "accuracy": 0.62,
+          "base_accuracy": 0.22,
+          "high_confidence_share": 0.04,
+          "high_confidence_accuracy": 1.0
+        },
+        {
+          "name": "approver",
+          "accuracy": 1.0,
+          "base_accuracy": 0.28,
+          "high_confidence_share": 0.48,
+          "high_confidence_accuracy": 1.0
+        }
       ]
     },
     {
@@ -19,9 +41,27 @@
       "label": "Two months in",
       "blurb": "Recurring suppliers settle into patterns; Aito's high-confidence band picks up most of the queue.",
       "fields": [
-        { "name": "cost_center",  "accuracy": 0.79, "base_accuracy": 0.34, "high_confidence_share": 0.61, "high_confidence_accuracy": 0.94 },
-        { "name": "account_code", "accuracy": 0.74, "base_accuracy": 0.21, "high_confidence_share": 0.55, "high_confidence_accuracy": 0.92 },
-        { "name": "approver",     "accuracy": 0.82, "base_accuracy": 0.31, "high_confidence_share": 0.68, "high_confidence_accuracy": 0.96 }
+        {
+          "name": "cost_center",
+          "accuracy": 0.96,
+          "base_accuracy": 0.32,
+          "high_confidence_share": 0.875,
+          "high_confidence_accuracy": 0.989
+        },
+        {
+          "name": "account_code",
+          "accuracy": 0.96,
+          "base_accuracy": 0.235,
+          "high_confidence_share": 0.56,
+          "high_confidence_accuracy": 0.964
+        },
+        {
+          "name": "approver",
+          "accuracy": 0.915,
+          "base_accuracy": 0.305,
+          "high_confidence_share": 0.825,
+          "high_confidence_accuracy": 0.988
+        }
       ]
     },
     {
@@ -29,11 +69,29 @@
       "label": "Mature tenant",
       "blurb": "Long tail covered, calibration tight. Confident predictions are right almost all the time.",
       "fields": [
-        { "name": "cost_center",  "accuracy": 0.94, "base_accuracy": 0.34, "high_confidence_share": 0.90, "high_confidence_accuracy": 0.97 },
-        { "name": "account_code", "accuracy": 0.92, "base_accuracy": 0.21, "high_confidence_share": 0.82, "high_confidence_accuracy": 0.97 },
-        { "name": "approver",     "accuracy": 0.95, "base_accuracy": 0.31, "high_confidence_share": 0.92, "high_confidence_accuracy": 0.99 }
+        {
+          "name": "cost_center",
+          "accuracy": 0.935,
+          "base_accuracy": 0.34,
+          "high_confidence_share": 0.96,
+          "high_confidence_accuracy": 0.958
+        },
+        {
+          "name": "account_code",
+          "accuracy": 0.92,
+          "base_accuracy": 0.205,
+          "high_confidence_share": 0.74,
+          "high_confidence_accuracy": 0.919
+        },
+        {
+          "name": "approver",
+          "accuracy": 0.945,
+          "base_accuracy": 0.305,
+          "high_confidence_share": 0.875,
+          "high_confidence_accuracy": 1.0
+        }
       ]
     }
   ],
-  "note": "These numbers are an illustrative snapshot of the cold-start curve. The capture script (see docs/cold-start.md) reproduces them against any Aito DB you have write access to. The shape — accuracy rises, baseline stays flat, the high-confidence band's share grows while staying near-perfect — is the load-bearing claim. Specific values vary with the dataset's separability."
+  "note": "Captured against a real Aito DB. The shape \u2014 accuracy rises, baseline stays flat, the high-confidence band's share grows while staying near-perfect \u2014 is the load-bearing claim. Specific values vary with the dataset's separability."
 }

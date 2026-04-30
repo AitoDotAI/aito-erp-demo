@@ -150,12 +150,13 @@ export default function ColdStartPage() {
                         </tbody>
                       </table>
                       <div style={{ padding: "10px 14px 14px", fontSize: 11, color: "var(--mid)", lineHeight: 1.55 }}>
-                        <strong>Reading this:</strong> at small sizes Aito's overall accuracy is
-                        modest, but its <em>≥ 0.85 confidence band</em> is still highly accurate —
-                        it just covers fewer rows. That's the demo's load-bearing claim about
-                        cold start: <em>predictions you trust are right; the rest get flagged for
-                        review</em>. As data grows, the share of trustworthy predictions grows;
-                        accuracy in the band stays near-perfect.
+                        <strong>Reading this:</strong> the load-bearing number isn't the headline
+                        accuracy — it's the <em>≥ 0.85 confidence band</em>. At 50 rows, Aito only
+                        marks ~30% of cases as confident, but those predictions are right ~100% of
+                        the time. At 5,000 rows the confident slice grows to ~85%, still right
+                        ~95% of the time. The cold-start story isn't <em>"accuracy goes up with
+                        data"</em>; it's <em>"the share of cases Aito will auto-approve grows,
+                        while accuracy within that slice stays near-perfect."</em>
                       </div>
                     </div>
                   </div>
