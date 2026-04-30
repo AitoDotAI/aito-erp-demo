@@ -1945,6 +1945,425 @@ body {
   font-style: italic;
 }
 
+/* ─── Vertical entry pages (/industrial, /retail, /services) ────
+   Sales-friendly deep-link landing for one vertical at a time.
+   Visually closer to the home picker but with a single hero
+   framing and three "start here in this order" feature cards. */
+.vertical-entry {
+  min-height: 100vh;
+  background: var(--bg);
+  padding: 32px 20px 48px;
+  overflow-y: auto;
+  width: 100%;
+}
+.vertical-entry-inner {
+  max-width: 880px;
+  margin: 0 auto;
+}
+.vertical-entry-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.vertical-entry-back {
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--mid);
+  text-decoration: none;
+  padding: 4px 0;
+}
+.vertical-entry-back:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.vertical-entry-pill {
+  align-self: flex-start;
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.vertical-entry-headline {
+  font-family: 'DM Serif Display', serif;
+  font-size: 40px;
+  line-height: 1.15;
+  color: var(--ink);
+  margin: 4px 0 0;
+}
+.vertical-entry-sub {
+  font-size: 16px;
+  color: var(--mid);
+  font-weight: 500;
+  margin: 0;
+}
+.vertical-entry-framing {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--mid);
+  margin: 8px 0 0;
+  max-width: 720px;
+}
+.vertical-entry-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mid);
+  margin-bottom: 12px;
+}
+.vertical-entry-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.vertical-entry-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 16px 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.vertical-entry-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(12, 15, 65, 0.08);
+}
+.vertical-entry-card-number {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--mid);
+  font-weight: 600;
+}
+.vertical-entry-card-name {
+  font-family: 'DM Serif Display', serif;
+  font-size: 18px;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.vertical-entry-card-pitch {
+  font-size: 12px;
+  color: var(--mid);
+  line-height: 1.55;
+}
+.vertical-entry-card-stat {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.vertical-entry-supporting {
+  margin-top: 32px;
+}
+.vertical-entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.vertical-entry-list li a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--ink);
+  transition: border-color 0.15s ease;
+}
+.vertical-entry-list li a:hover {
+  border-color: var(--gold);
+}
+.vertical-entry-list li strong {
+  font-size: 13px;
+}
+.vertical-entry-list-pitch {
+  font-size: 11.5px;
+  color: var(--mid);
+  line-height: 1.45;
+}
+.vertical-entry-cta-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 32px;
+}
+.vertical-entry-cta {
+  padding: 12px 32px;
+  background: var(--gold-dark);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.vertical-entry-cta:hover { transform: translateY(-1px); }
+@media (max-width: 768px) {
+  .vertical-entry-headline { font-size: 28px; }
+  .vertical-entry-cards { grid-template-columns: 1fr; }
+  .vertical-entry-list { grid-template-columns: 1fr; }
+}
+
+/* ─── Mobile shell — Nav drawer + AitoPanel bottom sheet ──────────
+   Pattern adapted from aito-demo's ContextPanel mobile mode.
+   ≤ 768px: hide both side rails; replace with a hamburger (TopBar
+   left) opening the nav drawer, and a floating round info button
+   (bottom-right corner) opening the panel as a bottom sheet. */
+
+/* Desktop default: hide all mobile-only elements. */
+.NavBar__mobileOverlay,
+.topbar-hamburger,
+.aito-mobile-toggle,
+.aito-mobile-overlay,
+.aito-mobile-sheet {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* The whole app needs to stack vertically with main filling the screen. */
+  .app {
+    flex-direction: column;
+  }
+
+  /* The desktop side nav becomes an off-canvas drawer. The TopBar's
+     hamburger flips `NavBar__sidebar--mobile-open`. */
+  .NavBar__sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 1100;
+    width: 260px;
+    max-width: 84vw;
+    transform: translateX(-100%);
+    transition: transform 0.28s ease;
+    box-shadow: 4px 0 24px rgba(12, 15, 65, 0.35);
+  }
+  .NavBar__sidebar--mobile-open {
+    transform: translateX(0);
+  }
+  /* Disable the desktop collapse-to-56px style on mobile — drawer is
+     fully expanded or fully off-screen, no in-between. */
+  .NavBar__sidebar--collapsed {
+    width: 260px;
+    min-width: 260px;
+  }
+  .NavBar__collapseBtn { display: none; }
+
+  /* Backdrop scrim behind the drawer. */
+  .NavBar__mobileOverlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.45);
+    z-index: 1099;
+  }
+
+  /* TopBar hamburger appears on the left, before breadcrumb/title. */
+  .topbar-hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin-right: 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--card);
+    color: var(--ink);
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .topbar-hamburger:hover { background: var(--bg); }
+
+  /* Tighten TopBar so title + persona switcher fit on a phone. */
+  .topbar {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .topbar-title { font-size: 15px; }
+  .topbar-sub  { font-size: 11px; }
+
+  /* Desktop right-rail panel is hidden entirely. */
+  .aito-side,
+  .aito-toggle {
+    display: none !important;
+  }
+
+  /* Floating round info button, bottom-right. Opens the bottom sheet. */
+  .aito-mobile-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background-color: var(--aito-bg, #0c0f41);
+    color: var(--aito-teal);
+    border: 1px solid rgba(93, 80, 255, 0.3);
+    cursor: pointer;
+    z-index: 1050;
+    box-shadow: 0 4px 12px rgba(12, 15, 65, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .aito-mobile-toggle:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(12, 15, 65, 0.4);
+  }
+  .aito-mobile-toggle:active { transform: scale(0.95); }
+  .aito-mobile-toggle-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+
+  /* Lift the latency pill above the floating button so they don't
+     stack on the same pixel. */
+  .latency-pill {
+    bottom: 80px;
+  }
+
+  /* Backdrop behind the bottom sheet. */
+  .aito-mobile-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.35);
+    z-index: 1099;
+  }
+
+  /* Bottom sheet itself. */
+  .aito-mobile-sheet {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 85vh;
+    background-color: var(--aito-bg, #0c0f41);
+    background-image: url('/assets/knowledge_garden_with_river.png');
+    background-position: bottom center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    border-radius: 16px 16px 0 0;
+    z-index: 1100;
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+    box-shadow: 0 -4px 24px rgba(12, 15, 65, 0.4);
+  }
+  .aito-mobile-sheet--open {
+    transform: translateY(0);
+  }
+  .aito-mobile-sheet-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(93, 80, 255, 0.2);
+    background-color: rgba(12, 15, 65, 0.92);
+    flex-shrink: 0;
+  }
+  /* Drag-handle indicator at the top — purely visual, not interactive. */
+  .aito-mobile-sheet-header::before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    background-color: rgba(155, 105, 255, 0.4);
+    border-radius: 2px;
+  }
+  .aito-mobile-sheet-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--aito-teal);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .aito-mobile-sheet-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .aito-mobile-sheet-close:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  .aito-mobile-sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background-color: rgba(12, 15, 65, 0.88);
+    padding: 16px 18px 24px;
+  }
+  /* On mobile the sheet body inherits the same internal styles as
+     `.aito-side-body` (description, query block, links, CTA) — same
+     content component is reused, so no separate rules needed. The CTA
+     loses its bottom-fixed positioning and just flows at the bottom
+     of the scrollable body, which is the right behaviour for a sheet. */
+  .aito-mobile-sheet-body .aito-side-cta {
+    margin-top: 16px;
+  }
+
+  /* Content padding tightens up so cards don't hug the screen edges. */
+  .content {
+    padding: 14px 12px;
+  }
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px;
+  }
+
+  /* Tables on mobile: allow horizontal scroll inside the card so wide
+     columns don't break the page layout. */
+  .card { overflow-x: auto; }
+}
+
+/* Vertical deep-link badge under each tile's CTA. */
+.landing-tile-deeplink {
+  display: block;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--mid);
+  text-decoration: none;
+  text-align: center;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px dashed var(--border);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.landing-tile-deeplink:hover {
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+
 /* Cost-of-this-demo line — disarms CFO budget anxiety up front. */
 .landing-foot-cost {
   font-size: 11.5px;

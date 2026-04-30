@@ -75,10 +75,16 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
+/** Event the TopBar's mobile hamburger dispatches to open the drawer.
+ *  Decoupled this way so Nav doesn't need to know about TopBar — the
+ *  same Nav instance works for any caller that fires the event. */
+export const NAV_OPEN_EVENT = "aito:open-nav";
+
 export default function Nav() {
   const pathname = usePathname();
   const { isVisible, tenant } = useTenant();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Filter sections + items by the current tenant. Empty sections drop out.
   const sections = useMemo(() => {
@@ -93,6 +99,20 @@ export default function Nav() {
     const stored = localStorage.getItem("sidebarCollapsed") === "true";
     setCollapsed(stored);
   }, []);
+
+  // Listen for the TopBar hamburger's open event.
+  useEffect(() => {
+    const handler = () => setMobileOpen(true);
+    window.addEventListener(NAV_OPEN_EVENT, handler);
+    return () => window.removeEventListener(NAV_OPEN_EVENT, handler);
+  }, []);
+
+  // Close the mobile drawer whenever the route changes — tapping a
+  // nav item should land you on the new page, not stuck in the open
+  // drawer with the page rendered behind it.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   const toggle = () => {
     setCollapsed((prev) => {
@@ -110,7 +130,23 @@ export default function Nav() {
   };
 
   return (
-    <aside className={`NavBar__sidebar${collapsed ? " NavBar__sidebar--collapsed" : ""}`}>
+    <>
+      {/* Mobile backdrop — tap to close the drawer. Only visible when
+          mobileOpen is true (CSS hides the element on desktop). */}
+      {mobileOpen && (
+        <div
+          className="NavBar__mobileOverlay"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside
+        className={[
+          "NavBar__sidebar",
+          collapsed ? "NavBar__sidebar--collapsed" : "",
+          mobileOpen ? "NavBar__sidebar--mobile-open" : "",
+        ].filter(Boolean).join(" ")}
+      >
       <div className="NavBar__sidebarTop">
         <div className="NavBar__logoRow">
           <Link href="/po-queue" className="NavBar__logoLink" aria-label="Predictive ERP home">
@@ -182,5 +218,6 @@ export default function Nav() {
       {/* "Try Aito" CTA used to live here; moved to the right-rail
           AitoPanel to match aito-demo's ContextPanel placement. */}
     </aside>
+    </>
   );
 }

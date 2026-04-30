@@ -1,8 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TENANTS, TenantProfile } from "@/lib/tenants";
 import { useTenant } from "@/lib/tenant-context";
+
+/** Deep-link routes for sales conversations. Each tenant tile pairs
+ *  with one of these; the route renders a vertical-specific entry
+ *  page that frames "Predictive ERP for X" unambiguously and curates
+ *  a "start here in this order" feature set. The mapping lives in
+ *  `frontend/app/{industrial,retail,services}/page.tsx`. */
+const VERTICAL_ROUTE: Record<string, string> = {
+  metsa: "/industrial",
+  aurora: "/retail",
+  studio: "/services",
+};
 
 /** Per-persona pitch shown on the landing tiles. Hardcoded marketing
  * copy rather than computed from the persona spec — these strings
@@ -146,6 +158,19 @@ export default function LandingPage() {
                 >
                   Open this demo →
                 </div>
+
+                {/* Vertical deep-link — appears beneath the CTA so
+                    sales can drop a buyer straight into the framed
+                    entry page for their industry. */}
+                {VERTICAL_ROUTE[t.id] && (
+                  <Link
+                    href={VERTICAL_ROUTE[t.id]}
+                    onClick={(e) => e.stopPropagation()}
+                    className="landing-tile-deeplink"
+                  >
+                    Or read the {VERTICAL_ROUTE[t.id].slice(1)} entry page →
+                  </Link>
+                )}
               </button>
             );
           })}
