@@ -107,6 +107,15 @@ export default function SmartEntryPage() {
   // Cross-highlight: which input fields contributed to the open explanation?
   const [highlightedInputs, setHighlightedInputs] = useState<Set<string>>(new Set());
 
+  // Compare-to-traditional toggle. Off mode skips the prediction
+  // round-trip; the user has to type all four PO fields by hand —
+  // the way every other ERP does it. Stopwatch + per-mode best-time
+  // panel let visitors *see* the time difference, not just hear about it.
+  const [predictionsEnabled, setPredictionsEnabled] = useState(true);
+  const [stopwatchStart, setStopwatchStart] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState<number | null>(null);  // seconds, frozen at completion
+  const [bestTimes, setBestTimes] = useState<{ withPredictions?: number; traditional?: number }>({});
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -181,14 +190,17 @@ export default function SmartEntryPage() {
   // Debounced refetch on context change
   const scheduleRefetch = useCallback(
     (sup: string, desc: string, amt: string) => {
+      if (!predictionsEnabled) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => fetchPredictions(sup, desc, amt), 300);
     },
-    [fetchPredictions],
+    [fetchPredictions, predictionsEnabled],
   );
 
   const handleSupplierChange = (value: string) => {
     setSupplier(value);
+    // Stopwatch starts on supplier pick (the first non-trivial action).
+    if (value && stopwatchStart === null) setStopwatchStart(Date.now());
     if (value) scheduleRefetch(value, description, amount);
   };
   const handleDescriptionChange = (value: string) => {
@@ -198,6 +210,23 @@ export default function SmartEntryPage() {
   const handleAmountChange = (value: string) => {
     setAmount(value);
     if (supplier) scheduleRefetch(supplier, description, value);
+  };
+
+  /** Toggle prediction mode. Clears all field values (otherwise
+   *  switching off would leave the gold-styled predictions stuck on
+   *  screen, defeating the comparison) and resets the stopwatch so
+   *  the next attempt is timed fresh. */
+  const togglePredictions = () => {
+    setPredictionsEnabled((v) => !v);
+    setFields({
+      cost_center: emptyField,
+      account_code: emptyField,
+      project: emptyField,
+      approver: emptyField,
+    });
+    setStopwatchStart(null);
+    setElapsed(null);
+    setSubmitted(null);
   };
 
   /** Field-level handlers. Each accepts (newValue, source) — we always
@@ -222,6 +251,25 @@ export default function SmartEntryPage() {
   const canSubmit =
     !!supplier && !!description && !!amount &&
     PREDICTABLE_FIELDS.every((f) => !!fields[f].value);
+
+  // Stop the stopwatch the moment the form first becomes complete —
+  // this is the comparable "time to ready-to-submit" number for both
+  // modes. Don't restart on subsequent edits; the demo's claim is
+  // about how long it took to *get here*, not how long the user
+  // dawdles before clicking submit.
+  useEffect(() => {
+    if (canSubmit && stopwatchStart !== null && elapsed === null) {
+      const taken = (Date.now() - stopwatchStart) / 1000;
+      setElapsed(taken);
+      setBestTimes((prev) => {
+        const key = predictionsEnabled ? "withPredictions" : "traditional";
+        // Keep the *best* time per mode so a slow user doesn't
+        // overwrite a faster reading from a previous attempt.
+        if (prev[key] !== undefined && prev[key]! < taken) return prev;
+        return { ...prev, [key]: taken };
+      });
+    }
+  }, [canSubmit, stopwatchStart, elapsed, predictionsEnabled]);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -268,7 +316,14 @@ export default function SmartEntryPage() {
     setHighlightedInputs(new Set());
     setSubmitted(null);
     setPanel(defaultPanel);
+    setStopwatchStart(null);
+    setElapsed(null);
   };
+
+  const haveBoth = bestTimes.withPredictions !== undefined && bestTimes.traditional !== undefined;
+  const speedupX = haveBoth
+    ? (bestTimes.traditional! / bestTimes.withPredictions!).toFixed(1)
+    : null;
 
   // Cross-highlight: when SmartField's popover opens, it tells us which
   // $context fields contributed. We outline those input fields.
@@ -300,11 +355,64 @@ export default function SmartEntryPage() {
               </div>
             </div>
 
+            {/* Compare-to-traditional toggle + per-attempt timer.
+                Off mode disables the prediction round-trip so visitors
+                can feel how long the form takes without Aito. The
+                stopwatch + side-by-side panel land the value-prop in
+                a single demo cycle. */}
+            <div className="se-mode-bar">
+              <div className="se-mode-toggle">
+                <span className={`se-mode-label${predictionsEnabled ? " se-mode-label--active" : ""}`}>
+                  ✨ With aito.. predictions
+                </span>
+                <button
+                  type="button"
+                  className={`se-mode-switch${predictionsEnabled ? " se-mode-switch--on" : ""}`}
+                  onClick={togglePredictions}
+                  role="switch"
+                  aria-checked={predictionsEnabled}
+                  aria-label="Toggle predictions"
+                >
+                  <span className="se-mode-thumb" />
+                </button>
+                <span className={`se-mode-label${!predictionsEnabled ? " se-mode-label--active" : ""}`}>
+                  Traditional (type each field)
+                </span>
+              </div>
+
+              <div className="se-mode-times">
+                {elapsed !== null && (
+                  <span className="se-mode-elapsed">
+                    {predictionsEnabled ? "✨ With" : "Traditional"}: <strong>{elapsed.toFixed(1)}s</strong>
+                  </span>
+                )}
+                {bestTimes.withPredictions !== undefined && (
+                  <span className="se-mode-best">
+                    ✨ best: <strong>{bestTimes.withPredictions.toFixed(1)}s</strong>
+                  </span>
+                )}
+                {bestTimes.traditional !== undefined && (
+                  <span className="se-mode-best">
+                    Traditional best: <strong>{bestTimes.traditional.toFixed(1)}s</strong>
+                  </span>
+                )}
+                {haveBoth && speedupX && (
+                  <span className="se-mode-speedup">
+                    aito.. is <strong>{speedupX}× faster</strong>
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="card">
               <div className="card-head">
                 <span className="card-title">New Purchase Order</span>
                 <span className="card-meta">
-                  {predicting ? "Predicting…" : supplier ? "Live predictions" : "Awaiting supplier"}
+                  {!predictionsEnabled
+                    ? "Predictions OFF — type all four fields manually"
+                    : predicting
+                      ? "Predicting…"
+                      : supplier ? "Live predictions" : "Awaiting supplier"}
                 </span>
               </div>
               <div style={{ padding: 16 }}>

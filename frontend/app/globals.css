@@ -2366,6 +2366,91 @@ body {
   .card { overflow-x: auto; }
 }
 
+/* ─── Smart Entry: compare-to-traditional toggle bar ──────────── */
+.se-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.se-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--mid);
+}
+.se-mode-label {
+  transition: color 0.18s ease;
+}
+.se-mode-label--active {
+  color: var(--ink);
+  font-weight: 600;
+}
+.se-mode-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 12px;
+  background: #d8d3c4;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s ease;
+}
+.se-mode-switch--on {
+  background: var(--gold-dark);
+}
+.se-mode-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.se-mode-switch--on .se-mode-thumb {
+  transform: translateX(16px);
+}
+.se-mode-times {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--mid);
+  flex-wrap: wrap;
+}
+.se-mode-times strong { color: var(--ink); font-weight: 600; }
+.se-mode-elapsed {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--gold-light);
+  color: var(--gold-dark);
+}
+.se-mode-elapsed strong { color: var(--gold-dark); }
+.se-mode-best { opacity: 0.85; }
+.se-mode-speedup {
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--green-light, #e7f4ec);
+  color: var(--green);
+}
+.se-mode-speedup strong { color: var(--green); font-weight: 700; }
+@media (max-width: 768px) {
+  .se-mode-bar { flex-direction: column; align-items: flex-start; }
+  .se-mode-times { font-size: 10.5px; gap: 8px; }
+}
+
 /* ─── Cold Start view ────────────────────────────────────────── */
 .cs-tabs {
   display: grid;
