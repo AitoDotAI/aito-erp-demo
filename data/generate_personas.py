@@ -762,6 +762,118 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
 # ── Driver ──────────────────────────────────────────────────────────
 
 
+def generate_impressions(persona: PersonaSpec, products: list[dict]) -> list[dict]:
+    """Synthetic browsing/cart impressions — only Aurora gets these.
+
+    Each session walks 3–6 products. The first impression has no prev;
+    subsequent impressions carry the previous product as `prev_product_id`.
+    `clicked` and `purchased` probabilities are weighted so:
+
+      - same-category prev→next clicks more often (the cross-sell signal
+        Aito will discover via `_recommend goal: {clicked: true}`)
+      - certain category pairs (Fashion→Beauty, DIY→Homeware,
+        Groceries→Household) cross-cluster — engineered so the demo
+        can show non-obvious cross-sell hits across departments
+      - segments shape category bias: 'young-urban' favours
+        Fashion + Beauty + Electronics; 'family' favours Groceries +
+        Household + Homeware; 'professional' favours Electronics + DIY.
+
+    This is the impressions pattern from accounting-demo guide 07 —
+    the *same* operator that drives help-article CTR ranking drives
+    product cross-sell. No new model, just the right where + goal.
+    """
+    if persona.tenant_id != "aurora":
+        return []
+    eligible = [p for p in products if p.get("category")]
+    if not eligible:
+        return []
+    by_cat: dict[str, list[dict]] = {}
+    for p in eligible:
+        by_cat.setdefault(p["category"], []).append(p)
+
+    # Engineered cross-category affinities. Same category is implicit
+    # (high baseline); these add lift for non-obvious pairs.
+    cross_category_pull = {
+        ("Fashion", "Beauty"): 1.6,
+        ("Beauty", "Fashion"): 1.4,
+        ("DIY", "Homeware"): 1.5,
+        ("Homeware", "DIY"): 1.3,
+        ("Groceries", "Household"): 1.7,
+        ("Household", "Groceries"): 1.5,
+        ("Electronics", "Homeware"): 1.2,
+    }
+    segment_bias = {
+        "young-urban": {"Fashion": 1.4, "Beauty": 1.5, "Electronics": 1.3},
+        "family":      {"Groceries": 1.5, "Household": 1.4, "Homeware": 1.3},
+        "professional": {"Electronics": 1.4, "DIY": 1.3, "Homeware": 1.1},
+    }
+    segments = list(segment_bias.keys())
+
+    rows: list[dict] = []
+    counter = 0
+    n_sessions = 1500   # 1500 sessions × ~4 imp = ~6000 rows
+    for _ in range(n_sessions):
+        session_id = f"S-{counter // 4:05d}"
+        segment = random.choice(segments)
+        bias = segment_bias[segment]
+        month = random.choice(MONTHS[-12:])     # last 12 months only
+
+        # Walk the session with a "current category" that drifts.
+        first = random.choice(eligible)
+        current = first
+        prev_id: str | None = None
+        steps = random.randint(3, 6)
+        for _step in range(steps):
+            counter += 1
+            cur_cat = current["category"]
+            # Pick the next product:
+            # 70% same category, 25% biased neighbour, 5% random
+            roll = random.random()
+            if roll < 0.7:
+                next_p = random.choice(by_cat[cur_cat])
+            elif roll < 0.95:
+                # Biased neighbour: weight by cross-category affinity.
+                weights = []
+                cats = list(by_cat.keys())
+                for c in cats:
+                    w = cross_category_pull.get((cur_cat, c), 0.4)
+                    w *= bias.get(c, 1.0)
+                    weights.append(w)
+                next_cat = random.choices(cats, weights=weights, k=1)[0]
+                next_p = random.choice(by_cat[next_cat])
+            else:
+                next_p = random.choice(eligible)
+
+            # Click probability: category match + segment bias + price
+            same_cat = next_p["category"] == cur_cat
+            cross_pull = cross_category_pull.get(
+                (cur_cat, next_p["category"]), 1.0
+            )
+            seg_pull = bias.get(next_p["category"], 1.0)
+            base_click_p = 0.30
+            if same_cat:
+                base_click_p = 0.60
+            click_p = min(0.92, base_click_p * cross_pull * seg_pull * 0.8)
+            clicked = random.random() < click_p
+            # Purchased ⇒ clicked. Of clicks, ~25% convert.
+            purchased = clicked and random.random() < 0.25
+
+            rows.append({
+                "impression_id": f"IMP-{counter:06d}",
+                "session_id": session_id,
+                "customer_segment": segment,
+                "product_id": next_p["sku"],
+                "prev_product_id": prev_id,
+                "clicked": clicked,
+                "purchased": purchased,
+                "month": month,
+            })
+            prev_id = next_p["sku"]
+            current = next_p
+
+    return rows
+
+
 def write_persona(persona: PersonaSpec) -> None:
     out = DATA / persona.tenant_id
     out.mkdir(parents=True, exist_ok=True)
@@ -773,6 +885,7 @@ def write_persona(persona: PersonaSpec) -> None:
     orders = generate_orders(persona, products)
     prices = generate_price_history(persona, products)
     projects, assignments = generate_projects_and_assignments(persona)
+    impressions = generate_impressions(persona, products)
 
     with open(out / "purchases.json",     "w") as f: json.dump(purchases,    f, indent=2, ensure_ascii=False)
     with open(out / "products.json",      "w") as f: json.dump(products,     f, indent=2, ensure_ascii=False)
@@ -780,6 +893,8 @@ def write_persona(persona: PersonaSpec) -> None:
     with open(out / "price_history.json", "w") as f: json.dump(prices,       f, indent=2, ensure_ascii=False)
     with open(out / "projects.json",      "w") as f: json.dump(projects,     f, indent=2, ensure_ascii=False)
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
+    if impressions:
+        with open(out / "impressions.json", "w") as f: json.dump(impressions, f, indent=2, ensure_ascii=False)
 
     completed = [p for p in projects if p["status"] == "complete"]
     succ = [p for p in completed if p["success"]]
@@ -794,6 +909,9 @@ def write_persona(persona: PersonaSpec) -> None:
         print(f"    success rate: {len(succ)}/{len(completed)} = "
               f"{len(succ)/len(completed):.0%}")
     print(f"  assignments:    {len(assignments)}")
+    if impressions:
+        print(f"  impressions:    {len(impressions)} "
+              f"(clicked={sum(1 for r in impressions if r['clicked'])})")
 
 
 def main() -> None:

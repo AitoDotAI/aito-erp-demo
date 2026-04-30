@@ -270,11 +270,21 @@ export interface AutomationBreakdown {
   manual_pct: number;
 }
 
+export interface ConfidenceBand {
+  label: string;
+  min_p: number;
+  count: number;
+  accuracy: number;
+}
+
 export interface PredictionQuality {
   field_name: string;
   accuracy: number;
+  base_accuracy: number;
+  accuracy_gain: number;
   avg_confidence: number;
   sample_size: number;
+  bands: ConfidenceBand[];
 }
 
 export interface OverviewMetrics {
@@ -294,6 +304,9 @@ export interface OverviewMetrics {
     needs_review: number;
     fully_manual: number;
     avg_prediction_confidence: number;
+    model_accuracy?: number;
+    baseline_accuracy?: number;
+    accuracy_gain?: number;
     labor_savings_eur?: number;
     miscode_savings_eur?: number;
     hours_saved?: number;
@@ -324,9 +337,10 @@ export interface CrossSellItem {
   category: string | null;
   supplier: string | null;
   unit_price: number | null;
-  co_units: number;
-  months_overlap: number;
-  lift: number;
+  /** P(clicked | prev_product = anchor) from Aito _recommend. */
+  p_click: number;
+  /** Same value as p_click — kept for back-compat with prior UI. */
+  score: number;
 }
 
 export interface SimilarItem {

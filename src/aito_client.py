@@ -117,6 +117,8 @@ class AitoClient:
         tolerate_missing is on and the table doesn't exist."""
         if kind == "evaluate":
             return {"accuracy": None, "baseAccuracy": None, "n": 0}
+        if kind == "recommend":
+            return {"hits": []}
         return {"hits": [], "offset": 0, "total": 0}
 
     def predict(self, table: str, where: dict, predict_field: str, limit: int = 10) -> dict:
@@ -189,6 +191,102 @@ class AitoClient:
         except AitoError as exc:
             if self._tolerate_missing and _is_missing_table_error(exc, table):
                 return self._empty("evaluate")
+            raise
+
+    def evaluate_with_cases(
+        self,
+        table: str,
+        predict_field: str,
+        feature_fields: list[str],
+        test_where: dict | None = None,
+        limit: int = 200,
+    ) -> dict:
+        """Run a held-out `_evaluate` and return per-case results.
+
+        For each row picked by `testSource`, Aito hides the target
+        field, predicts it from `feature_fields` (read off the held-out
+        row via `$get`), and compares to ground truth. Returns
+        `accuracy`, `baseAccuracy`, `totalCases`, plus the per-case list
+        — which the caller buckets by confidence band, surfaces failures,
+        etc. (See guides/08 in aito-accounting-demo.)
+
+        Example:
+            client.evaluate_with_cases(
+                table="purchases",
+                predict_field="cost_center",
+                feature_fields=["supplier", "description", "amount_eur"],
+                limit=200,
+            )
+        """
+        evaluate_where = {
+            field: {"$get": field} for field in feature_fields
+        }
+        test_source: dict = {"from": table, "limit": limit}
+        if test_where:
+            test_source["where"] = test_where
+
+        query = {
+            "testSource": test_source,
+            "evaluate": {
+                "from": table,
+                "where": evaluate_where,
+                "predict": predict_field,
+            },
+            "select": ["accuracy", "baseAccuracy", "cases"],
+        }
+        try:
+            return self._request("POST", "/_evaluate", json=query)
+        except AitoError as exc:
+            if self._tolerate_missing and _is_missing_table_error(exc, table):
+                return {"accuracy": None, "baseAccuracy": None, "cases": []}
+            raise
+
+    def recommend(
+        self,
+        table: str,
+        where: dict,
+        recommend_field: str,
+        goal: dict,
+        select: list | None = None,
+        limit: int = 8,
+    ) -> dict:
+        """Run a `_recommend` query — goal-driven ranking.
+
+        For each candidate value of `recommend_field`, Aito returns the
+        probability that `goal` is satisfied given `where`. The hits
+        come back ranked by that probability.
+
+        When `recommend_field` is a `link` column, Aito's default `select`
+        already returns every column from the linked table on each hit
+        — so the typical caller leaves `select=None` and reads
+        `hit["name"]`, `hit["category"]`, etc. straight off the result.
+        Passing an explicit `select` is mostly useful when you want to
+        narrow the payload or pull `$why`.
+
+        Example:
+            client.recommend(
+                table="impressions",
+                where={"prev_product_id": "SKU-1234"},
+                recommend_field="product_id",
+                goal={"clicked": True},
+                limit=8,
+            )
+            # hit fields: $p + every column of products.* including sku
+        """
+        query: dict = {
+            "from": table,
+            "where": where,
+            "recommend": recommend_field,
+            "goal": goal,
+            "limit": limit,
+        }
+        if select is not None:
+            query["select"] = select
+        try:
+            return self._request("POST", "/_recommend", json=query)
+        except AitoError as exc:
+            if self._tolerate_missing and _is_missing_table_error(exc, table):
+                return self._empty("recommend")
             raise
 
     def relate(self, table: str, where: dict, relate_field: str) -> dict:

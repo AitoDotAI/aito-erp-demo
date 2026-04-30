@@ -2,20 +2,25 @@
 
 Two complementary recommendation patterns from the same data:
 
-  1. **Frequently bought together** — for a given product, find products
-     that are ordered in the same months. Aggregates `_search` over the
-     `orders` table; weights by units co-purchased. This is the
-     "customers who bought X also bought Y" pattern that drives
-     basket-size lift in retail.
+  1. **Frequently bought together** — `_recommend` against the
+     `impressions` table with `goal: {clicked: true}`. For each
+     candidate `product_id`, Aito ranks by the predicted probability
+     that the impression would be clicked given `prev_product_id`
+     (and optionally `customer_segment`). This is the same operator
+     pattern that powers help-article CTR ranking — see
+     `aito-accounting-demo/.ai/guides/07-recommend-with-goal-driven-ranking.md`.
+
+     We use **linked select** (`product_id.name`, `product_id.category`,
+     etc.) so one call returns the full product row to render — no
+     separate `_search` to fetch names.
 
   2. **Similar products** — for a given product, find products with
-     overlapping category + supplier signals via Aito's `_match` query
-     against the `products` table. Same idea as Spotify's "similar
-     artists" — vector similarity over attributes the database already
-     knows.
+     overlapping category + supplier signals via Aito's search ranked
+     by attribute overlap. Same idea as Spotify's "similar artists" —
+     vector similarity over attributes the database already knows.
 
 Both views also surface a **trending** ribbon: top products ranked by
-recent units sold, derived from the same orders table.
+recent units sold, derived from the orders table.
 
 Why this matters for the demo: this is the most-used Aito capability
 in retail (and the one missing from the existing demo). Aurora
@@ -34,9 +39,8 @@ class CrossSellItem:
     category: str | None
     supplier: str | None
     unit_price: float | None
-    co_units: int            # how many units co-occurred across shared months
-    months_overlap: int      # how many months the two were ordered together
-    lift: float              # co-units / baseline (rough confidence signal)
+    p_click: float           # P(clicked | prev_product_id, ...) from Aito _recommend
+    score: float             # alias for p_click — kept for UI back-compat
 
     def to_dict(self) -> dict:
         return {
@@ -45,9 +49,8 @@ class CrossSellItem:
             "category": self.category,
             "supplier": self.supplier,
             "unit_price": self.unit_price,
-            "co_units": self.co_units,
-            "months_overlap": self.months_overlap,
-            "lift": self.lift,
+            "p_click": self.p_click,
+            "score": self.score,
         }
 
 
@@ -122,14 +125,6 @@ def _safe_search(client: AitoClient, table: str, where: dict, limit: int) -> lis
         raise
 
 
-def _fetch_orders_for(client: AitoClient, product_id: str, limit: int = 300) -> list[dict]:
-    return _safe_search(client, "orders", {"product_id": product_id}, limit)
-
-
-def _fetch_orders_in_month(client: AitoClient, month: str, limit: int = 300) -> list[dict]:
-    return _safe_search(client, "orders", {"month": month}, limit)
-
-
 # ── Public API ──────────────────────────────────────────────────────
 
 
@@ -187,54 +182,56 @@ def get_overview(client: AitoClient, top_n_products: int = 60) -> Recommendation
     return RecommendationOverview(products=products, trending=trending_items)
 
 
-def get_cross_sell(client: AitoClient, product_id: str, limit: int = 8) -> list[CrossSellItem]:
-    """Find products co-purchased with `product_id` across the order
-    history. Co-purchase is approximated by month-level co-occurrence
-    (we don't have basket ids in the fixture data — production data
-    with a `basket_id` column would slot in directly).
+def get_cross_sell(
+    client: AitoClient,
+    product_id: str,
+    limit: int = 8,
+    customer_segment: str | None = None,
+) -> list[CrossSellItem]:
+    """Rank products by P(click | prev_product = `product_id`).
+
+    One `_recommend` call. Linked-`select` returns the full product
+    row so we don't need a follow-up `_search`. Optional
+    `customer_segment` adds personalisation without changing the
+    query shape — same operator, one extra `where` constraint.
     """
-    target_orders = _fetch_orders_for(client, product_id, limit=300)
-    if not target_orders:
+    where: dict = {"prev_product_id": product_id}
+    if customer_segment:
+        where["customer_segment"] = customer_segment
+
+    try:
+        # No explicit select: Aito traverses the link automatically and
+        # returns every column from the linked `products` row on each
+        # hit. One call, full payload — no follow-up `_search` to
+        # resolve names. (See aito-accounting-demo guide 01.)
+        response = client.recommend(
+            table="impressions",
+            where=where,
+            recommend_field="product_id",
+            goal={"clicked": True},
+            limit=limit + 4,   # over-fetch in case the anchor itself appears
+        )
+    except Exception:
         return []
 
-    target_months = {o["month"] for o in target_orders}
-    target_units = sum(int(o.get("units_sold") or 0) for o in target_orders)
-
-    # Aggregate co-purchases across each shared month.
-    co_units: dict[str, int] = {}
-    co_months: dict[str, set[str]] = {}
-    for month in target_months:
-        for o in _fetch_orders_in_month(client, month, limit=300):
-            other = o.get("product_id")
-            if not other or other == product_id:
-                continue
-            co_units[other] = co_units.get(other, 0) + int(o.get("units_sold") or 0)
-            co_months.setdefault(other, set()).add(month)
-
-    if not co_units:
-        return []
-
-    # Lift baseline = how many units this co-product would have sold
-    # without the month filter. Approximation: total units / number of
-    # candidate products. Crude but explainable.
-    baseline_units = max(1, sum(co_units.values()) / len(co_units))
-
-    ranked = sorted(co_units.items(), key=lambda kv: -kv[1])[:limit]
     items: list[CrossSellItem] = []
-    for sku, units in ranked:
-        prod = _fetch_product(client, sku)
-        if not prod:
+    for hit in response.get("hits", []):
+        sku = hit.get("sku")
+        if not sku or sku == product_id:
+            # Skip the anchor — recommending a product against itself
+            # is a trivially correct but useless answer.
             continue
         items.append(CrossSellItem(
             sku=sku,
-            name=prod.get("name") or sku,
-            category=prod.get("category"),
-            supplier=prod.get("supplier"),
-            unit_price=prod.get("unit_price"),
-            co_units=units,
-            months_overlap=len(co_months.get(sku, set())),
-            lift=units / baseline_units,
+            name=hit.get("name") or sku,
+            category=hit.get("category"),
+            supplier=hit.get("supplier"),
+            unit_price=hit.get("unit_price"),
+            p_click=round(float(hit.get("$p") or 0), 3),
+            score=round(float(hit.get("$p") or 0), 3),
         ))
+        if len(items) >= limit:
+            break
     return items
 
 

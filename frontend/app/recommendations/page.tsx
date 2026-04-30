@@ -16,7 +16,7 @@ import type {
 
 const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_search + _match",
-  endpoints: ["_search", "_match"],
+  endpoints: ["_recommend", "_match"],
   stats: [
     { label: "Tables", value: "products + orders" },
     { label: "Pattern", value: "co-occurrence" },
@@ -114,15 +114,14 @@ export default function RecommendationsPage() {
       description:
         `Recommendations for <em>${anchorProduct.name}</em>. ` +
         (crossSell.length
-          ? `Top cross-sell candidate: <em>${crossSell[0].name}</em> ` +
-            `(co-purchased ${crossSell[0].co_units} units across ` +
-            `${crossSell[0].months_overlap} months — × ${crossSell[0].lift.toFixed(2)} lift). `
+          ? `Top cross-sell: <em>${crossSell[0].name}</em> ` +
+            `&mdash; P(click | prev = anchor) = ${(crossSell[0].p_click * 100).toFixed(1)}%. `
           : "") +
         (similar.length
           ? `Top similar item: <em>${similar[0].name}</em> ` +
             `(score ${similar[0].score.toFixed(2)}). `
           : "") +
-        `Both lists update on every anchor change — no precomputed batch.`,
+        `Both lists update on every anchor change &mdash; no precomputed batch.`,
     });
   }, [anchorProduct, crossSell, similar]);
 
@@ -239,26 +238,26 @@ export default function RecommendationsPage() {
                     <div className="card">
                       <div className="card-head">
                         <span className="card-title">Frequently bought together</span>
-                        <span className="card-meta">aito.._search · co-occurrence</span>
+                        <span className="card-meta">aito.._recommend · goal: clicked</span>
                       </div>
                       <div style={{ padding: "8px 14px 10px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
-                        Products ordered in the same months as the anchor.
-                        Lift is co-units relative to the candidate's average — higher means a stronger basket signal.
+                        Ranked by P(click | prev = anchor) from the impressions table — the same
+                        operator that drives help-article CTR ranking. One <code>_recommend</code>
+                        call returns the full product row via linked <code>select</code>.
                       </div>
                       {recsLoading ? (
                         <div style={{ padding: 14, fontSize: 11, color: "var(--mid)" }}>Loading…</div>
                       ) : crossSell.length === 0 ? (
                         <div style={{ padding: 14, fontSize: 11, color: "var(--mid)", fontStyle: "italic" }}>
-                          No co-purchase signal — order history may be too sparse for this SKU.
+                          No impressions paired with this anchor — try a more popular SKU.
                         </div>
                       ) : (
                         <table className="tbl">
                           <thead>
                             <tr>
                               <th>Product</th>
-                              <th style={{ textAlign: "right" }}>Co-units</th>
-                              <th style={{ textAlign: "right" }}>Months</th>
-                              <th style={{ textAlign: "right" }}>Lift</th>
+                              <th style={{ textAlign: "right" }}>Category</th>
+                              <th style={{ textAlign: "right" }}>P(click)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -267,16 +266,17 @@ export default function RecommendationsPage() {
                                 <td>
                                   <div className="proj-name">{c.name}</div>
                                   <div className="proj-sub">
-                                    {c.sku}{c.category ? <> · {c.category}</> : null}
+                                    {c.sku}{c.supplier ? <> · {c.supplier}</> : null}
                                   </div>
                                 </td>
-                                <td style={{ textAlign: "right" }} className="mono">{c.co_units}</td>
-                                <td style={{ textAlign: "right" }} className="mono">{c.months_overlap}</td>
+                                <td style={{ textAlign: "right" }} className="mono">
+                                  {c.category ?? "—"}
+                                </td>
                                 <td
                                   className="mono"
-                                  style={{ textAlign: "right", color: c.lift > 1.5 ? "var(--green)" : "var(--ink)" }}
+                                  style={{ textAlign: "right", color: c.p_click > 0.5 ? "var(--green)" : "var(--ink)" }}
                                 >
-                                  × {c.lift.toFixed(2)}
+                                  {Math.round(c.p_click * 100)}%
                                 </td>
                               </tr>
                             ))}

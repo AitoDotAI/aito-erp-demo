@@ -118,15 +118,42 @@ SCHEMAS = {
             "project_success": {"type": "Boolean", "nullable": True},
         },
     },
+    # Browsing/cart impressions — drives `_recommend goal: {clicked: true}`
+    # cross-sell ranking. Only Aurora ships fixture data for this; the
+    # other personas don't surface a Recommendations view, so loading
+    # this table is a no-op for them (run_tenant skips if no fixture).
+    "impressions": {
+        "type": "table",
+        "columns": {
+            "impression_id": {"type": "String", "nullable": False},
+            "session_id": {"type": "String", "nullable": False},
+            "customer_segment": {"type": "String", "nullable": False},
+            "product_id": {"type": "String", "nullable": False, "link": "products.sku"},
+            # Self-link via products: previous product in the session
+            # so `_recommend` can condition on "what they just looked at"
+            # the same way help_impressions condition on prev_article_id.
+            "prev_product_id": {"type": "String", "nullable": True, "link": "products.sku"},
+            "clicked": {"type": "Boolean", "nullable": False},
+            "purchased": {"type": "Boolean", "nullable": False},
+            "month": {"type": "String", "nullable": False},
+        },
+    },
 }
 
+# Tables whose fixture file may be absent for some personas. The loader
+# silently skips these instead of erroring — the Aito table is created
+# either way, so queries against it from non-data tenants get a clean
+# empty result rather than a 500.
+OPTIONAL_TABLES = {"impressions"}
 
-def load_fixture(name: str, tenant: str | None = None) -> list[dict]:
+
+def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:
     """Load a JSON fixture file.
 
     Looks for `data/<tenant>/<name>.json` first; falls back to the flat
     `data/<name>.json` so personas with no persona-specific data yet
-    still work.
+    still work. Returns None when an OPTIONAL_TABLES fixture is missing
+    so the caller can skip the upload instead of crashing.
     """
     if tenant:
         per_tenant = DATA_DIR / tenant / f"{name}.json"
@@ -135,6 +162,8 @@ def load_fixture(name: str, tenant: str | None = None) -> list[dict]:
                 return json.load(f)
     path = DATA_DIR / f"{name}.json"
     if not path.exists():
+        if name in OPTIONAL_TABLES:
+            return None
         raise FileNotFoundError(f"Fixture file not found: {path}.")
     with open(path) as f:
         return json.load(f)
@@ -195,6 +224,9 @@ def run_tenant(tenant: TenantId, reset: bool = False) -> None:
     total = 0
     for table_name in SCHEMAS:
         records = load_fixture(table_name, tenant=tenant)
+        if records is None:
+            print(f"  [{tenant}] no fixture for optional table '{table_name}' — schema created, no data uploaded.")
+            continue
         upload_data(client, table_name, records)
         total += len(records)
 

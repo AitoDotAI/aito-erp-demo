@@ -1,8 +1,11 @@
 """Automation overview — dashboard metrics for the ERP demo.
 
 Searches the purchases table to compute automation breakdown by
-routing method, prediction quality by field, and learning curve
-data showing how automation improves over time.
+routing method; runs `_evaluate` with `select: ["cases"]` to get
+*real* per-field accuracy (held-out, ground-truth-compared) plus
+confidence-band buckets that tell the operator when to trust Aito
+and when to review; computes a learning curve from the order-month
+column showing how automation improves with data.
 """
 
 from dataclasses import dataclass, field
@@ -37,18 +40,48 @@ class AutomationBreakdown:
 
 
 @dataclass
+class ConfidenceBand:
+    """Per-confidence-band quality slice from `_evaluate cases`.
+
+    `label` is a human-friendly band name ("≥0.85", "0.5–0.85", "<0.5").
+    `count` is how many test cases fell in this band; `accuracy` is the
+    fraction of those that were correct. The story this tells the
+    operator: predictions ≥0.85 are 98% right → safe to auto-approve;
+    predictions <0.5 are 60% right → needs human review.
+    """
+    label: str
+    min_p: float
+    count: int
+    accuracy: float
+
+    def to_dict(self) -> dict:
+        return {
+            "label": self.label,
+            "min_p": self.min_p,
+            "count": self.count,
+            "accuracy": self.accuracy,
+        }
+
+
+@dataclass
 class PredictionQuality:
     field_name: str
-    accuracy: float
-    avg_confidence: float
-    sample_size: int
+    accuracy: float            # true accuracy from _evaluate (held-out)
+    base_accuracy: float       # naive most-common-value baseline
+    accuracy_gain: float       # accuracy - base_accuracy
+    avg_confidence: float      # mean $p across test cases
+    sample_size: int           # totalCases from _evaluate
+    bands: list[ConfidenceBand]
 
     def to_dict(self) -> dict:
         return {
             "field_name": self.field_name,
             "accuracy": self.accuracy,
+            "base_accuracy": self.base_accuracy,
+            "accuracy_gain": self.accuracy_gain,
             "avg_confidence": self.avg_confidence,
             "sample_size": self.sample_size,
+            "bands": [b.to_dict() for b in self.bands],
         }
 
 
@@ -114,40 +147,111 @@ def get_automation_breakdown(client: AitoClient) -> AutomationBreakdown:
     )
 
 
-def get_prediction_quality(client: AitoClient) -> list[PredictionQuality]:
-    """Compute prediction quality metrics per field.
+def _case_p(case: dict) -> float:
+    """Pull the predicted top probability off an `_evaluate` case.
 
-    For each predictable field, runs a sample of predictions and
-    measures average confidence. In production, this would compare
-    against verified outcomes.
+    Live shape: `{ "top": {"$p": 0.99, "feature": "..."}, "accurate": true,
+    "correct": {...}, "testCase": {...} }` — the model's most-likely
+    answer is `top`, the ground truth is `correct`, `accurate` says
+    whether they matched.
+    """
+    top = case.get("top") or {}
+    return float(top.get("$p") or 0)
+
+
+def _case_correct(case: dict) -> bool:
+    """Did the top prediction match ground truth?"""
+    return bool(case.get("accurate"))
+
+
+def _bucket_cases(cases: list[dict]) -> list[ConfidenceBand]:
+    """Split per-case results into ≥0.85, 0.5–0.85, <0.5 bands."""
+    bands_def = [
+        ("≥ 0.85", 0.85),
+        ("0.5 – 0.85", 0.5),
+        ("< 0.5", 0.0),
+    ]
+    bucketed: list[ConfidenceBand] = []
+    for label, threshold in bands_def:
+        upper = 1.01 if threshold == 0.85 else (
+            0.85 if threshold == 0.5 else 0.5
+        )
+        in_band = [c for c in cases
+                   if threshold <= _case_p(c) < upper]
+        if not in_band:
+            bucketed.append(ConfidenceBand(label=label, min_p=threshold,
+                                           count=0, accuracy=0.0))
+            continue
+        correct = sum(1 for c in in_band if _case_correct(c))
+        bucketed.append(ConfidenceBand(
+            label=label,
+            min_p=threshold,
+            count=len(in_band),
+            accuracy=round(correct / len(in_band), 3),
+        ))
+    return bucketed
+
+
+def get_prediction_quality(client: AitoClient) -> list[PredictionQuality]:
+    """Compute *real* per-field prediction quality via `_evaluate`.
+
+    For each predictable field we run a held-out test:
+
+      testSource: 200 random purchases
+      evaluate:   predict <field> from supplier + description + amount
+
+    Aito hides the target column on each test row, predicts it, and
+    compares to ground truth. We keep `select: ["cases"]` so we can
+    bucket the per-case probabilities into confidence bands — the
+    "predictions ≥0.85 are 98% accurate" story the demo's accuracy
+    claims need to back up.
+
+    For documentation see guides/08 in aito-accounting-demo. (Trade-off:
+    `cases` payloads can be big; we aggregate server-side and only ship
+    band counts + sample size to the browser.)
     """
     fields = ["cost_center", "account_code", "approver"]
+    feature_fields = ["supplier", "description", "amount_eur"]
     quality: list[PredictionQuality] = []
 
-    result = client.search("purchases", {}, limit=100)
-    hits = result.get("hits", [])
-
     for field_name in fields:
-        confidences = []
-        for row in hits[:20]:  # Sample 20 rows per field
-            where = {"supplier": row.get("supplier", "")}
-            if row.get("description"):
-                where["description"] = row["description"]
+        try:
+            response = client.evaluate_with_cases(
+                table="purchases",
+                predict_field=field_name,
+                feature_fields=feature_fields,
+                limit=200,
+            )
+        except Exception as e:
+            print(f"  evaluate failed for {field_name}: {e}")
+            quality.append(PredictionQuality(
+                field_name=field_name,
+                accuracy=0.0,
+                base_accuracy=0.0,
+                accuracy_gain=0.0,
+                avg_confidence=0.0,
+                sample_size=0,
+                bands=[],
+            ))
+            continue
 
-            try:
-                pred = client.predict("purchases", where, field_name)
-                pred_hits = pred.get("hits", [])
-                if pred_hits:
-                    confidences.append(pred_hits[0].get("$p", 0.0))
-            except Exception:
-                continue
+        cases = response.get("cases") or []
+        accuracy = float(response.get("accuracy") or 0.0)
+        base_accuracy = float(response.get("baseAccuracy") or 0.0)
+        total = len(cases)
+        avg_conf = (
+            sum(_case_p(c) for c in cases) / len(cases)
+            if cases else 0.0
+        )
 
-        avg_conf = sum(confidences) / len(confidences) if confidences else 0
         quality.append(PredictionQuality(
             field_name=field_name,
-            accuracy=round(avg_conf * 0.95, 3),  # Approximate — real accuracy needs labels
+            accuracy=round(accuracy, 3),
+            base_accuracy=round(base_accuracy, 3),
+            accuracy_gain=round(accuracy - base_accuracy, 3),
             avg_confidence=round(avg_conf, 3),
-            sample_size=len(confidences),
+            sample_size=total,
+            bands=_bucket_cases(cases),
         ))
 
     return quality
@@ -223,13 +327,22 @@ def get_overview(client: AitoClient) -> OverviewMetrics:
     # Aggregate inventory + pricing wins from other services for the headline.
     minutes_per_po = 5.0
     cost_per_minute = 0.80  # ~€48/hr loaded cost
-    accuracy = sum(q.avg_confidence for q in quality) / len(quality) if quality else 0
     miscode_cost_per_event = 120
-    # Mis-postings prevented = automated × (1 − error rate)
-    miscodes_prevented = total_automated * accuracy
+    # Use *measured* accuracy from `_evaluate` (mean over the predictable
+    # fields). When evaluation is unavailable, treat accuracy as 0 — better
+    # to under-claim than to fabricate a savings number.
+    measured_accuracies = [q.accuracy for q in quality if q.sample_size > 0]
+    avg_accuracy = (sum(measured_accuracies) / len(measured_accuracies)
+                    if measured_accuracies else 0.0)
+    # Mis-postings prevented = automated × accuracy
+    miscodes_prevented = total_automated * avg_accuracy
     miscode_savings = miscodes_prevented * miscode_cost_per_event
     labor_savings = total_automated * minutes_per_po * cost_per_minute
     hours_saved = total_automated * minutes_per_po / 60
+
+    avg_baseline = (sum(q.base_accuracy for q in quality
+                        if q.sample_size > 0) / len(measured_accuracies)
+                    if measured_accuracies else 0.0)
 
     summary = {
         "automation_rate": _safe_pct(total_automated, total),
@@ -239,6 +352,10 @@ def get_overview(client: AitoClient) -> OverviewMetrics:
         "avg_prediction_confidence": round(
             sum(q.avg_confidence for q in quality) / len(quality), 3
         ) if quality else 0,
+        # Real evaluation outputs — what the operator should trust.
+        "model_accuracy": round(avg_accuracy, 3),
+        "baseline_accuracy": round(avg_baseline, 3),
+        "accuracy_gain": round(avg_accuracy - avg_baseline, 3),
         # Money metrics
         "labor_savings_eur": round(labor_savings, 0),
         "miscode_savings_eur": round(miscode_savings, 0),

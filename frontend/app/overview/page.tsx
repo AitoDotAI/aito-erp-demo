@@ -5,23 +5,41 @@ import Nav from "@/components/shell/Nav";
 import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
-import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { apiFetch, confClass } from "@/lib/api";
 import type { OverviewMetrics, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
   operation: "automation overview",
-  endpoints: ["_search"],
+  endpoints: ["_search", "_evaluate"],
   stats: [
     { label: "Rules", value: "—" },
     { label: "aito..", value: "—" },
     { label: "Manual", value: "—" },
   ],
   description:
-    "The automation gap: rules handle <em>known patterns</em>, but the remaining percentage requires either manual work or machine learning.<br/><br/>aito.. closes this gap with <em>zero training required</em>. Upload your data, ask a question, get a prediction. The system learns from every correction, continuously improving without retraining pipelines.<br/><br/>Unlike traditional ML, aito.. needs <em>no feature engineering, no model selection, no deployment</em> &mdash; predictions come directly from the database.",
-  query: `<span class="q-d">// No model training needed.</span>\n<span class="q-d">// aito.. learns directly from data.</span>\n\n<span class="q-k">POST</span> <span class="q-v">/api/v1/_predict</span>\n<span class="q-d">// \u2192 Predicts categorical values</span>\n\n<span class="q-k">POST</span> <span class="q-v">/api/v1/_estimate</span>\n<span class="q-d">// \u2192 Estimates numerical values</span>\n\n<span class="q-k">POST</span> <span class="q-v">/api/v1/_relate</span>\n<span class="q-d">// \u2192 Discovers relationships</span>\n\n<span class="q-k">POST</span> <span class="q-v">/api/v1/_match</span>\n<span class="q-d">// \u2192 Finds similar records</span>`,
+    "Per-field <em>accuracy</em> on this page is real &mdash; it comes from Aito's <em>_evaluate</em> with " +
+    "<code>select: [\"cases\"]</code>. We hold out each row, predict the field from supplier + " +
+    "description + amount, compare to ground truth, and bucket by confidence band. " +
+    "<em>Predictions &ge; 0.85</em> are the auto-approve zone; lower bands flag review work.<br/><br/>" +
+    "Unlike traditional ML, aito.. needs <em>no feature engineering, no model selection, no deployment</em> " +
+    "&mdash; predictions come directly from the database, and so does this evaluation.",
+  query: `<span class="q-k">POST</span> /api/v1/_evaluate<br/>
+{<br/>
+&nbsp;&nbsp;<span class="q-k">"testSource"</span>: { <span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>, <span class="q-k">"limit"</span>: <span class="q-n">200</span> },<br/>
+&nbsp;&nbsp;<span class="q-k">"evaluate"</span>: {<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>:    { <span class="q-k">"$get"</span>: <span class="q-v">"supplier"</span> },<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: { <span class="q-k">"$get"</span>: <span class="q-v">"description"</span> },<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"amount_eur"</span>:  { <span class="q-k">"$get"</span>: <span class="q-v">"amount_eur"</span> }<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;},<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
+&nbsp;&nbsp;},<br/>
+&nbsp;&nbsp;<span class="q-k">"select"</span>: [<span class="q-v">"accuracy"</span>, <span class="q-v">"baseAccuracy"</span>, <span class="q-v">"cases"</span>]<br/>
+}`,
   links: [
-    { label: "aito.ai/docs/overview", url: "https://aito.ai/docs" },
-    { label: "aito.ai/docs/api", url: "https://aito.ai/docs/api" },
+    { label: "_evaluate API reference", url: "https://aito.ai/docs/api/evaluate" },
+    { label: "aito.ai/docs", url: "https://aito.ai/docs" },
   ],
 };
 
@@ -115,7 +133,7 @@ export default function OverviewPage() {
                         <strong>Labor</strong>: {summary.total_automated} POs × 5 min × €0.80/min ={" "}
                         €{summary.labor_savings_eur != null ? Math.round(summary.labor_savings_eur).toLocaleString("fi-FI") : "—"}
                         <br/>
-                        <strong>Mis-coding</strong>: {summary.total_automated} × {Math.round(summary.avg_prediction_confidence * 100)}% accuracy ×{" "}
+                        <strong>Mis-coding</strong>: {summary.total_automated} × {Math.round((summary.model_accuracy ?? summary.avg_prediction_confidence) * 100)}% measured accuracy ×{" "}
                         €120 cleanup cost ={" "}
                         €{summary.miscode_savings_eur != null ? Math.round(summary.miscode_savings_eur).toLocaleString("fi-FI") : "—"}
                         <br/>
@@ -136,8 +154,17 @@ export default function OverviewPage() {
               <div className="savings-card">
                 <div className="savings-icon">{"\uD83C\uDFAF"}</div>
                 <div>
-                  <div className="savings-val">{Math.round(summary.avg_prediction_confidence * 100)}%</div>
-                  <div className="savings-label">Avg prediction confidence</div>
+                  <div className="savings-val">
+                    {Math.round((summary.model_accuracy ?? summary.avg_prediction_confidence) * 100)}%
+                  </div>
+                  <div className="savings-label">
+                    Measured accuracy
+                    {summary.baseline_accuracy != null && (
+                      <span style={{ display: "block", fontSize: 10, color: "var(--mid)", marginTop: 2 }}>
+                        baseline {Math.round(summary.baseline_accuracy * 100)}% &middot; +{Math.round((summary.accuracy_gain ?? 0) * 100)}pt gain
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="savings-card">
@@ -206,23 +233,25 @@ export default function OverviewPage() {
 
             {/* Two-column grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              {/* Prediction Quality by Field */}
+              {/* Prediction Quality by Field — real numbers from _evaluate. */}
               <div className="card">
                 <div className="card-head">
                   <span className="card-title">Prediction Quality by Field</span>
+                  <span className="card-meta">held-out _evaluate</span>
                 </div>
                 <table className="tbl">
                   <thead>
                     <tr>
                       <th>Field</th>
                       <th>Accuracy</th>
-                      <th>Avg Confidence</th>
+                      <th>Baseline</th>
+                      <th>Gain</th>
                       <th>Samples</th>
                     </tr>
                   </thead>
                   <tbody>
                     {metrics.prediction_quality.map((pq) => (
-                      <tr key={pq.field_name} className="clickable">
+                      <tr key={pq.field_name}>
                         <td style={{ fontWeight: 500 }}>{pq.field_name}</td>
                         <td>
                           <div className={`conf ${confClass(pq.accuracy)}`}>
@@ -232,8 +261,11 @@ export default function OverviewPage() {
                             <span className="conf-val">{Math.round(pq.accuracy * 100)}%</span>
                           </div>
                         </td>
-                        <td className="mono" style={{ fontSize: 11 }}>
-                          {Math.round(pq.avg_confidence * 100)}%
+                        <td className="mono" style={{ fontSize: 11, color: "var(--mid)" }}>
+                          {Math.round(pq.base_accuracy * 100)}%
+                        </td>
+                        <td className="mono" style={{ fontSize: 11, color: pq.accuracy_gain >= 0 ? "var(--green)" : "var(--red, #c54)" }}>
+                          {pq.accuracy_gain >= 0 ? "+" : ""}{Math.round(pq.accuracy_gain * 100)}pt
                         </td>
                         <td className="mono" style={{ fontSize: 11 }}>
                           {pq.sample_size}
@@ -242,6 +274,53 @@ export default function OverviewPage() {
                     ))}
                   </tbody>
                 </table>
+                <div style={{ padding: "10px 14px 14px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
+                  Each row: <code>_evaluate</code> holds out 200 purchases, predicts the field from
+                  supplier + description + amount, and compares to ground truth. <em>Gain</em> = accuracy &minus;
+                  most-common-value baseline.
+                </div>
+
+                {/* Confidence-band breakdown — when to trust, when to review */}
+                {metrics.prediction_quality.some((pq) => pq.bands?.length) && (
+                  <div style={{ borderTop: "1px solid #f0ede6", padding: "12px 14px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>
+                      Accuracy by confidence band — first field shown
+                    </div>
+                    {(() => {
+                      const first = metrics.prediction_quality.find((pq) => pq.bands?.length);
+                      if (!first) return null;
+                      return (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                          {first.bands.map((b) => (
+                            <div key={b.label} style={{
+                              padding: "8px 10px",
+                              border: "1px solid var(--border)",
+                              borderRadius: 5,
+                              background: b.min_p >= 0.85
+                                ? "var(--green-light, #e7f4ec)"
+                                : b.min_p >= 0.5 ? "var(--gold-light)" : "#f5efe5",
+                            }}>
+                              <div style={{ fontSize: 10, color: "var(--mid)", marginBottom: 2 }}>
+                                $p {b.label}
+                              </div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)" }}>
+                                {Math.round(b.accuracy * 100)}%
+                              </div>
+                              <div style={{ fontSize: 10, color: "var(--mid)" }}>
+                                {b.count} cases
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                    <div style={{ fontSize: 10, color: "var(--mid)", marginTop: 8, lineHeight: 1.5 }}>
+                      Predictions in the <strong>≥ 0.85</strong> band are the auto-approve zone;
+                      <strong> &lt; 0.5</strong> is the review zone. The confidence-to-accuracy
+                      relationship is <em>calibrated</em> — Aito's $p actually means what it says.
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Learning Curve */}
