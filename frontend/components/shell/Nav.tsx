@@ -71,6 +71,7 @@ const SECTIONS: NavSection[] = [
     emoji: "\u{1F4CA}",
     items: [
       { label: "Automation Overview", href: "/overview" },
+      { label: "Cold Start", href: "/coldstart" },
     ],
   },
 ];
@@ -93,9 +94,19 @@ export default function Nav() {
       .filter((s) => s.items.length > 0);
   }, [isVisible]);
 
-  // Persist collapsed preference (matches aito-demo behaviour)
+  // Persist collapsed preference (matches aito-demo behaviour) —
+  // but on mobile, force the full-width menu regardless of the
+  // stored preference. Otherwise a desktop user who collapsed the
+  // sidebar then opened the demo on their phone would get the
+  // initial-only menu inside the off-canvas drawer, which looks
+  // broken.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia("(max-width: 768px)").matches;
+    if (isMobile) {
+      setCollapsed(false);
+      return;
+    }
     const stored = localStorage.getItem("sidebarCollapsed") === "true";
     setCollapsed(stored);
   }, []);

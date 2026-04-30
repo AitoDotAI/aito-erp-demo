@@ -130,6 +130,16 @@ export default function ApprovalPage() {
             {error && <ErrorState message={error} command="GET /api/approval/queue" />}
             {data && (
               <>
+                <div className="intro-banner">
+                  <div className="intro-banner-text">
+                    <strong>Predicted approver + escalation level</strong> per pending PO.
+                    Click any row to inspect the reasoning. Suggestions surface for review &mdash;
+                    they are not policy until promoted via the Rule Mining workflow.
+                    <span className="intro-banner-freshness">
+                      Predictions reflect every approval decision logged so far. No batch retrain step.
+                    </span>
+                  </div>
+                </div>
                 <div className="kpi-row">
                   <div className="kpi">
                     <div className="kpi-label">Auto-routed</div>

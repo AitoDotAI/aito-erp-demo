@@ -323,6 +323,31 @@ export interface OverviewMetrics {
   };
 }
 
+/* ─── Cold-start snapshot ─── */
+export interface ColdStartFieldSnapshot {
+  name: string;
+  accuracy: number;
+  base_accuracy: number;
+  high_confidence_share: number;     // share of test cases at $p ≥ 0.85
+  high_confidence_accuracy: number;  // accuracy *within* that band
+}
+
+export interface ColdStartSnapshot {
+  size: number;
+  label: string;     // "Brand-new tenant", "Two months in", "Mature tenant"
+  blurb: string;
+  fields: ColdStartFieldSnapshot[];
+}
+
+export interface ColdStartResponse {
+  captured_at: string;
+  captured_from: string;
+  method: string;
+  fields: string[];
+  snapshots: ColdStartSnapshot[];
+  note: string;
+}
+
 /* ─── Recommendations (Aurora retail) ─── */
 export interface RecommendationProduct {
   sku: string;

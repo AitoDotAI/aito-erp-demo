@@ -735,6 +735,29 @@ def projects_forecast(body: dict, request: Request):
     return forecast_with_override(aito, project_id, override)
 
 
+# ── Cold start ───────────────────────────────────────────────────
+#
+# Static snapshot, captured offline by `scripts/capture_coldstart.py`
+# against an Aito DB with write access (production demo keys are
+# read-only). Surfaces the cold-start curve: how prediction quality
+# changes from a 50-row tenant to a 5,000-row one. The view at
+# `/coldstart` reads it and renders.
+
+_COLDSTART_PATH = Path(__file__).resolve().parent.parent / "data" / "coldstart" / "results.json"
+
+
+@app.get("/api/coldstart")
+def coldstart():
+    if not _COLDSTART_PATH.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Cold-start snapshot not captured yet — run scripts/capture_coldstart.py.",
+        )
+    import json as _json
+    with open(_COLDSTART_PATH) as f:
+        return _json.load(f)
+
+
 # ── Overview ─────────────────────────────────────────────────────
 
 @app.get("/api/overview/metrics")

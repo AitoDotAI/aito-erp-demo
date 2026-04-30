@@ -631,6 +631,14 @@ body {
 }
 
 .intro-banner-text strong { color: white; }
+.intro-banner-text em.live { color: var(--aito-teal); font-style: normal; font-weight: 500; }
+.intro-banner-freshness {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+}
 
 .intro-banner-close {
   font-size: 16px;
@@ -1776,6 +1784,18 @@ body {
   .landing-tiles { grid-template-columns: 1fr; }
 }
 
+/* Landing page tightens further on phones — big headline, smaller logo,
+   reduced top padding so the brand strip + headline fit above the fold. */
+@media (max-width: 768px) {
+  .landing { padding: 32px 16px 48px; }
+  .landing-hero { margin-bottom: 32px; }
+  .landing-brand { margin-bottom: 22px; }
+  .landing-logo-icon { width: 44px; height: 44px; }
+  .landing-brand-title { font-size: 22px; }
+  .landing-headline { font-size: 26px; }
+  .landing-sub { font-size: 13.5px; }
+}
+
 .landing-tile {
   position: relative;
   display: flex;
@@ -2344,6 +2364,93 @@ body {
   /* Tables on mobile: allow horizontal scroll inside the card so wide
      columns don't break the page layout. */
   .card { overflow-x: auto; }
+}
+
+/* ─── Cold Start view ────────────────────────────────────────── */
+.cs-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.cs-tab {
+  padding: 14px 14px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.cs-tab:hover { border-color: var(--gold); }
+.cs-tab--active {
+  border-color: var(--gold-dark);
+  background: var(--gold-light);
+}
+.cs-tab-size {
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cs-tab-label {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--mid);
+}
+.cs-snapshot-blurb {
+  font-size: 13px;
+  color: var(--mid);
+  margin: 4px 0 14px;
+  line-height: 1.55;
+}
+.cs-curve {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+.cs-curve-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cs-curve-size {
+  font-family: 'DM Mono', monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.cs-curve-label {
+  font-size: 11px;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.cs-curve-bar {
+  height: 8px;
+  background: #f0ede6;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.cs-curve-bar-share {
+  height: 8px;
+  background: linear-gradient(90deg, var(--gold) 0%, var(--gold-dark) 100%);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+.cs-curve-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--mid);
+  font-family: 'DM Mono', monospace;
+}
+.cs-curve-meta strong { color: var(--ink); font-weight: 600; }
+@media (max-width: 768px) {
+  .cs-tabs { grid-template-columns: 1fr; }
+  .cs-curve { grid-template-columns: 1fr; gap: 12px; }
 }
 
 /* Vertical deep-link badge under each tile's CTA. */

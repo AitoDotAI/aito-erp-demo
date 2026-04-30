@@ -122,6 +122,10 @@ export default function POQueuePage() {
                     <strong>Click any row</strong> to inspect the aito.. prediction in the
                     side panel. Gold badges indicate predicted values; gray badges show
                     low-confidence fields that need review.
+                    <span className="intro-banner-freshness">
+                      Predictions are live — every row added to the database is in the
+                      next prediction. No batch retrain step.
+                    </span>
                   </div>
                 </div>
 

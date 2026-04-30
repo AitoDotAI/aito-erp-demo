@@ -294,6 +294,9 @@ export default function SmartEntryPage() {
                 <strong>One field per concept.</strong> Predictions appear in the field itself
                 — gold + italic until you accept (Tab) or override (type). Click <strong>?</strong>
                 on any field to see why, with the contributing input fields outlined in purple.
+                <span className="intro-banner-freshness">
+                  Submit anything below — the next prediction reflects it on the spot. No retrain.
+                </span>
               </div>
             </div>
 
@@ -398,15 +401,15 @@ export default function SmartEntryPage() {
                     Clear
                   </button>
                   {submitted && (
-                    <div style={{
-                      padding: "8px 14px",
-                      background: "var(--green-light)",
-                      border: "1px solid var(--green)",
-                      color: "var(--green)",
-                      borderRadius: 5,
-                      fontSize: 12,
-                    }}>
-                      ✓ Submitted as <strong>{submitted.purchase_id}</strong> — appears in PO Queue and Approval Routing
+                    <div className="relearn-banner" style={{ marginBottom: 0 }}>
+                      <span className="relearn-pulse" />
+                      <div className="relearn-text">
+                        <strong>Saved as {submitted.purchase_id}.</strong>{" "}
+                        aito.. just learned from this — next prediction for{" "}
+                        <em>{supplier}</em> reflects what you submitted, no batch retrain.
+                        It also appears in <a href="/po-queue">PO Queue</a> and{" "}
+                        <a href="/approval">Approval Routing</a>.
+                      </div>
                     </div>
                   )}
                   {!canSubmit && !submitted && (
