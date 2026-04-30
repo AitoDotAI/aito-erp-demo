@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.aito_client import AitoClient, AitoError
-from src import cache
+from src import cache, timing
 from src.config import DEFAULT_TENANT, TENANT_IDS, TenantId, load_config
 from src.rate_limit import check_rate_limit
 
@@ -281,7 +281,32 @@ app.add_middleware(
     # Only the headers the frontend actually sends — narrower than "*"
     # while still permitting the X-Tenant routing header.
     allow_headers=["Content-Type", "X-Tenant"],
+    # X-Aito-Calls carries per-request timing data the browser reads
+    # to render the latency pill. CORS hides custom response headers
+    # from JS unless explicitly exposed.
+    expose_headers=["X-Aito-Calls"],
 )
+
+
+@app.middleware("http")
+async def aito_timing_middleware(request: Request, call_next):
+    """Bind a fresh per-request timing bucket and ship it back as a header.
+
+    Every Aito HTTP call made while serving this request appends to the
+    bucket via `timing.record_call`. On the way out we render the bucket
+    as `X-Aito-Calls: _predict:28,_relate:142` — the frontend's latency
+    pill component reads it. When no Aito calls were made (cache hit)
+    the header is omitted, so the pill knows to render a "cached"
+    indicator instead.
+    """
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    timing.start_request()
+    response = await call_next(request)
+    header_value = timing.render_header()
+    if header_value:
+        response.headers["X-Aito-Calls"] = header_value
+    return response
 
 
 @app.middleware("http")
@@ -403,6 +428,18 @@ def po_pending(request: Request):
     result = {
         "pos": [p.to_dict() for p in all_predictions],
         "metrics": compute_metrics(all_predictions),
+        # Surface user-submitted POs separately so the UI can flag the
+        # "Aito just learned from these — next prediction reflects them"
+        # ribbon at the top of the queue. Empty when no recent
+        # submissions; the cache path skips this branch entirely.
+        "recent_submissions": [
+            {
+                "purchase_id": s["purchase_id"],
+                "supplier": s["supplier"],
+                "submitted_at": s.get("submitted_at"),
+            }
+            for s in submissions
+        ],
     }
     if not submissions:
         cache.set(cache_key, result)

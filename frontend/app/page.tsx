@@ -160,6 +160,21 @@ export default function LandingPage() {
               with no model training and no MLOps pipeline.
             </span>
           </div>
+          <div className="landing-foot-row landing-foot-cost">
+            <span>
+              💸 <strong>This demo runs on Aito's free tier</strong> —
+              three small DBs on <code>shared.aito.ai</code>, ~50K rows each,
+              read-only API keys committed to <code>.env.example</code>.
+              Production scaling (per-tenant cost, infra tiers) covered in{" "}
+              <a
+                href="https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/scaling.md"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                docs/scaling.md
+              </a>.
+            </span>
+          </div>
           <div className="landing-foot-row landing-foot-meta">
             <a href="https://aito.ai" target="_blank" rel="noopener noreferrer">
               aito.ai →

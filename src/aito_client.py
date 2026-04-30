@@ -8,11 +8,13 @@ made and what response shapes come back.
 Aito API docs: https://aito.ai/docs/api/
 """
 
+import time
 from typing import Any
 
 import httpx
 
 from src.config import Config
+from src import timing
 
 
 class AitoError(Exception):
@@ -75,8 +77,14 @@ class AitoClient:
     def _request(self, method: str, path: str, json: dict | None = None) -> Any:
         """Make an HTTP request to Aito and return the parsed JSON response.
 
+        Wall time is recorded on the per-request timing context (when
+        called inside a FastAPI handler) so the browser can render a
+        latency pill from the `X-Aito-Calls` response header. Errors
+        are recorded too — a slow failing call is still informative.
+
         Raises AitoError on non-2xx status or connection failure.
         """
+        start = time.perf_counter()
         try:
             response = httpx.request(
                 method,
@@ -86,9 +94,12 @@ class AitoClient:
                 timeout=30.0,
             )
         except httpx.HTTPError as exc:
+            timing.record_call(path, (time.perf_counter() - start) * 1000)
             raise AitoError(
                 f"Aito request failed: {method} {path}: {exc}"
             ) from exc
+
+        timing.record_call(path, (time.perf_counter() - start) * 1000)
 
         if response.status_code >= 400:
             raise AitoError(

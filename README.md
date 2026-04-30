@@ -17,6 +17,11 @@ code, and a use-case guide. The demo runs in three industry profiles —
 (commerce), **Helsinki Studio** (services) — each backed by its own
 Aito DB, swap profiles in the TopBar.
 
+> Profile switching here is for *content variety*, not a multi-tenant
+> demo. For real SaaS multi-tenancy (one DB, hundreds of tenants),
+> see the [accounting demo](https://github.com/AitoDotAI/aito-accounting-demo)
+> and [`docs/scaling.md`](docs/scaling.md).
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Powered by Aito.ai](https://img.shields.io/badge/Powered%20by-Aito.ai-orange)](https://aito.ai)
 [![Tests](https://img.shields.io/badge/tests-39%20passing-brightgreen)](tests/)
@@ -269,10 +274,23 @@ miscoding-prevented). 29-month learning curve computed live from
 
 ---
 
-## Multi-tenant: one demo, three audiences
+## Three industry profiles, one codebase
 
 The same code drives three industry profiles, each with its own Aito DB
 and persona-appropriate fixtures. Switch in the TopBar (`localStorage.demoTenant`).
+
+> **A note on multi-tenancy.** The "one Aito DB per profile" choice here
+> is a *content-variety* trick — three industry-distinct datasets so the
+> same UI tells a different story per buyer. It is **not** the canonical
+> multi-tenant pattern. For real SaaS multi-tenancy (one shared Aito DB
+> with `customer_id` in every `where` clause, scaling to hundreds of
+> tenants without per-tenant infra), see the
+> [accounting demo](https://github.com/AitoDotAI/aito-accounting-demo)
+> (256 tenants, ~250K invoices, one DB) and `docs/scaling.md`. The
+> backend's tenant-routing layer here works either way — point all three
+> profiles at one DB and add a tenant filter and you have the accounting
+> demo's pattern; we kept three DBs only so each profile's industry
+> vocabulary is unmistakable.
 
 | Profile | Audience | Data shape |
 |---------|----------|------------|

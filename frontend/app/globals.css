@@ -1945,6 +1945,24 @@ body {
   font-style: italic;
 }
 
+/* Cost-of-this-demo line — disarms CFO budget anxiety up front. */
+.landing-foot-cost {
+  font-size: 11.5px;
+  color: var(--mid);
+  background: rgba(212, 160, 48, 0.07);
+  border-left: 3px solid var(--gold);
+  padding: 8px 14px;
+  border-radius: 4px;
+  line-height: 1.55;
+}
+.landing-foot-cost strong { color: var(--ink); }
+.landing-foot-cost a {
+  color: var(--gold-dark);
+  text-decoration: none;
+  font-weight: 500;
+}
+.landing-foot-cost a:hover { text-decoration: underline; }
+
 /* Field source styling — the visual distinction between predicted and user */
 .form-input.sf-empty { /* default — no highlight */ }
 .form-input.sf-predicted {
@@ -1975,4 +1993,105 @@ body {
   border-radius: 2px;
   text-decoration: line-through;
   text-decoration-color: rgba(192,57,43,0.4);
+}
+
+/* ─── Latency pill ──────────────────────────────────────────────
+   Lives in the bottom-right corner. Fades in on every API call,
+   auto-hides after 4s. Visible across all pages so visitors see
+   sub-50ms _predict / _relate timings as they click around. */
+.latency-pill {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(12, 15, 65, 0.94);  /* aito panel bg, slightly translucent */
+  color: #fff;
+  border-radius: 18px;
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 14px rgba(12, 15, 65, 0.18);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+.latency-pill.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.latency-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--aito-teal);
+  box-shadow: 0 0 6px rgba(18, 181, 173, 0.6);
+}
+.latency-dot--cached {
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: none;
+}
+.latency-endpoint {
+  color: var(--aito-teal);
+  font-weight: 500;
+}
+.latency-ms {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 600;
+}
+.latency-label {
+  color: rgba(255, 255, 255, 0.55);
+  font-style: italic;
+}
+
+/* ─── Relearn banner (PO Queue) ─────────────────────────────────
+   Surfaces only when the user has just submitted via Smart Entry.
+   Pulse dot signals "fresh learning happening right now"; the
+   text closes the override→relearn loop visually. */
+.relearn-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #fff7e0 0%, #fff 100%);
+  border: 1px solid var(--gold);
+  border-left: 3px solid var(--gold-dark);
+  border-radius: 5px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  animation: relearn-fade-in 0.45s ease;
+}
+.relearn-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gold-dark);
+  flex: 0 0 10px;
+  position: relative;
+}
+.relearn-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--gold-dark);
+  opacity: 0.6;
+  animation: relearn-pulse 1.6s ease-out infinite;
+}
+.relearn-text { color: var(--ink); }
+.relearn-text em { color: var(--gold-dark); font-style: normal; font-weight: 600; }
+@keyframes relearn-pulse {
+  0%   { transform: scale(0.8); opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes relearn-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

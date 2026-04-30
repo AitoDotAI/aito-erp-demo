@@ -29,9 +29,18 @@ export interface POMetrics {
   review_count: number;
 }
 
+export interface RecentSubmission {
+  purchase_id: string;
+  supplier: string;
+  submitted_at: string | null;
+}
+
 export interface POQueueResponse {
   pos: POPrediction[];
   metrics: POMetrics;
+  /** User-submitted POs from the in-memory store. Drives the
+   *  "Aito just learned from these" relearn banner. */
+  recent_submissions?: RecentSubmission[];
 }
 
 /* ─── Smart Entry ─── */

@@ -125,6 +125,25 @@ export default function POQueuePage() {
                   </div>
                 </div>
 
+                {/* Override→relearn ribbon — surfaces only when the user
+                    has just submitted a PO from Smart Entry. Closes the
+                    "I overrode Aito; what happens next?" loop visibly. */}
+                {data.recent_submissions && data.recent_submissions.length > 0 && (
+                  <div className="relearn-banner">
+                    <span className="relearn-pulse" />
+                    <div className="relearn-text">
+                      <strong>aito.. just learned from your {data.recent_submissions.length === 1 ? "submission" : `${data.recent_submissions.length} submissions`}.</strong>
+                      {" "}Next prediction for{" "}
+                      {data.recent_submissions.slice(0, 3).map((s, i, arr) => (
+                        <span key={s.purchase_id}>
+                          <em>{s.supplier}</em>{i < arr.length - 1 ? ", " : ""}
+                        </span>
+                      ))}
+                      {" "}reflects what you just submitted &mdash; no batch retrain.
+                    </div>
+                  </div>
+                )}
+
                 <div className="kpi-row">
                   <div className="kpi">
                     <div className="kpi-label">POs Today</div>
