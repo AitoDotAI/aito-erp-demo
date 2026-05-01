@@ -348,6 +348,20 @@ export interface ColdStartResponse {
   note: string;
 }
 
+/** Live cold-start: slider-driven `_evaluate` queries against the
+ *  current tenant's purchases table, with `order_month <= cutoff`
+ *  filtering Aito's conditional probabilities. */
+export interface ColdStartCutoff {
+  cutoff: string;
+  label: string;
+  approx_rows: number;
+}
+
+export interface ColdStartLiveResponse {
+  cutoff: string;
+  fields: Array<ColdStartFieldSnapshot & { total_cases: number }>;
+}
+
 /* ─── Recommendations (Aurora retail) ─── */
 export interface RecommendationProduct {
   sku: string;

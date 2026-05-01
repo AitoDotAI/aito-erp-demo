@@ -232,7 +232,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Two-column grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div className="split-2-col">
               {/* Prediction Quality by Field — real numbers from _evaluate. */}
               <div className="card">
                 <div className="card-head">

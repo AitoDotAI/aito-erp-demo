@@ -125,7 +125,7 @@ export default function SupplierPage() {
             {loading && <p style={{ padding: 24, color: "var(--mid)" }}>Loading...</p>}
             {error && <ErrorState message={error} command="GET /api/supplier/overview" />}
             {data && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div className="split-2-col">
                 <div className="card">
                   <div className="card-head">
                     <span className="card-title">Top Suppliers by Spend</span>

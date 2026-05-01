@@ -210,6 +210,7 @@ class AitoClient:
         predict_field: str,
         feature_fields: list[str],
         test_where: dict | None = None,
+        evaluate_extra_where: dict | None = None,
         limit: int = 200,
     ) -> dict:
         """Run a held-out `_evaluate` and return per-case results.
@@ -232,6 +233,13 @@ class AitoClient:
         evaluate_where = {
             field: {"$get": field} for field in feature_fields
         }
+        # Extra constraints applied on the *evaluate* side — for
+        # cold-start simulation we add e.g. `order_month: {$lt: ...}`
+        # to make Aito's conditional probabilities use only an early
+        # slice of history. Caller is responsible for not picking a
+        # field name that collides with `feature_fields`.
+        if evaluate_extra_where:
+            evaluate_where.update(evaluate_extra_where)
         test_source: dict = {"from": table, "limit": limit}
         if test_where:
             test_source["where"] = test_where

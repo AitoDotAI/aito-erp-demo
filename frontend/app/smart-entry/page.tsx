@@ -471,8 +471,10 @@ export default function SmartEntryPage() {
                   </div>
                 </div>
 
-                {/* Predicted fields — same input, three states */}
-                <div className="form-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+                {/* Predicted fields — same input, three states.
+                    Drops to 2 columns at mobile via the .se-predicted-grid
+                    media query in globals.css. */}
+                <div className="form-grid se-predicted-grid">
                   {PREDICTABLE_FIELDS.map((f) => (
                     <SmartField
                       key={f}

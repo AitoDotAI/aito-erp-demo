@@ -13,6 +13,14 @@ export const metadata = {
   },
 };
 
+// Without this, mobile browsers fall back to the legacy 980px viewport
+// and shrink-to-fit, defeating every `@media (max-width: 768px)` rule
+// in globals.css. Same setting aito-demo's index.html uses.
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">

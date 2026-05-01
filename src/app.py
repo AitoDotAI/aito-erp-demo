@@ -758,6 +758,98 @@ def coldstart():
         return _json.load(f)
 
 
+# ── Cold start (live, slider-driven) ────────────────────────────
+#
+# Five cutoffs map to roughly 4% / 13% / 28% / 59% / 100% of the
+# metsa fixture's history. The slider on /coldstart calls
+# /api/coldstart/live?cutoff=YYYY-MM and the backend runs one
+# `_evaluate` per target field with `order_month: {$lte: cutoff}`
+# tacked onto the evaluate-step `where`. Aito's conditional
+# probabilities then condition on only rows up to that cutoff —
+# same shape as a tenant who only has data through that month. No
+# data manipulation, works with read-only keys.
+COLDSTART_CUTOFFS = [
+    # Clustered at the cold-start zone where the signal lives.
+    # cost_center predictions saturate fast on the metsa fixture
+    # (per-supplier patterns stabilise within a few hundred rows),
+    # so spreading the slider linearly across 4 years would land
+    # 4 of 5 positions on the flat part of the curve.
+    {"cutoff": "2022-06", "label": "First week",   "approx_rows": 68},
+    {"cutoff": "2022-07", "label": "1 month",      "approx_rows": 138},
+    {"cutoff": "2022-09", "label": "3 months",     "approx_rows": 278},
+    {"cutoff": "2023-06", "label": "1 year",       "approx_rows": 910},
+    {"cutoff": "2026-03", "label": "Full history", "approx_rows": 3252},
+]
+COLDSTART_FIELDS = ["cost_center", "account_code", "approver"]
+COLDSTART_FEATURE_FIELDS = ["supplier", "description", "amount_eur"]
+HIGH_CONF_THRESHOLD = 0.85
+
+
+def _coldstart_evaluate_one(aito: AitoClient, cutoff: str, field: str) -> dict:
+    """Run one `_evaluate` for a (cutoff, field) pair.
+
+    Both testSource AND the evaluate-step `where` are filtered to
+    `order_month <= cutoff`. That way we're testing the tenant's
+    own early data against patterns Aito learned from that same
+    early data — the honest cold-start framing. (Filtering only the
+    evaluate side would be testing future POs against past patterns,
+    which is a different question.)
+    """
+    cutoff_filter = {"order_month": {"$lte": cutoff}}
+    response = aito.evaluate_with_cases(
+        table="purchases",
+        predict_field=field,
+        feature_fields=COLDSTART_FEATURE_FIELDS,
+        test_where=cutoff_filter,
+        evaluate_extra_where=cutoff_filter,
+        limit=200,
+    )
+    cases = response.get("cases") or []
+    high = [c for c in cases
+            if float((c.get("top") or {}).get("$p") or 0) >= HIGH_CONF_THRESHOLD]
+    high_correct = sum(1 for c in high if c.get("accurate"))
+    return {
+        "name": field,
+        "accuracy": round(float(response.get("accuracy") or 0), 3),
+        "base_accuracy": round(float(response.get("baseAccuracy") or 0), 3),
+        "high_confidence_share": round(len(high) / len(cases), 3) if cases else 0.0,
+        "high_confidence_accuracy": (
+            round(high_correct / len(high), 3) if high else 0.0
+        ),
+        "total_cases": len(cases),
+    }
+
+
+@app.get("/api/coldstart/live")
+def coldstart_live(request: Request, cutoff: str):
+    """Run live `_evaluate` queries for one slider position. Returns
+    one entry per target field. Cached per (tenant, cutoff)."""
+    tenant, aito = client_from_request(request)
+    valid_cutoffs = {c["cutoff"] for c in COLDSTART_CUTOFFS}
+    if cutoff not in valid_cutoffs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown cutoff '{cutoff}'. Valid: "
+                   + ", ".join(c["cutoff"] for c in COLDSTART_CUTOFFS),
+        )
+    return cache.get_or_compute(
+        _tk(tenant, f"coldstart_live:{cutoff}"),
+        lambda: {
+            "cutoff": cutoff,
+            "fields": [
+                _coldstart_evaluate_one(aito, cutoff, f)
+                for f in COLDSTART_FIELDS
+            ],
+        },
+    )
+
+
+@app.get("/api/coldstart/cutoffs")
+def coldstart_cutoffs():
+    """Slider positions metadata."""
+    return {"cutoffs": COLDSTART_CUTOFFS}
+
+
 # ── Overview ─────────────────────────────────────────────────────
 
 @app.get("/api/overview/metrics")

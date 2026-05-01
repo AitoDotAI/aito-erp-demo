@@ -1047,6 +1047,16 @@ body {
 
 .savings-label { font-size: 10.5px; color: var(--mid); margin-top: 2px; }
 
+@media (max-width: 768px) {
+  .savings-strip {
+    flex-wrap: wrap;
+  }
+  .savings-card {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+  }
+}
+
 /* ─── MONO TAG ─── */
 .mono { font-family: 'DM Mono', monospace; font-size: 11px; }
 
@@ -2386,6 +2396,32 @@ body {
   font-size: 12px;
   color: var(--mid);
 }
+/* Predicted-fields grid — 4 columns on desktop, 2 at narrow widths.
+   Lives on Smart Entry's "cost center / account / project / approver"
+   row; matches the form-grid spacing rhythm. */
+.se-predicted-grid {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+@media (max-width: 768px) {
+  .se-predicted-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+}
+
+/* Two-pane card row — used on Overview, Supplier Intel, etc.
+   Stacks vertically on mobile so neither card gets clipped. */
+.split-2-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .split-2-col {
+    grid-template-columns: 1fr;
+  }
+}
 .se-mode-label {
   transition: color 0.18s ease;
 }
@@ -2449,6 +2485,117 @@ body {
 @media (max-width: 768px) {
   .se-mode-bar { flex-direction: column; align-items: flex-start; }
   .se-mode-times { font-size: 10.5px; gap: 8px; }
+}
+
+/* ─── Cold Start (live slider) ──────────────────────────────────
+   Slider drives `_evaluate` queries that vary the order_month
+   cutoff. Gold thumb on a flat track, snap-tick buttons under it. */
+.cs-slider-card {
+  padding: 22px 22px 14px;
+  margin-bottom: 16px;
+}
+.cs-slider-row {
+  padding: 0 14px;
+}
+.cs-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: linear-gradient(90deg, #efeadf 0%, #f5e9c8 50%, var(--gold) 100%);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+.cs-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--gold-dark);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(107, 79, 14, 0.35);
+  cursor: grab;
+  margin-top: -2px;
+}
+.cs-slider::-webkit-slider-thumb:active { cursor: grabbing; }
+.cs-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--gold-dark);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(107, 79, 14, 0.35);
+  cursor: grab;
+}
+.cs-slider-ticks {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-top: 14px;
+}
+.cs-slider-tick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.cs-slider-tick:hover { background: var(--bg); }
+.cs-slider-tick--active {
+  background: var(--gold-light);
+  border-color: var(--gold);
+}
+.cs-slider-tick-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cs-slider-tick-rows {
+  font-size: 10.5px;
+  color: var(--mid);
+}
+
+.cs-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, var(--gold-light) 0%, #fff 100%);
+  border: 1px solid var(--gold);
+  border-left: 3px solid var(--gold-dark);
+  border-radius: 5px;
+}
+.cs-headline-prefix {
+  font-size: 12px;
+  color: var(--mid);
+}
+.cs-headline-amount {
+  font-family: 'DM Serif Display', serif;
+  font-size: 24px;
+  color: var(--gold-dark);
+  line-height: 1.1;
+}
+.cs-headline-suffix {
+  font-size: 12px;
+  color: var(--mid);
+}
+
+@media (max-width: 768px) {
+  .cs-slider-ticks { grid-template-columns: repeat(5, 1fr); gap: 2px; }
+  .cs-slider-tick { padding: 6px 2px; }
+  .cs-slider-tick-label { font-size: 10px; }
+  .cs-slider-tick-rows { font-size: 9px; }
+  .cs-headline-amount { font-size: 18px; }
 }
 
 /* ─── Cold Start view ────────────────────────────────────────── */
