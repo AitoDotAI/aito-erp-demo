@@ -125,12 +125,10 @@ export interface SupplierResponse {
 export interface RuleCandidate {
   condition_field: string;
   condition_value: string;
-  target_field: string;
-  target_value: string;
-  target_label: string;
-  support_match: number;
-  support_total: number;
-  coverage: number;
+  predicted_field: string;
+  predicted_value: string;
+  confidence: number;
+  support: number;
   lift: number;
   strength: "strong" | "review" | "weak";
 }
