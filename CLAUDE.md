@@ -229,7 +229,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | po_service | `_predict` | Account code, cost center, approver |
 | smartentry_service | `_predict` (multi) | 5 fields in one session |
 | approval_service | `_predict` | Approval level |
-| anomaly_service | `_evaluate` | Combination probability |
+| anomaly_service | `_predict` (inverse) + `_search` | Categorical anomalies via `1 − p(actual)`; amount/vendor anomalies via search |
 | supplier_service | `_relate` | Late delivery predictors |
 | rulemining_service | `_relate` | High-confidence patterns |
 | catalog_service | `_predict` (multi) | Missing product attributes |

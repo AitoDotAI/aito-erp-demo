@@ -69,34 +69,33 @@ export default function RulesPage() {
   const handleRowClick = (rule: RuleCandidate) => {
     const ruleKey = `${rule.condition_field}=${rule.condition_value}`;
     setSelected(ruleKey);
-    const coverage = rule.support_total > 0 ? rule.support_match / rule.support_total : 0;
     setPanel({
       operation: "_relate",
       endpoints: ["_relate"],
       stats: [
-        { label: "Support", value: `${rule.support_match}/${rule.support_total}` },
+        { label: "Confidence", value: `${Math.round(rule.confidence * 100)}%` },
+        { label: "Support", value: String(rule.support) },
         { label: "Lift", value: `${rule.lift.toFixed(1)}x` },
-        { label: "Strength", value: rule.strength },
       ],
       description:
-        `Rule: when <em>${rule.condition_field} = ${rule.condition_value}</em>, predict <em>${rule.target_field} = ${rule.target_value}</em>. ` +
-        `This pattern was observed in <em>${rule.support_match}</em> of <em>${rule.support_total}</em> matching records ` +
-        `(${Math.round(coverage * 100)}% coverage). Lift: ${rule.lift.toFixed(1)}x. ` +
+        `Rule: when <em>${rule.condition_field} = ${rule.condition_value}</em>, predict <em>${rule.predicted_field} = ${rule.predicted_value}</em>. ` +
+        `Holds in <em>${Math.round(rule.confidence * 100)}%</em> of <em>${rule.support}</em> matching purchases. Lift: ${rule.lift.toFixed(1)}x. ` +
         (rule.strength === "strong"
-          ? "Strong candidate — high enough lift and support to be worth promoting after governance review."
+          ? "Strong candidate — high enough confidence and support to be worth promoting after governance review."
           : rule.strength === "weak"
-          ? "Weak candidate — too low support or lift; do not promote without more data."
+          ? "Weak candidate — confidence too low; do not promote without more data."
           : "Review candidate — moderate signal; needs subject-matter judgement before promotion."),
       query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
 {<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-d">// ${rule.condition_field} = ${rule.condition_value}</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-p">"${rule.condition_field}"</span>: <span class="q-v">"${rule.condition_value}"</span><br/>
 &nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: [<span class="q-p">"${rule.target_field}"</span>]<br/>
+&nbsp;&nbsp;<span class="q-k">"relate"</span>: <span class="q-p">"${rule.predicted_field}"</span><br/>
 }<br/>
 <br/>
-<span class="q-d">// Support: ${rule.support_match}/${rule.support_total}</span><br/>
+<span class="q-d">// Confidence: ${Math.round(rule.confidence * 100)}%</span><br/>
+<span class="q-d">// Support: ${rule.support}</span><br/>
 <span class="q-d">// Lift: ${rule.lift.toFixed(1)}x</span>`,
       links: [
         { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
@@ -165,11 +164,11 @@ export default function RulesPage() {
                             </td>
                             <td>
                               <span className="badge b-gold">
-                                {rule.target_field}: {rule.target_value}
+                                {rule.predicted_field} = {rule.predicted_value}
                               </span>
                             </td>
                             <td className="mono">
-                              {rule.support_match}/{rule.support_total}
+                              {rule.support}
                             </td>
                             <td className="mono">
                               {rule.lift.toFixed(1)}x

@@ -16,6 +16,101 @@ function ringClass(score: number): string {
   return "a-low";
 }
 
+// Each anomaly type runs a different Aito call (see src/anomaly_service.py).
+// The panel mirrors what the backend actually executes, not a generic
+// `_evaluate` placeholder — `_evaluate` is for batch accuracy testing,
+// never used by this view.
+function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
+  const stats = [
+    { label: "Score", value: `${item.anomaly_score}` },
+    { label: "Flagged field", value: item.flagged_field },
+    { label: "Severity", value: item.severity },
+  ];
+  const baseDescription =
+    `Anomaly analysis for <em>${item.supplier}</em> (${item.purchase_id}). ` +
+    `Field <em>${item.flagged_field}</em> scored <em>${item.anomaly_score}</em>. ` +
+    `Expected: <em>${item.expected_value}</em>, actual: <em>${item.actual_value}</em>.` +
+    (item.explanation ? ` ${item.explanation}.` : "");
+
+  if (item.flagged_field === "supplier") {
+    return {
+      operation: "_search",
+      endpoints: ["_search"],
+      stats,
+      description:
+        baseDescription +
+        ` <strong>Unknown-vendor check</strong>: a <em>_search</em> for prior POs ` +
+        `from this supplier returns no hits, so the row is flagged with a ` +
+        `high baseline anomaly score.`,
+      query: `<span class="q-k">POST</span> /api/v1/_search<br/>
+{<br/>
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
+&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">1</span><br/>
+}<br/>
+<br/>
+<span class="q-d">// hits = [] → unknown vendor → score ${item.anomaly_score}</span>`,
+      links: [
+        { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
+      ],
+    };
+  }
+
+  if (item.flagged_field === "amount") {
+    return {
+      operation: "_search",
+      endpoints: ["_search"],
+      stats,
+      description:
+        baseDescription +
+        ` <strong>Amount-spike check</strong>: <em>_search</em> retrieves the ` +
+        `supplier's prior PO amounts; the ratio of this PO against the supplier ` +
+        `average is converted to an anomaly score in app code.`,
+      query: `<span class="q-k">POST</span> /api/v1/_search<br/>
+{<br/>
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
+&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">50</span><br/>
+}<br/>
+<br/>
+<span class="q-d">// avg(amount_eur) over hits, then</span><br/>
+<span class="q-d">// ratio = ${item.amount} / avg → score ${item.anomaly_score}</span>`,
+      links: [
+        { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
+      ],
+    };
+  }
+
+  // Categorical anomaly (account_code, cost_center, …): real inverse
+  // _predict — pull the predicted distribution, look up the actual
+  // value's probability, score = (1 − p) × 100.
+  return {
+    operation: "_predict (inverse)",
+    endpoints: ["_predict"],
+    stats,
+    description:
+      baseDescription +
+      ` <strong>Categorical inverse-predict</strong>: <em>_predict</em> returns ` +
+      `the distribution Aito would predict for <em>${item.flagged_field}</em> ` +
+      `given this supplier; the actual value <em>${item.actual_value}</em> ` +
+      `received low probability mass, so the row is flagged.`,
+    query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+{<br/>
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
+&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"${item.flagged_field}"</span><br/>
+}<br/>
+<br/>
+<span class="q-d">// p(${item.flagged_field}=${item.actual_value}) ≈ ${(
+  (100 - item.anomaly_score) / 100
+).toFixed(2)}</span><br/>
+<span class="q-d">// score = (1 − p) × 100 = ${item.anomaly_score}</span>`,
+    links: [
+      { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
+    ],
+  };
+}
+
 export default function AnomaliesPage() {
   const { tenantId } = useTenant();
   const [data, setData] = useState<AnomalyResponse | null>(null);
@@ -63,34 +158,7 @@ export default function AnomaliesPage() {
 
   const handleRowClick = (item: AnomalyFlag) => {
     setSelected(item.purchase_id);
-    setPanel({
-      operation: "_evaluate",
-      endpoints: ["_evaluate"],
-      stats: [
-        { label: "Score", value: `${item.anomaly_score}` },
-        { label: "Flagged field", value: item.flagged_field },
-        { label: "Severity", value: item.severity },
-      ],
-      description:
-        `Anomaly analysis for <em>${item.supplier}</em> (${item.purchase_id}). ` +
-        `The flagged field <em>${item.flagged_field}</em> shows an anomaly score of <em>${item.anomaly_score}</em>. ` +
-        `Expected: <em>${item.expected_value}</em>, actual: <em>${item.actual_value}</em>.` +
-        (item.explanation ? ` Explanation: <em>${item.explanation}</em>.` : ""),
-      query: `<span class="q-k">POST</span> /api/v1/_evaluate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"evaluate"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"amount"</span>: <span class="q-n">${item.amount}</span><br/>
-&nbsp;&nbsp;}<br/>
-}<br/>
-<br/>
-<span class="q-d">// Anomaly score: ${item.anomaly_score}</span><br/>
-<span class="q-d">// Flagged: ${item.flagged_field}</span>`,
-      links: [
-        { label: "Evaluate API reference", url: "https://aito.ai/docs/api/evaluate" },
-      ],
-    });
+    setPanel(buildRowPanel(item));
   };
 
   const anomalies = data?.anomalies ?? [];
