@@ -11,6 +11,7 @@ import type {
   AlternativeAssignee,
   GeneratedPlanResponse,
   PlanTaskCandidate,
+  PurchaseSuggestion,
   RerankResponse,
 } from "@/lib/types";
 
@@ -27,12 +28,16 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     { label: "Sources", value: "history" },
   ],
   description:
-    "Project Plan combines two Aito flows. The generative side runs " +
+    "Project Plan combines three Aito flows. The generative side runs " +
     "<em>aito.._predict</em> three times per task (assignee_kind, " +
     "subcontractor or assignee_person, planned_days, planned_cost_eur) " +
     "given the task context — drafting a complete plan from precedent " +
-    "instead of a hand-coded template. Click any task row to swap to " +
-    "the matchmaking flow: <em>aito.._recommend</em> with " +
+    "instead of a hand-coded template. For each phase it also runs " +
+    "<em>aito.._predict</em> on the <em>purchases</em> table to auto-" +
+    "draft material POs to the supplier the buyer's history points " +
+    "at (the Lemonsoft+Jakamo punchline — Aito routes the spend " +
+    "before anyone touches the requisition). Click any task row to " +
+    "swap to the matchmaking flow: <em>aito.._recommend</em> with " +
     "<em>goal:&nbsp;{success:&nbsp;true}</em> ranks subcontractors " +
     "by predicted P(success) for that exact (phase, region, season) " +
     "context.",
@@ -172,6 +177,12 @@ export default function ProjectPlanPage() {
         return acc;
       }, {})
     : {};
+  const purchasesByPhase = plan
+    ? plan.purchases.reduce<Record<string, PurchaseSuggestion[]>>((acc, p) => {
+        (acc[p.phase] ||= []).push(p);
+        return acc;
+      }, {})
+    : {};
 
   return (
     <>
@@ -268,6 +279,15 @@ export default function ProjectPlanPage() {
                     {pct(plan.avg_success_p)}
                   </div>
                 </div>
+                <div className="kpi">
+                  <div className="kpi-label">Auto-drafted POs</div>
+                  <div className="kpi-val">
+                    {plan.purchases.length}
+                  </div>
+                  <div className="kpi-sub">
+                    {fmtAmount(plan.total_purchases_eur)} total
+                  </div>
+                </div>
               </div>
             )}
 
@@ -336,6 +356,37 @@ export default function ProjectPlanPage() {
                     })}
                   </tbody>
                 </table>
+
+                {/* Per-phase auto-drafted POs (materials + supplier).
+                    Empty for admin-style phases (planning, design, …). */}
+                {(purchasesByPhase[phase] ?? []).length > 0 && (
+                  <div className="phase-pos">
+                    <div className="phase-pos-head">
+                      <span className="phase-pos-label">Material POs · </span>
+                      <span className="phase-pos-meta">
+                        aito.._predict supplier from purchase history
+                      </span>
+                    </div>
+                    <div className="phase-pos-list">
+                      {(purchasesByPhase[phase] ?? []).map((po, i) => (
+                        <div key={i} className="phase-po">
+                          <span className="badge b-gold">{po.category}</span>
+                          <span className="phase-po-supplier">{po.supplier}</span>
+                          <span className="phase-po-meta">
+                            <span className="mono">P {pct(po.supplier_confidence)}</span>
+                            {po.typical_amount_eur != null && (
+                              <>
+                                {" · "}
+                                <span className="mono">~{fmtAmount(po.typical_amount_eur)}</span>
+                              </>
+                            )}
+                            <span style={{ color: "var(--mid)" }}> · n={po.coverage}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             ))}
 

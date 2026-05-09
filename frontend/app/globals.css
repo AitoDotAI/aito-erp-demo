@@ -575,6 +575,42 @@ body {
   text-transform: uppercase;
 }
 
+/* Per-phase auto-drafted PO strip. Lives inside each phase card,
+   under the task table. Renders the Lemonsoft+Jakamo punchline:
+   when Aito drafts a phase, it ALSO drafts the typical material POs. */
+.phase-pos {
+  border-top: 1px solid var(--border);
+  background: #fbf8f0;
+  padding: 10px 14px 12px;
+}
+.phase-pos-head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  margin-bottom: 6px;
+}
+.phase-pos-label { font-weight: 600; color: var(--ink); }
+.phase-pos-meta  { font-style: italic; }
+.phase-pos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.phase-po {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.phase-po-supplier { color: var(--ink); font-weight: 500; }
+.phase-po-meta {
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--ink);
+}
+
 /* ─── CONFIDENCE BAR ─── */
 .conf { display: flex; align-items: center; gap: 7px; }
 .conf-track { width: 60px; height: 4px; background: #e8e4da; border-radius: 2px; }

@@ -46,6 +46,47 @@ log = logging.getLogger(__name__)
 MAX_TASKS_PER_PHASE = 4
 
 
+# Phase → typical purchase categories. The Lemonsoft+Jakamo punchline
+# of this demo: a generated phase doesn't just propose tasks and
+# subcontractors — it ALSO proposes the typical materials/POs that
+# phase needs, with the right supplier from the buyer's history.
+# Categories are the values that already live in the `purchases.category`
+# column for Metsä (production, electrical, fuel, ppe, …).
+#
+# Each list is a *prior* — for a given (project_type, phase) we then
+# ask Aito which suppliers are most likely per category. A phase
+# whose list is empty (planning, design, audit, …) skips the
+# supplier-suggestion step entirely; the demo doesn't pretend every
+# phase generates POs.
+PHASE_PURCHASE_CATEGORIES: dict[str, list[str]] = {
+    # construction phases
+    "site-prep":     ["fuel", "ppe", "construction"],
+    "earthworks":    ["fuel", "construction"],
+    "foundations":   ["construction", "fuel"],
+    "structural":    ["construction", "production", "capex"],
+    "mep":           ["electrical", "production"],
+    "finishing":     ["maintenance", "cleaning", "production"],
+    "commissioning": ["maintenance", "electrical"],
+    "handover":      ["cleaning"],
+    # maintenance phases
+    "inspection":    ["maintenance"],
+    "repair":        ["production", "maintenance", "electrical"],
+    # rollout phases
+    "installation":  ["production", "electrical"],
+    # purely administrative phases — empty list means "no auto-PO"
+    "planning":      [],
+    "procurement":   [],
+    "design":        [],
+    "discovery":     [],
+    "prototype":     ["production", "electrical"],
+    "validation":    [],
+    "documentation": [],
+    "fieldwork":     [],
+    "reporting":     [],
+    "testing":       [],
+}
+
+
 # Hand-curated execution order for phases. The `tasks` table doesn't
 # carry an explicit phase ordering, so we sort the discovered phases
 # against this canonical list. Phases not in the list keep their
@@ -92,6 +133,35 @@ class TaskCandidate:
 
 
 @dataclass
+class PurchaseSuggestion:
+    """One auto-drafted PO line per (phase, category). The recommended
+    supplier comes from `_predict from=purchases predict=supplier`
+    conditioned on (project_type, category); the typical amount is
+    the historical mean for that supplier+category slice.
+
+    This is the Jakamo half of the Lemonsoft+Jakamo pitch: when Aito
+    drafts a project plan, it doesn't just propose tasks and
+    subcontractors — it pre-fills the materials POs that phase
+    needs, routed to the supplier history says is right."""
+    phase: str
+    category: str
+    supplier: str
+    supplier_confidence: float
+    typical_amount_eur: float | None
+    coverage: int
+
+    def to_dict(self) -> dict:
+        return {
+            "phase": self.phase,
+            "category": self.category,
+            "supplier": self.supplier,
+            "supplier_confidence": self.supplier_confidence,
+            "typical_amount_eur": self.typical_amount_eur,
+            "coverage": self.coverage,
+        }
+
+
+@dataclass
 class GeneratedPlan:
     project_type: str
     region: str
@@ -99,6 +169,7 @@ class GeneratedPlan:
     estimated_budget_eur: float | None
     phases: list[str]
     tasks: list[TaskCandidate] = field(default_factory=list)
+    purchases: list[PurchaseSuggestion] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -108,9 +179,13 @@ class GeneratedPlan:
             "estimated_budget_eur": self.estimated_budget_eur,
             "phases": self.phases,
             "tasks": [t.to_dict() for t in self.tasks],
+            "purchases": [p.to_dict() for p in self.purchases],
             # Convenience aggregates for the UI's headline stats.
             "total_planned_days": sum(t.planned_days for t in self.tasks),
             "total_planned_cost_eur": sum(t.planned_cost_eur for t in self.tasks),
+            "total_purchases_eur": sum(
+                p.typical_amount_eur or 0.0 for p in self.purchases
+            ),
             "avg_success_p": (
                 sum(t.success_p for t in self.tasks) / len(self.tasks)
                 if self.tasks else 0.0
@@ -258,6 +333,88 @@ def _predict_task_assignment(
     )
 
 
+# ── purchase / supplier suggestions per phase ──────────────────────
+
+
+def _predict_purchase_supplier(
+    client: AitoClient, project_type: str, category: str,
+) -> tuple[str | None, float, float | None, int]:
+    """For (category), return Aito's top supplier guess plus the
+    typical amount + sample size from `purchases`. Powers the
+    auto-drafted PO lines on the project plan.
+
+    NOTE: `purchases` doesn't carry `project_type` — it's a tenant-
+    wide spend table, not project-scoped. So the where-clause is
+    just the category. The pattern still demonstrates the core
+    Jakamo punchline ("auto-route material POs to the historically
+    right supplier") without needing a schema change.
+    """
+    where = {"category": category}
+    try:
+        response = client.predict(
+            "purchases", where, "supplier", limit=1,
+        )
+    except Exception as exc:
+        log.warning("predict supplier (%s) failed: %s", category, exc)
+        return None, 0.0, None, 0
+    hits = response.get("hits") or []
+    if not hits:
+        return None, 0.0, None, 0
+    supplier = hits[0].get("feature")
+    p = float(hits[0].get("$p", 0.0))
+    if not supplier:
+        return None, p, None, 0
+
+    # Fetch a sample of historical purchases for this supplier+category
+    # to estimate the typical PO amount.
+    try:
+        sample = client.search(
+            "purchases",
+            {"category": category, "supplier": supplier},
+            limit=120,
+        )
+    except Exception:
+        return str(supplier), p, None, 0
+    rows = sample.get("hits") or []
+    coverage = sample.get("total", len(rows))
+    if not rows:
+        return str(supplier), p, None, coverage
+    avg = sum(float(r["amount_eur"]) for r in rows) / len(rows)
+    return str(supplier), p, avg, coverage
+
+
+def predict_purchases_for_phase(
+    client: AitoClient, project_type: str, phase: str,
+) -> list[PurchaseSuggestion]:
+    """Auto-draft the typical material POs for one phase. Skips phases
+    whose category list is empty (planning / design / audit work)."""
+    categories = PHASE_PURCHASE_CATEGORIES.get(phase, [])
+    if not categories:
+        return []
+
+    # Run the per-category supplier predictions in parallel — each
+    # category is two Aito calls (predict supplier, search history).
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(
+            lambda c: (c, *_predict_purchase_supplier(client, project_type, c)),
+            categories,
+        ))
+
+    out: list[PurchaseSuggestion] = []
+    for category, supplier, p, avg, coverage in results:
+        if not supplier:
+            continue
+        out.append(PurchaseSuggestion(
+            phase=phase,
+            category=category,
+            supplier=supplier,
+            supplier_confidence=p,
+            typical_amount_eur=avg,
+            coverage=coverage,
+        ))
+    return out
+
+
 # ── public API ──────────────────────────────────────────────────────
 
 
@@ -316,6 +473,16 @@ def generate_plan(
             ),
             work,
         ))
+
+        # Per-phase material POs: which categories does this phase
+        # typically need, and which supplier does Aito recommend per
+        # category? Runs alongside the task fan-out so the entire
+        # plan (tasks + auto-POs) lands in one round-trip.
+        purchases_per_phase = list(pool.map(
+            lambda phase: predict_purchases_for_phase(client, project_type, phase),
+            phases,
+        ))
+    plan.purchases = [p for sub in purchases_per_phase for p in sub]
 
     return plan
 

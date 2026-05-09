@@ -376,6 +376,7 @@ cmd_screenshot() {
         ['06-rules',       '/rules/'],
         ['10-inventory',   '/inventory/'],
         ['11-projects',    '/projects/'],
+        ['12-project-plan','/project-plan/'],
         ['14-overview',    '/overview/'],
       ],
       aurora: [

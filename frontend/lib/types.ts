@@ -508,6 +508,15 @@ export interface PlanTaskCandidate {
   success_p: number;
 }
 
+export interface PurchaseSuggestion {
+  phase: string;
+  category: string;
+  supplier: string;
+  supplier_confidence: number;
+  typical_amount_eur: number | null;
+  coverage: number;
+}
+
 export interface GeneratedPlanResponse {
   project_type: string;
   region: string;
@@ -515,8 +524,10 @@ export interface GeneratedPlanResponse {
   estimated_budget_eur: number | null;
   phases: string[];
   tasks: PlanTaskCandidate[];
+  purchases: PurchaseSuggestion[];
   total_planned_days: number;
   total_planned_cost_eur: number;
+  total_purchases_eur: number;
   avg_success_p: number;
 }
 
