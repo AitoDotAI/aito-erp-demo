@@ -53,11 +53,13 @@ def current_calls() -> list[tuple[str, float]]:
 def render_header() -> str:
     """Render the call list as the `X-Aito-Calls` header value.
 
-    Format: `_predict:32,_relate:118,_predict:18`. Multiple calls to
-    the same endpoint are listed individually, in call order — the
-    frontend can sum + group as it likes. Empty when no calls were
-    made (e.g. cache hit) — the middleware skips emitting the header
-    in that case.
+    Format: `_predict:32.4,_relate:118.0,_predict:1.6`. One decimal
+    place — enough to show sub-ms `_search` resolution honestly
+    without making the header grow. Multiple calls to the same
+    endpoint are listed individually, in call order — the frontend
+    can sum + group as it likes. Empty when no calls were made
+    (e.g. cache hit); the middleware skips emitting the header in
+    that case.
     """
-    return ",".join(f"{name}:{int(round(ms))}"
+    return ",".join(f"{name}:{ms:.1f}"
                     for name, ms in current_calls())

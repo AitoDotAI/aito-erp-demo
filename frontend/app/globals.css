@@ -2282,10 +2282,17 @@ body {
     object-fit: contain;
   }
 
-  /* Lift the latency pill above the floating button so they don't
-     stack on the same pixel. */
+  /* The mobile Aito toggle now sits bottom-RIGHT and the latency
+     ticker bottom-LEFT, so they no longer fight for the same pixel.
+     But on narrow screens we shrink the pills to keep the row from
+     overflowing into the toggle's territory. */
   .latency-pill {
-    bottom: 80px;
+    max-width: calc(100vw - 80px);
+    overflow: hidden;
+  }
+  .latency-entry {
+    flex-shrink: 1;
+    min-width: 0;
   }
 
   /* Backdrop behind the bottom sheet. */
@@ -2774,54 +2781,48 @@ body {
    Lives in the bottom-right corner. Fades in on every API call,
    auto-hides after 4s. Visible across all pages so visitors see
    sub-50ms _predict / _relate timings as they click around. */
+/* Ticker container is bottom-LEFT — clears the right-side Aito panel. */
 .latency-pill {
   position: fixed;
+  left: 16px;
   bottom: 16px;
-  right: 16px;
   z-index: 80;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  pointer-events: none;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.latency-entry {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(12, 15, 65, 0.94);  /* aito panel bg, slightly translucent */
-  color: #fff;
-  border-radius: 18px;
-  font-size: 11px;
-  font-family: 'DM Mono', monospace;
-  letter-spacing: 0.02em;
-  box-shadow: 0 4px 14px rgba(12, 15, 65, 0.18);
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.25s ease, transform 0.25s ease;
-  pointer-events: none;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: var(--ink);
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(12, 15, 65, 0.06);
+  transition: opacity 1s ease;
 }
-.latency-pill.visible {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
+.latency-entry--cached {
+  font-style: italic;
+  color: var(--mid);
 }
 .latency-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--aito-teal);
-  box-shadow: 0 0 6px rgba(18, 181, 173, 0.6);
-}
-.latency-dot--cached {
-  background: rgba(255, 255, 255, 0.35);
-  box-shadow: none;
 }
 .latency-endpoint {
-  color: var(--aito-teal);
   font-weight: 500;
 }
 .latency-ms {
-  color: rgba(255, 255, 255, 0.92);
   font-weight: 600;
-}
-.latency-label {
-  color: rgba(255, 255, 255, 0.55);
-  font-style: italic;
+  color: var(--ink);
 }
 
 /* ─── Relearn banner (PO Queue) ─────────────────────────────────
