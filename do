@@ -33,6 +33,13 @@ Commands:
   generate-personas
                   (Re)generate per-tenant fixtures into data/<tenant>/
   clear-cache     Clear in-memory and Aito persistent cache
+  env-init        Branch a 'dev' env from master on each tenant DB.
+                  Run once after creating new tenant DBs; iterate
+                  locally against /env/dev to keep master clean.
+  env-promote     Atomically swap each tenant's dev env into master
+                  (publishes the dev state to the live demo).
+  env-drop        Delete each tenant's dev env (use before re-init
+                  to start from a clean copy of master).
   test            Run the unit test suite
   booktest        Run project-portfolio quality tests (offline + live)
   fmt             Format code
@@ -171,18 +178,88 @@ cmd_reset_data() {
 }
 
 cmd_clear_cache() {
+  # Drops every configured tenant's prediction_cache table. Without
+  # this multi-tenant loop, the default-tenant client would only
+  # clear its own DB — leaving other personas serving stale shapes.
   echo "Clearing caches..."
   cd "$SCRIPT_DIR"
   uv run python -c "
-from src.config import load_config
+from src.config import load_config, TENANT_IDS
 from src.aito_client import AitoClient
-from src.cache import init_persistent_cache, clear_all
-client = AitoClient(load_config())
-init_persistent_cache(client)
-clear_all()
+from src import cache as cache_mod
+cfg = load_config()
+for t in TENANT_IDS:
+    creds = cfg.creds_for(t)
+    c = AitoClient.from_creds(creds.api_url, creds.api_key)
+    cache_mod.init_persistent_cache(c, tenant=t)
+cache_mod.clear_all()
 print('Done. Restart ./do dev to recompute predictions.')
 "
 }
+
+# ── Aito env management ─────────────────────────────────────────────
+#
+# Aito environments are copy-on-write branches inside a single
+# database. We use a `dev` env per tenant DB so local development
+# (./do load-data, ./do reset-data, schema changes) never touches
+# the live demo's master env.
+#
+# Lifecycle:
+#   1. `./do env-init`     — create the `dev` env on each tenant DB.
+#   2. Point .env at /env/dev URLs (.env.example shows the form).
+#   3. Iterate locally — schemas, fixtures, predictions all isolated.
+#   4. `./do env-promote`  — atomically swap `dev` into master per
+#      tenant. Master and dev now share state; subsequent dev writes
+#      do not propagate without a second promote.
+#   5. `./do env-drop`     — delete each tenant's `dev` env. Use
+#      this to throw away an experiment, or before re-creating dev
+#      from master to start clean.
+
+_for_each_tenant() {
+  # Iterate URL+key for each configured tenant. $1 is the verb,
+  # $2…N are extra args passed to curl. Reads URLs/keys from the
+  # already-sourced .env so the function trusts the same routing
+  # the backend does. The DB id is the trailing path segment of the
+  # URL after stripping any `/env/...` suffix.
+  local fn="$1"; shift
+  for prefix in METSA AURORA STUDIO; do
+    local url_var="AITO_${prefix}_API_URL" key_var="AITO_${prefix}_API_KEY"
+    local url="${!url_var:-}" key="${!key_var:-}"
+    [[ -z "$url" || -z "$key" ]] && continue
+    # Strip trailing `/env/<name>` so we hit the DB-level _envs admin.
+    local db_url="${url%/env/*}"
+    "$fn" "$prefix" "$db_url" "$key" "$@"
+  done
+}
+
+_env_init_one() {
+  local prefix="$1" db_url="$2" key="$3"
+  echo "[$prefix] branch dev from env.master  ($db_url)"
+  curl -sS -X POST "$db_url/api/v1/_envs" \
+    -H "x-api-key: $key" -H "content-type: application/json" \
+    -d '{"name":"dev","from":"env.master"}' \
+    | python3 -m json.tool 2>/dev/null || true
+}
+
+_env_promote_one() {
+  local prefix="$1" db_url="$2" key="$3"
+  echo "[$prefix] promote dev → master  ($db_url)"
+  curl -sS -X POST "$db_url/api/v1/_envs/dev/promote" \
+    -H "x-api-key: $key" \
+    | python3 -m json.tool 2>/dev/null || true
+}
+
+_env_drop_one() {
+  local prefix="$1" db_url="$2" key="$3"
+  echo "[$prefix] drop dev  ($db_url)"
+  curl -sS -X DELETE "$db_url/api/v1/_envs/dev" \
+    -H "x-api-key: $key" \
+    | python3 -m json.tool 2>/dev/null || true
+}
+
+cmd_env_init()    { _for_each_tenant _env_init_one; }
+cmd_env_promote() { _for_each_tenant _env_promote_one; }
+cmd_env_drop()    { _for_each_tenant _env_drop_one; }
 
 cmd_test() {
   cd "$SCRIPT_DIR"
@@ -455,6 +532,9 @@ case "${1:-help}" in
   reset-data)      shift; cmd_reset_data "$@" ;;
   generate-personas) cmd_generate_personas ;;
   clear-cache)     cmd_clear_cache ;;
+  env-init)        cmd_env_init ;;
+  env-promote)     cmd_env_promote ;;
+  env-drop)        cmd_env_drop ;;
   test)            cmd_test ;;
   booktest)        shift; cmd_booktest "$@" ;;
   fmt)             cmd_fmt ;;
