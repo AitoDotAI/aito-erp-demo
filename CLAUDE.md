@@ -120,8 +120,8 @@ These never relax.
 
 ## Architecture
 
-- **Backend**: Python FastAPI on port 8200
-- **Frontend**: Next.js (App Router), dev on port 3000 with API proxy
+- **Backend**: Python FastAPI on port 8401 (internal)
+- **Frontend**: Next.js (App Router), dev on port 8400 with API proxy
 - **Aito**: Thin HTTP client (`src/aito_client.py`) wrapping REST endpoints
 - **Services**: One Python module per view, each calling Aito directly
 - **Cache**: Two-layer (in-memory + Aito table) with startup warming
@@ -171,8 +171,9 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 ## The `./do` script
 
 ```bash
-./do dev              # Start FastAPI on :8200
-./do frontend-dev     # Start Next.js on :3000 (proxy to :8200)
+./do dev              # Start both: Next.js on :8400, FastAPI on :8401
+./do backend-dev      # Just FastAPI on :8401
+./do frontend-dev     # Just Next.js on :8400 (proxy to :8401)
 ./do frontend-build   # Build static export
 ./do load-data        # Upload fixtures to Aito
 ./do reset-data       # Drop and reload all Aito tables
