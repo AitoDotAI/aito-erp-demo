@@ -208,15 +208,19 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 
 ### Operations
 12. **Project Portfolio** — predicted success for each active project
+    (`_predict success=true` over `projects`, no `team_members` in the
+    where clause) plus a broad **Success factors** panel discovered by
+    `_relate`: people from `assignments.person` (String — one row per
+    assignment, no Text tokenisation) and project-level categoricals
+    (`manager`, `project_type`, `priority`) from `projects`. Backed by
+    two tables: `projects` (one row per project; `team_members` is a
+    display-only String) and `assignments` (canonical project_id ×
+    person × role, with `project_type` and `project_success`
+    denormalised for direct `_predict` / `_relate` filters).
 13. **Utilization & Capacity** — per-person current load + at-risk
     allocation + historical norm; "what if" forecast uses
     `_predict assignments.role|allocation_pct` filtered by the
     denormalised `project_type` column. Studio-only.
-    (`_predict success=true`) + people-as-staffing-factors discovered
-    by `_relate` over completed-project history. Backed by two new
-    tables: `projects` (one row per project, with `team_members` as a
-    tokenized Text field so Aito learns per-person effects) and
-    `assignments` (canonical project_id × person × role).
 
 ### Overview
 14. **Automation Overview** — coverage stats + learning curve
@@ -237,7 +241,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | pricing_service | search + stats | Price range from history |
 | demand_service | `_predict` + search | Units forecast |
 | inventory_service | demand + stock | Days of supply + reorder |
-| project_service | `_predict` + `_relate` | Project success forecast + staffing factors |
+| project_service | `_predict` + `_relate` | Project success forecast + broad success factors (people from `assignments`, categoricals from `projects`) |
 
 ---
 

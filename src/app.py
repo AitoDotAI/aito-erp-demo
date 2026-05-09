@@ -46,7 +46,7 @@ from src.pricing_service import get_pricing_overview
 from src.demand_service import get_demand_forecast
 from src.inventory_service import get_inventory_status
 from src.overview_service import get_overview
-from src.project_service import get_portfolio, forecast_with_override
+from src.project_service import get_portfolio, forecast_for_project
 from src.recommendation_service import (
     get_overview as get_recommendation_overview,
     get_cross_sell as get_recommendation_cross_sell,
@@ -731,8 +731,7 @@ def projects_forecast(body: dict, request: Request):
     project_id = body.get("project_id")
     if not project_id:
         return {"error": "project_id is required"}
-    override = body.get("team_members_override")
-    return forecast_with_override(aito, project_id, override)
+    return forecast_for_project(aito, project_id)
 
 
 # ── Cold start ───────────────────────────────────────────────────

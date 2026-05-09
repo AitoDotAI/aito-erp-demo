@@ -1,22 +1,22 @@
-"""Project portfolio — predict success and surface staffing factors.
+"""Project portfolio — predict success and surface broad success factors.
 
 Three Aito patterns combine to answer the question a portfolio manager
-asks every Monday: which active projects are at risk, and why?
+asks every Monday: which active projects are at risk, and which signals
+across the portfolio actually move outcomes?
 
   1. _search → list projects + compute KPIs (success / on-time /
      on-budget rates) over completed history.
   2. _predict success=true → for each active project, predict the
      probability it will succeed given its context (manager,
-     project_type, team composition, budget × duration). $why returns
-     the factor decomposition, including which team members shifted
-     the prediction.
-  3. _relate where={success: true} on assignments.person → which
-     individuals correlate with project success across the portfolio.
-
-The fourth pattern (staffing simulator: replace person X with Y, see
-predicted delta) is straightforward — just run _predict twice with the
-edited team_members. We expose it via the forecast endpoint by letting
-the caller pass an override.
+     project_type, team_size, budget × duration). $why returns the
+     factor decomposition.
+  3. _relate where={success: true} across several fields → which
+     factors correlate with success across the portfolio. People
+     come from `assignments.person` (String — one row per assignment,
+     one factor per person, no text tokenisation), and project-level
+     categoricals (manager, project_type, priority) come from
+     `projects` directly. The result is one mixed factor list, not a
+     people-only sidebar.
 """
 
 from dataclasses import dataclass, field
@@ -99,17 +99,31 @@ class ProjectRow:
 
 
 @dataclass
-class StaffingFactor:
-    person: str
+class SuccessFactor:
+    """One signal that correlates with project success.
+
+    Mixed kinds in a single list: a person from assignments, a manager
+    from projects, a project_type, a priority bucket. The frontend
+    renders all of them in the same "Success factors" panel, so the
+    `kind` discriminator drives styling and the `label` carries the
+    human-readable category name.
+    """
+    kind: str                  # "person" | "manager" | "project_type" | "priority"
+    label: str                 # "Person" | "Manager" | …
+    field: str                 # source — "assignments.person", "projects.manager", …
+    value: str                 # concrete value — "A. Lindgren", "design", "high"
     role_in_pattern: str       # "boost" | "drag" — direction of effect
     lift: float
-    coverage: int              # how many completed projects had this person
+    coverage: int              # rows matching condition AND this value
     success_rate_with: float
     success_rate_without: float
 
     def to_dict(self) -> dict:
         return {
-            "person": self.person,
+            "kind": self.kind,
+            "label": self.label,
+            "field": self.field,
+            "value": self.value,
             "role_in_pattern": self.role_in_pattern,
             "lift": self.lift,
             "coverage": self.coverage,
@@ -122,13 +136,13 @@ class StaffingFactor:
 class PortfolioOverview:
     kpis: ProjectKPIs
     projects: list[ProjectRow]
-    staffing_factors: list[StaffingFactor]
+    success_factors: list[SuccessFactor]
 
     def to_dict(self) -> dict:
         return {
             "kpis": self.kpis.to_dict(),
             "projects": [p.to_dict() for p in self.projects],
-            "staffing_factors": [f.to_dict() for f in self.staffing_factors],
+            "success_factors": [f.to_dict() for f in self.success_factors],
         }
 
 
@@ -195,12 +209,18 @@ def _compute_kpis(rows: list[ProjectRow]) -> ProjectKPIs:
 
 
 def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
-    """Run _predict success=true for an active project's context."""
+    """Run _predict success=true for an active project's context.
+
+    `team_members` is deliberately absent from the where clause: it is
+    a String column for display, not an Aito feature, so passing it
+    here would only contribute one-of-a-kind values. The team-as-signal
+    surfaces in the Success factors panel via `assignments.person`
+    instead.
+    """
     where = {
         "project_type": row.project_type,
         "manager": row.manager,
         "team_size": row.team_size,
-        "team_members": row.team_members,
         "duration_days": row.duration_days,
         "priority": row.priority,
         # budget_eur is decimal — included as is
@@ -217,60 +237,118 @@ def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
     return row
 
 
-def _staffing_factors_from_relate(client: AitoClient) -> list[StaffingFactor]:
-    """Use _relate to find people whose presence on a team predicts success.
+# Project-level categorical fields we mine for success factors. People
+# are mined separately off the assignments table — see _success_factors.
+_PROJECT_FACTOR_FIELDS: list[tuple[str, str]] = [
+    ("manager",      "Manager"),
+    ("project_type", "Project type"),
+    ("priority",     "Priority"),
+]
 
-    We relate `where={success: true}` over `projects.team_members`. The
-    Text field stores names space-separated, so Aito tokenises and
-    surfaces individual people whose presence is over-represented in
-    successful projects. Lift > 1 = boost; lift < 1 = drag.
 
-    Alternative implementation: query `from: assignments, where:
-    {project_success: true}, relate: person` — this also works because
-    `project_success` is denormalised onto the assignments table at
-    fixture-load time. Both shapes return the same kind of result;
-    we use the projects.team_members form because it's the more
-    natural single-table answer to the question.
-    """
-    try:
-        response = client.relate("projects", {"success": True}, "team_members")
-    except Exception:
-        return []
-
-    hits = response.get("hits") or []
-    factors: list[StaffingFactor] = []
-    for hit in hits[:30]:
+def _factors_from_hits(
+    hits: list[dict],
+    *,
+    kind: str,
+    label: str,
+    field: str,
+    min_coverage: int,
+) -> list[SuccessFactor]:
+    out: list[SuccessFactor] = []
+    for hit in hits:
         related = hit.get("related") or {}
-        # Aito returns related as e.g. {"person": {"$has": "A. Lindgren"}}
-        person = None
+        # Aito shape: {"<field>": {"$has": "<value>"}} or {"$is": ...}
+        value = None
         for v in related.values():
             if isinstance(v, dict):
-                person = v.get("$has") or v.get("$is")
-                if person:
+                value = v.get("$has") or v.get("$is")
+                if value is not None:
                     break
-        if not person:
+        if value in (None, ""):
+            continue
+        fs = hit.get("fs") or {}
+        ps = hit.get("ps") or {}
+        coverage = int(fs.get("fOnCondition", 0))
+        if coverage < min_coverage:
             continue
         lift = float(hit.get("lift", 1.0))
-        ps = hit.get("ps") or {}
-        fs = hit.get("fs") or {}
-        p_with = float(ps.get("pOnCondition", 0.0))
-        p_without = float(ps.get("pOnNotCondition", ps.get("p", 0.0)))
-        f_on = int(fs.get("fOnCondition", 0))
-        if f_on < 4:  # need enough samples to be meaningful
-            continue
-        direction = "boost" if lift >= 1.0 else "drag"
-        factors.append(StaffingFactor(
-            person=str(person),
-            role_in_pattern=direction,
+        out.append(SuccessFactor(
+            kind=kind,
+            label=label,
+            field=field,
+            value=str(value),
+            role_in_pattern="boost" if lift >= 1.0 else "drag",
             lift=lift,
-            coverage=f_on,
-            success_rate_with=p_with,
-            success_rate_without=p_without,
+            coverage=coverage,
+            success_rate_with=float(ps.get("pOnCondition", 0.0)),
+            success_rate_without=float(ps.get("pOnNotCondition", ps.get("p", 0.0))),
+        ))
+    return out
+
+
+def _success_factors(client: AitoClient) -> list[SuccessFactor]:
+    """Discover what correlates with project success — broadly.
+
+    Two `_relate` shapes feed one mixed list:
+
+      - `from: assignments, where: {project_success: true}, relate: person`
+        — surfaces individual people. `person` is a String column on
+        assignments, so each name is one distinct value, not a
+        bag-of-tokens. (That avoids the "feature 'r' from R. Keinonen"
+        problem that comes from mining `_relate` over a Text field.)
+
+      - `from: projects, where: {success: true}, relate: <field>` for
+        each of `manager`, `project_type`, `priority` — surfaces
+        project-level patterns: which managers carry success, which
+        project types are over-represented in wins, etc.
+
+    The combined list is sorted by magnitude of lift and capped, so
+    the panel shows the strongest signal first regardless of kind.
+    """
+    factors: list[SuccessFactor] = []
+
+    # People — assignments.person.
+    try:
+        people_response = client.relate(
+            "assignments", {"project_success": True}, "person",
+        )
+        factors.extend(_factors_from_hits(
+            people_response.get("hits") or [],
+            kind="person",
+            label="Person",
+            field="assignments.person",
+            min_coverage=4,
+        ))
+    except Exception:
+        pass
+
+    # Project-level categoricals — projects.<field>.
+    for field_name, label in _PROJECT_FACTOR_FIELDS:
+        try:
+            response = client.relate(
+                "projects", {"success": True}, field_name,
+            )
+        except Exception:
+            continue
+        factors.extend(_factors_from_hits(
+            response.get("hits") or [],
+            kind=field_name,
+            label=label,
+            field=f"projects.{field_name}",
+            # Project-level fields have far fewer distinct values than
+            # people; require more coverage so a single fluke doesn't
+            # outrank a real signal.
+            min_coverage=6,
         ))
 
-    # Sort by absolute distance from neutral, strongest first.
-    factors.sort(key=lambda f: abs(f.lift - 1.0), reverse=True)
-    return factors[:12]
+    # Sort by distance from neutral (strongest signal first), with a
+    # mild support tiebreaker so a 1.6× lift over 50 rows beats a 1.6×
+    # lift over 5 rows.
+    def score(f: SuccessFactor) -> float:
+        return abs(f.lift - 1.0) * (1.0 + (f.coverage ** 0.5) * 0.05)
+
+    factors.sort(key=score, reverse=True)
+    return factors[:14]
 
 
 def _row_from_dict(d: dict) -> ProjectRow:
@@ -316,18 +394,17 @@ def get_portfolio(client: AitoClient) -> PortfolioOverview:
     rows.sort(key=sort_key)
 
     kpis = _compute_kpis(rows)
-    factors = _staffing_factors_from_relate(client)
+    factors = _success_factors(client)
 
-    return PortfolioOverview(kpis=kpis, projects=rows, staffing_factors=factors)
+    return PortfolioOverview(kpis=kpis, projects=rows, success_factors=factors)
 
 
-def forecast_with_override(
-    client: AitoClient, project_id: str, team_members_override: str | None = None
-) -> dict:
-    """Predict success for a single project, optionally with an alternative team.
+def forecast_for_project(client: AitoClient, project_id: str) -> dict:
+    """Predict success for a single project on demand.
 
-    Lets the caller swap team_members and see the predicted delta — the
-    "what if I add A. Lindgren" simulator.
+    Used by the per-row "?" popover when it wants a live re-run instead
+    of the cached portfolio entry. The where-clause matches
+    `_forecast_active` — project-level fields only, no `team_members`.
     """
     raw = _list_projects(client)
     target = next((d for d in raw if d["project_id"] == project_id), None)
@@ -336,25 +413,9 @@ def forecast_with_override(
 
     row = _row_from_dict(target)
     base = _forecast_active(client, row)
-    base_p = base.success_p
-
-    if team_members_override:
-        row_alt = _row_from_dict(target)
-        row_alt.team_members = team_members_override
-        alt = _forecast_active(client, row_alt)
-        return {
-            "project_id": project_id,
-            "base_p": base_p,
-            "base_why": base.success_why,
-            "override_team_members": team_members_override,
-            "override_p": alt.success_p,
-            "override_why": alt.success_why,
-            "delta": (alt.success_p or 0.0) - (base_p or 0.0),
-        }
-
     return {
         "project_id": project_id,
-        "base_p": base_p,
+        "base_p": base.success_p,
         "base_why": base.success_why,
         "alternatives": base.success_alternatives,
     }
