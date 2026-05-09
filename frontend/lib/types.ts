@@ -496,6 +496,42 @@ export interface PortfolioResponse {
   success_factors: SuccessFactor[];
 }
 
+/* ─── Project Plan (Metsä — generative + matchmaking) ─── */
+export interface PlanTaskCandidate {
+  phase: string;
+  task_name: string;
+  assignee_kind: "subcontractor" | "employee";
+  assignee: string;
+  assignee_confidence: number;
+  planned_days: number;
+  planned_cost_eur: number;
+  success_p: number;
+}
+
+export interface GeneratedPlanResponse {
+  project_type: string;
+  region: string;
+  season: string;
+  estimated_budget_eur: number | null;
+  phases: string[];
+  tasks: PlanTaskCandidate[];
+  total_planned_days: number;
+  total_planned_cost_eur: number;
+  avg_success_p: number;
+}
+
+export interface AlternativeAssignee {
+  name: string;
+  success_p: number;
+  coverage: number;
+  avg_days: number | null;
+  avg_cost_eur: number | null;
+}
+
+export interface RerankResponse {
+  candidates: AlternativeAssignee[];
+}
+
 /* ─── Aito Panel ─── */
 export interface AitoPanelConfig {
   operation: string;

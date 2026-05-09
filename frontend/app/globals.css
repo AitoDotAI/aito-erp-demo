@@ -511,6 +511,69 @@ body {
 .b-red { background: var(--red-light); color: var(--red); }
 .b-blue { background: var(--blue-light); color: var(--blue); }
 .b-gray { background: #f0ede6; color: #6a6a5a; }
+.b-purple { background: rgba(155, 105, 255, 0.12); color: #6b3fc4; }
+
+/* ─── PROJECT PLAN form + phase chip ─── */
+.plan-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+.plan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plan-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.plan-form select,
+.plan-form input {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.plan-form select:focus,
+.plan-form input:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
+}
+.plan-generate {
+  height: 34px;
+  padding: 0 16px;
+  background: var(--gold);
+  color: var(--ink);
+  border: 1px solid var(--gold-dark);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.plan-generate:hover { background: var(--gold-dark); color: #fff; }
+.plan-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.phase-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(212, 160, 48, 0.16);
+  color: var(--gold-dark);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
 /* ─── CONFIDENCE BAR ─── */
 .conf { display: flex; align-items: center; gap: 7px; }

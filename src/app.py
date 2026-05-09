@@ -734,6 +734,45 @@ def projects_forecast(body: dict, request: Request):
     return forecast_for_project(aito, project_id)
 
 
+# ── Project Plan (Metsä — generative + matchmaking) ─────────────
+
+
+@app.post("/api/project-plan/generate")
+def project_plan_generate(body: dict, request: Request):
+    """Aito-drafted project plan from a small context payload.
+    See `task_service.generate_plan` for the per-task fan-out shape."""
+    from src.task_service import generate_plan
+    _, aito = client_from_request(request)
+    project_type = body.get("project_type", "construction")
+    region = body.get("region", "Helsinki")
+    season = body.get("season", "summer")
+    budget = body.get("estimated_budget_eur")
+    plan = generate_plan(
+        aito,
+        project_type=project_type,
+        region=region,
+        season=season,
+        estimated_budget_eur=float(budget) if budget else None,
+    )
+    return plan.to_dict()
+
+
+@app.post("/api/project-plan/rerank")
+def project_plan_rerank(body: dict, request: Request):
+    """Subcontractor matchmaking for one task context.
+    Returns top candidates ranked by P(success) via `_recommend`."""
+    from src.task_service import rerank_assignees
+    _, aito = client_from_request(request)
+    phase = body.get("phase")
+    project_type = body.get("project_type")
+    region = body.get("region", "Helsinki")
+    season = body.get("season", "summer")
+    if not phase or not project_type:
+        return {"error": "phase and project_type are required"}
+    candidates = rerank_assignees(aito, phase, project_type, region, season)
+    return {"candidates": [c.to_dict() for c in candidates]}
+
+
 # ── Cold start ───────────────────────────────────────────────────
 #
 # Static snapshot, captured offline by `scripts/capture_coldstart.py`

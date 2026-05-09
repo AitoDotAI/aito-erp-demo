@@ -63,6 +63,7 @@ const SECTIONS: NavSection[] = [
     emoji: "\u{1F465}",
     items: [
       { label: "Project Portfolio", href: "/projects" },
+      { label: "Project Plan", href: "/project-plan" },
       { label: "Utilization", href: "/utilization" },
     ],
   },

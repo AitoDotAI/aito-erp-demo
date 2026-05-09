@@ -50,7 +50,7 @@ export const TENANTS: TenantProfile[] = [
     audience: "Commerce (Oscar / ERPly-style)",
     accent: "#1a4a7a",
     // Hide projects + heavy approval routing — retail leans on stock + price.
-    hideRoutes: ["/projects", "/approval", "/utilization"],
+    hideRoutes: ["/projects", "/project-plan", "/approval", "/utilization"],
     defaultRoute: "/inventory",
   },
   {
@@ -60,8 +60,9 @@ export const TENANTS: TenantProfile[] = [
     audience: "Services / professional (horizontal SaaS)",
     accent: "#2d7a4f",
     // Services don't carry physical inventory; pricing data is too
-    // thin (80 SKUs, 200 price rows) to make Pricing credible.
-    hideRoutes: ["/catalog", "/demand", "/inventory", "/pricing", "/recommendations"],
+    // thin (80 SKUs, 200 price rows) to make Pricing credible. The
+    // construction-phased Project Plan view is Metsä-only too.
+    hideRoutes: ["/catalog", "/demand", "/inventory", "/pricing", "/recommendations", "/project-plan"],
     defaultRoute: "/projects",
   },
 ];

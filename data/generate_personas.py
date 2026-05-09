@@ -874,6 +874,402 @@ def generate_impressions(persona: PersonaSpec, products: list[dict]) -> list[dic
     return rows
 
 
+# ── Metsä tasks (Project Plan view) ─────────────────────────────────
+#
+# Only Metsä has a phased work-breakdown model (construction + heavy
+# maintenance). Each project emits N task rows; outcome (success /
+# on-time / on-budget) is driven by a hand-engineered signal so Aito's
+# `_predict` and `_recommend` queries surface meaningful rankings:
+#
+#   - Per-(phase, subcontractor) reliability (Caverion strong on MEP,
+#     drag on earthworks; NCC the opposite).
+#   - Per-(subcontractor, region) affinity (Caverion's home is
+#     Helsinki; Lemminkäinen leans Tampere; NCC has the Oulu site).
+#   - Season effects (concrete pour drags in winter; steel erection
+#     drags in winter too; MEP is season-neutral).
+#   - Project-size effects (Lemminkäinen wants ≥€500k, drag below).
+#
+# Phases are listed in execution order; the generator picks tasks
+# from each phase's pool (with some variance in inclusion + count) so
+# the dataset has both 25-task construction projects and 4-task
+# maintenance ones.
+
+
+@dataclass
+class TaskTemplate:
+    """One canonical task within a phase. Drives both fixture rows and
+    the generative project-plan demo (Aito proposes tasks by predicting
+    `task_name` given `(project_type, phase)`)."""
+    name: str
+    days: tuple[int, int]
+    cost: tuple[float, float]
+    assignee_kind: str           # "subcontractor" | "employee"
+
+
+# Task templates per (project_type, phase). Order within a list is
+# execution order; the generator preserves it so plans look plausible.
+METSA_TASK_TEMPLATES: dict[str, dict[str, list[TaskTemplate]]] = {
+    "construction": {
+        "site-prep": [
+            TaskTemplate("Site survey", (2, 5), (1500, 4000), "employee"),
+            TaskTemplate("Mobilisation", (3, 7), (4000, 12000), "subcontractor"),
+            TaskTemplate("Temporary fencing & access", (1, 3), (2000, 6000), "subcontractor"),
+        ],
+        "earthworks": [
+            TaskTemplate("Excavation", (5, 18), (15000, 60000), "subcontractor"),
+            TaskTemplate("Grading & compaction", (3, 9), (6000, 22000), "subcontractor"),
+            TaskTemplate("Drainage installation", (4, 10), (8000, 25000), "subcontractor"),
+        ],
+        "foundations": [
+            TaskTemplate("Reinforcement layout", (3, 7), (5000, 14000), "subcontractor"),
+            TaskTemplate("Concrete pour", (2, 6), (12000, 45000), "subcontractor"),
+            TaskTemplate("Curing & strip", (4, 9), (3000, 8000), "subcontractor"),
+        ],
+        "structural": [
+            TaskTemplate("Steel erection", (8, 20), (25000, 90000), "subcontractor"),
+            TaskTemplate("Decking & secondary steel", (4, 10), (8000, 25000), "subcontractor"),
+            TaskTemplate("Cladding", (6, 14), (12000, 38000), "subcontractor"),
+        ],
+        "mep": [
+            TaskTemplate("HVAC rough-in", (6, 14), (15000, 45000), "subcontractor"),
+            TaskTemplate("Electrical rough-in", (5, 12), (10000, 30000), "subcontractor"),
+            TaskTemplate("Plumbing rough-in", (4, 10), (8000, 22000), "subcontractor"),
+            TaskTemplate("Controls & BMS install", (5, 11), (12000, 32000), "subcontractor"),
+        ],
+        "finishing": [
+            TaskTemplate("Interior partitioning", (5, 12), (8000, 22000), "subcontractor"),
+            TaskTemplate("Floor finishes", (3, 8), (6000, 18000), "subcontractor"),
+            TaskTemplate("Painting & coatings", (3, 7), (4000, 12000), "subcontractor"),
+        ],
+        "commissioning": [
+            TaskTemplate("HVAC commissioning", (3, 7), (5000, 15000), "subcontractor"),
+            TaskTemplate("Electrical commissioning", (2, 6), (4000, 12000), "subcontractor"),
+            TaskTemplate("Final inspection walkthrough", (1, 3), (1500, 4000), "employee"),
+        ],
+        "handover": [
+            TaskTemplate("Customer acceptance test", (1, 3), (1000, 3000), "employee"),
+            TaskTemplate("Documentation handover", (1, 2), (800, 2000), "employee"),
+        ],
+    },
+    "maintenance": {
+        "planning": [
+            TaskTemplate("Scope walkthrough", (1, 2), (500, 1500), "employee"),
+        ],
+        "inspection": [
+            TaskTemplate("Equipment inspection", (1, 3), (800, 2500), "subcontractor"),
+            TaskTemplate("Diagnostic report", (1, 2), (500, 1500), "subcontractor"),
+        ],
+        "procurement": [
+            TaskTemplate("Spare parts ordering", (1, 4), (1500, 8000), "employee"),
+        ],
+        "repair": [
+            TaskTemplate("Repair execution", (2, 8), (3000, 18000), "subcontractor"),
+            TaskTemplate("Functional test", (1, 2), (500, 1500), "subcontractor"),
+        ],
+        "handover": [
+            TaskTemplate("Sign-off & report", (1, 1), (300, 800), "employee"),
+        ],
+    },
+    "rollout": {
+        "design": [
+            TaskTemplate("Solution design", (3, 8), (4000, 12000), "employee"),
+        ],
+        "procurement": [
+            TaskTemplate("Equipment ordering", (2, 5), (2000, 8000), "employee"),
+        ],
+        "installation": [
+            TaskTemplate("On-site installation", (3, 10), (6000, 22000), "subcontractor"),
+            TaskTemplate("Configuration", (2, 5), (3000, 9000), "subcontractor"),
+        ],
+        "testing": [
+            TaskTemplate("Acceptance testing", (2, 5), (2000, 6000), "employee"),
+        ],
+        "handover": [
+            TaskTemplate("Training & sign-off", (1, 3), (1500, 4000), "employee"),
+        ],
+    },
+    "audit": {
+        "planning": [
+            TaskTemplate("Audit scope", (1, 2), (500, 1500), "employee"),
+        ],
+        "fieldwork": [
+            TaskTemplate("Site observation", (1, 4), (1500, 4500), "employee"),
+            TaskTemplate("Evidence gathering", (1, 3), (1000, 3000), "employee"),
+        ],
+        "reporting": [
+            TaskTemplate("Findings report", (1, 3), (1500, 4500), "employee"),
+        ],
+    },
+    "rd": {
+        "discovery": [
+            TaskTemplate("Literature review", (3, 7), (3000, 9000), "employee"),
+            TaskTemplate("Requirements draft", (2, 5), (2000, 6000), "employee"),
+        ],
+        "prototype": [
+            TaskTemplate("Prototype build", (8, 20), (10000, 35000), "employee"),
+        ],
+        "validation": [
+            TaskTemplate("Test plan", (2, 4), (2000, 5000), "employee"),
+            TaskTemplate("Validation runs", (4, 10), (5000, 15000), "employee"),
+        ],
+        "documentation": [
+            TaskTemplate("Final report", (3, 6), (3000, 8000), "employee"),
+        ],
+    },
+}
+
+
+# Engineered subcontractor reliability per phase. Keys are phase names
+# from METSA_TASK_TEMPLATES. Values are {subcontractor: base_success}.
+# Subcontractors not listed for a phase are *capable but not specialist*
+# — they get a penalty (see _task_success_p).
+METSA_SUBCONTRACTOR_FIT: dict[str, dict[str, float]] = {
+    "site-prep":     {"NCC Suomi": 0.88, "Lemminkäinen": 0.84, "Caverion Suomi": 0.78},
+    "earthworks":    {"NCC Suomi": 0.92, "Lemminkäinen": 0.78},
+    "foundations":   {"Lemminkäinen": 0.88, "NCC Suomi": 0.85},
+    "structural":    {"NCC Suomi": 0.88, "Lemminkäinen": 0.82, "Konecranes": 0.80},
+    "mep":           {"Caverion Suomi": 0.93, "YIT Service": 0.85, "Schneider Finland": 0.78},
+    "finishing":     {"Caverion Suomi": 0.86, "YIT Service": 0.84, "Vesto Service": 0.80},
+    "commissioning": {"Caverion Suomi": 0.91, "YIT Service": 0.83},
+    "inspection":    {"Caverion Suomi": 0.86, "YIT Service": 0.84, "Vesto Service": 0.79},
+    "repair":        {"Caverion Suomi": 0.88, "YIT Service": 0.82, "Vesto Service": 0.80},
+    "installation":  {"Caverion Suomi": 0.87, "Schneider Finland": 0.85, "YIT Service": 0.82},
+}
+
+
+# Subcontractor home-region. Adds +0.06 P(success) when project region
+# matches; adds -0.05 when on the opposite end of Finland.
+METSA_SUBCONTRACTOR_HOME: dict[str, str] = {
+    "Caverion Suomi":    "Helsinki",
+    "YIT Service":       "Tampere",
+    "Vesto Service":     "Helsinki",
+    "NCC Suomi":         "Oulu",
+    "Lemminkäinen":      "Tampere",
+    "Schneider Finland": "Helsinki",
+    "Konecranes":        "Tampere",
+}
+
+
+# Internal employees Metsä assigns to non-subcontracted tasks. Picked
+# from project_team_pool with role-based bias for "planning"/"design"
+# phases vs hands-on phases. Reliable people boost slightly.
+METSA_EMPLOYEE_POOL: list[str] = [
+    "M. Hakala", "T. Virtanen", "K. Mäkinen", "J. Lehtinen",
+    "P. Korhonen", "S. Niemi", "L. Aho", "M. Salo", "K. Saari",
+    "A. Lindgren", "E. Heikkinen", "H. Mattila",
+]
+
+
+def _project_region(project: dict) -> str:
+    """Derive a region label from the project's customer string. Falls
+    back to a deterministic round-robin so every project has one."""
+    customer = project.get("customer", "")
+    for region in ("Helsinki", "Tampere", "Oulu"):
+        if region in customer:
+            return region
+    # Hash the project_id for stable fallback assignment.
+    return ("Helsinki", "Tampere", "Oulu")[hash(project["project_id"]) % 3]
+
+
+def _project_season(start_month: str) -> str:
+    month = int(start_month.split("-")[1])
+    if month in (12, 1, 2): return "winter"
+    if month in (3, 4, 5):  return "spring"
+    if month in (6, 7, 8):  return "summer"
+    return "autumn"
+
+
+def _task_success_p(
+    template: TaskTemplate,
+    phase: str,
+    subcontractor: str | None,
+    region: str,
+    season: str,
+    project_budget: float,
+) -> float:
+    """Engineered probability that the task ends in `success: true`.
+    Drives outcome roll for completed tasks and is what Aito's
+    `_recommend goal: {success: true}` should learn to predict."""
+    # Base rate by assignee kind. Internal employees are average; the
+    # interesting variance is on subcontractors.
+    if template.assignee_kind == "employee":
+        return random.uniform(0.78, 0.88)
+
+    fit = METSA_SUBCONTRACTOR_FIT.get(phase, {})
+    p = fit.get(subcontractor or "", 0.62)  # capable-but-not-specialist baseline
+
+    # Region affinity.
+    home = METSA_SUBCONTRACTOR_HOME.get(subcontractor or "")
+    if home == region:
+        p += 0.06
+    elif home and home != region:
+        p -= 0.04
+
+    # Season effects on weather-sensitive phases.
+    if phase == "foundations" and season == "winter":
+        p -= 0.18
+    if phase == "structural" and season == "winter":
+        p -= 0.10
+    if phase == "earthworks" and season == "winter":
+        p -= 0.12
+
+    # Project-size effects: Lemminkäinen and NCC drag below their target
+    # band; Caverion / YIT scale fine across sizes.
+    if subcontractor == "Lemminkäinen" and project_budget < 80000:
+        p -= 0.10
+    if subcontractor == "NCC Suomi" and project_budget < 50000:
+        p -= 0.08
+
+    return max(0.05, min(0.97, p))
+
+
+def _pick_subcontractor(phase: str, region: str, season: str, project_budget: float) -> str:
+    """Pick a subcontractor for a task with weight ∝ engineered P(success).
+
+    This is what makes the *fixture* reflect the engineered patterns —
+    if subcontractors were picked uniformly, the success roll would
+    still vary with subcontractor but the overall historical
+    base-rates per (phase, subcontractor) would be flat. We want
+    history that *shows* "Caverion does most of the MEP work and
+    succeeds 9/10 times" so Aito learns it.
+    """
+    fit = METSA_SUBCONTRACTOR_FIT.get(phase, {})
+    if not fit:
+        # Phase has no specialist pool — fall back to maintenance subs.
+        return random.choice(["Caverion Suomi", "YIT Service", "Vesto Service"])
+    candidates = list(fit.keys())
+    # Add 1-2 wildcards (capable-but-not-specialist) so Aito sees the
+    # contrast — without them, the demo looks too curated.
+    wildcards = ["Caverion Suomi", "YIT Service", "Vesto Service",
+                 "NCC Suomi", "Lemminkäinen"]
+    for w in wildcards:
+        if w not in candidates and random.random() < 0.15:
+            candidates.append(w)
+    weights = [
+        max(0.1, _task_success_p(
+            TaskTemplate("", (1, 1), (0, 0), "subcontractor"),
+            phase, c, region, season, project_budget,
+        )) ** 2
+        for c in candidates
+    ]
+    return random.choices(candidates, weights=weights, k=1)[0]
+
+
+def generate_metsa_tasks(persona: PersonaSpec, projects: list[dict]) -> list[dict]:
+    """Produce one tasks.json row per task across every Metsä project.
+
+    Construction projects yield ~20-25 tasks; maintenance projects ~3-5.
+    Outcomes for completed projects are rolled from the engineered
+    probability so historical base-rates carry the patterns Aito needs
+    to learn.
+    """
+    if persona.tenant_id != "metsa":
+        return []
+
+    tasks: list[dict] = []
+    counter = 0
+    for project in projects:
+        ptype = project["project_type"]
+        templates = METSA_TASK_TEMPLATES.get(ptype, {})
+        if not templates:
+            continue
+
+        region = _project_region(project)
+        season = _project_season(project["start_month"])
+        project_complete = project["status"] == "complete"
+        project_budget = float(project["budget_eur"])
+
+        for phase, phase_tasks in templates.items():
+            # Skip a phase entirely 8% of the time so plans aren't
+            # boilerplate-identical — gives _predict more variety.
+            if random.random() < 0.08:
+                continue
+            for tmpl in phase_tasks:
+                # Drop a sub-task ~12% of the time for the same reason.
+                if random.random() < 0.12:
+                    continue
+                counter += 1
+
+                if tmpl.assignee_kind == "subcontractor":
+                    subcontractor = _pick_subcontractor(phase, region, season, project_budget)
+                    employee = None
+                else:
+                    subcontractor = None
+                    employee = random.choice(METSA_EMPLOYEE_POOL)
+
+                planned_days = random.randint(*tmpl.days)
+                planned_cost = round(random.uniform(*tmpl.cost), -1)
+
+                # Roll the outcome for completed projects only. Active
+                # projects leave outcome columns null so the demo's
+                # "predict success" view has fresh things to score.
+                if project_complete:
+                    p_success = _task_success_p(
+                        tmpl, phase, subcontractor, region, season, project_budget,
+                    )
+                    success = random.random() < p_success
+                    on_time = success or random.random() < 0.30
+                    on_budget = success or random.random() < 0.25
+                    actual_days = (
+                        planned_days if on_time
+                        else int(planned_days * random.uniform(1.10, 1.45))
+                    )
+                    actual_cost = (
+                        planned_cost if on_budget
+                        else round(planned_cost * random.uniform(1.08, 1.35), -1)
+                    )
+                    status = "complete"
+                else:
+                    success = on_time = on_budget = None
+                    actual_days = actual_cost = None
+                    # Mix in some partial-progress for active projects.
+                    status = random.choices(
+                        ["planned", "active", "complete"],
+                        weights=[55, 30, 15], k=1,
+                    )[0]
+                    if status == "complete":
+                        # Treat already-finished tasks within an active
+                        # project as having outcomes — gives the active
+                        # view some realised KPIs alongside open work.
+                        p_success = _task_success_p(
+                            tmpl, phase, subcontractor, region, season, project_budget,
+                        )
+                        success = random.random() < p_success
+                        on_time = success or random.random() < 0.30
+                        on_budget = success or random.random() < 0.25
+                        actual_days = (
+                            planned_days if on_time
+                            else int(planned_days * random.uniform(1.10, 1.45))
+                        )
+                        actual_cost = (
+                            planned_cost if on_budget
+                            else round(planned_cost * random.uniform(1.08, 1.35), -1)
+                        )
+
+                tasks.append({
+                    "task_id": f"TSK-{counter:05d}",
+                    "project_id": project["project_id"],
+                    "phase": phase,
+                    "task_name": tmpl.name,
+                    "assignee_kind": tmpl.assignee_kind,
+                    "subcontractor": subcontractor,
+                    "assignee_person": employee,
+                    "planned_days": planned_days,
+                    "actual_days": actual_days,
+                    "planned_cost_eur": float(planned_cost),
+                    "actual_cost_eur": float(actual_cost) if actual_cost is not None else None,
+                    "season": season,
+                    "region": region,
+                    "status": status,
+                    "on_time": on_time,
+                    "on_budget": on_budget,
+                    "success": success,
+                    "project_type": ptype,
+                })
+
+    return tasks
+
+
 def write_persona(persona: PersonaSpec) -> None:
     out = DATA / persona.tenant_id
     out.mkdir(parents=True, exist_ok=True)
@@ -886,6 +1282,10 @@ def write_persona(persona: PersonaSpec) -> None:
     prices = generate_price_history(persona, products)
     projects, assignments = generate_projects_and_assignments(persona)
     impressions = generate_impressions(persona, products)
+    # Tasks are currently only generated for Metsä — the construction
+    # / maintenance phase model the project-plan view depends on doesn't
+    # apply directly to retail (Aurora) or services (Studio) personas.
+    tasks = generate_metsa_tasks(persona, projects) if persona.tenant_id == "metsa" else []
 
     with open(out / "purchases.json",     "w") as f: json.dump(purchases,    f, indent=2, ensure_ascii=False)
     with open(out / "products.json",      "w") as f: json.dump(products,     f, indent=2, ensure_ascii=False)
@@ -895,6 +1295,8 @@ def write_persona(persona: PersonaSpec) -> None:
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
     if impressions:
         with open(out / "impressions.json", "w") as f: json.dump(impressions, f, indent=2, ensure_ascii=False)
+    if tasks:
+        with open(out / "tasks.json",     "w") as f: json.dump(tasks,        f, indent=2, ensure_ascii=False)
 
     completed = [p for p in projects if p["status"] == "complete"]
     succ = [p for p in completed if p["success"]]
@@ -912,6 +1314,15 @@ def write_persona(persona: PersonaSpec) -> None:
     if impressions:
         print(f"  impressions:    {len(impressions)} "
               f"(clicked={sum(1 for r in impressions if r['clicked'])})")
+    if persona.tenant_id == "metsa":
+        # Re-load to print the count without keeping `tasks` in scope at
+        # the function top — write_persona already dumps to disk.
+        with open(out / "tasks.json") as f:
+            t = json.load(f)
+        print(f"  tasks:          {len(t)}  "
+              f"(complete={sum(1 for r in t if r['status']=='complete')}, "
+              f"active={sum(1 for r in t if r['status']=='active')}, "
+              f"planned={sum(1 for r in t if r['status']=='planned')})")
 
 
 def main() -> None:
