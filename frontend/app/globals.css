@@ -376,6 +376,83 @@ body {
   animation: pulse 1.5s ease infinite;
 }
 
+/* ─── LATENCY BADGE (topbar) ────────────────────────────────────
+   Persistent green pill that shows the most recent Aito request's
+   total round-trip ms. Hover for min/p50/p95/avg over the last 30
+   requests. Mirrors accounting.aito.ai's pattern. */
+.latency-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid #a8d8b0;
+  background: var(--green-light);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  cursor: default;
+}
+.latency-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(45, 122, 79, 0.5);
+}
+.latency-badge-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+  min-width: 220px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 400;
+  cursor: default;
+}
+.latency-badge-tooltip-title {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.latency-badge-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  font-size: 11.5px;
+}
+.latency-badge-stat-label {
+  color: var(--mid);
+}
+.latency-badge-stat-val {
+  font-family: 'DM Mono', monospace;
+}
+.latency-badge-stat-aside {
+  color: var(--mid);
+  margin-left: 6px;
+}
+.latency-badge-tooltip-foot {
+  display: block;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--mid);
+  line-height: 1.5;
+}
+
 /* ─── CONTENT AREA ─── */
 .content-area {
   flex: 1;
