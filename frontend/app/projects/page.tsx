@@ -11,7 +11,7 @@ import type {
   AitoPanelConfig,
   PortfolioResponse,
   ProjectRow,
-  StaffingFactor,
+  SuccessFactor,
   WhyExplanation,
 } from "@/lib/types";
 
@@ -19,25 +19,28 @@ const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_predict + _relate",
   endpoints: ["_predict", "_relate"],
   stats: [
-    { label: "Tables", value: "projects" },
+    { label: "Tables", value: "projects, assignments" },
     { label: "Target", value: "success" },
-    { label: "Patterns", value: "team × manager" },
+    { label: "Factors", value: "people · manager · type · priority" },
   ],
   description:
     "Project portfolio combines two Aito patterns. <em>aito.._predict</em> on " +
     "<em>success</em> forecasts the probability each active project will succeed " +
-    "given its manager, team composition, budget and duration. <em>aito.._relate</em> " +
-    "discovers which individual team members have a statistically significant " +
-    "effect on outcomes — boost or drag.",
+    "given its manager, project type, team size, budget and duration. " +
+    "<em>aito.._relate</em> mines completed-project history for the signals that " +
+    "actually move outcomes — people from <em>assignments</em>, plus " +
+    "<em>manager</em>, <em>project_type</em> and <em>priority</em> from " +
+    "<em>projects</em>.",
   query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"implementation"</span>,<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"manager"</span>: <span class="q-v">"J. Lehtinen"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"team_members"</span>: <span class="q-v">"A. Lindgren K. Saari ..."</span>,<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"team_size"</span>: <span class="q-n">5</span>,<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"budget_eur"</span>: <span class="q-n">120000</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"duration_days"</span>: <span class="q-n">90</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"duration_days"</span>: <span class="q-n">90</span>,<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"priority"</span>: <span class="q-v">"high"</span><br/>
 &nbsp;&nbsp;},<br/>
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"success"</span><br/>
 }`,
@@ -109,17 +112,17 @@ export default function ProjectsPage() {
         `Forecast for <em>${p.name}</em>. Manager: <em>${p.manager}</em>. ` +
         `Lead: <em>${p.team_lead}</em>. Type: <em>${p.project_type}</em>. ` +
         `Open the <em>?</em> on the row for the factor decomposition — which ` +
-        `parts of the project context move the prediction up or down, ` +
-        `including which team members carry weight.`,
+        `parts of the project context move the prediction up or down.`,
       query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"${p.project_type}"</span>,<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"manager"</span>: <span class="q-v">"${p.manager}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"team_members"</span>: <span class="q-v">"${p.team_members.slice(0, 60)}…"</span>,<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"team_size"</span>: <span class="q-n">${p.team_size}</span>,<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"budget_eur"</span>: <span class="q-n">${p.budget_eur}</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"duration_days"</span>: <span class="q-n">${p.duration_days}</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"duration_days"</span>: <span class="q-n">${p.duration_days}</span>,<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"priority"</span>: <span class="q-v">"${p.priority}"</span><br/>
 &nbsp;&nbsp;},<br/>
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"success"</span><br/>
 }`,
@@ -129,27 +132,36 @@ export default function ProjectsPage() {
     });
   };
 
-  const handleStaffingClick = (f: StaffingFactor) => {
+  const handleFactorClick = (f: SuccessFactor) => {
+    const isPerson = f.kind === "person";
+    const sourceTable = isPerson ? "assignments" : "projects";
+    const successKey = isPerson ? "project_success" : "success";
+    const fieldOnly = f.field.split(".").pop() ?? f.field;
     setPanel({
       operation: "_relate",
       endpoints: ["_relate"],
       stats: [
-        { label: "Person", value: f.person },
+        { label: f.label, value: f.value },
         { label: "Lift", value: `× ${f.lift.toFixed(2)}` },
         { label: "n", value: String(f.coverage) },
       ],
       description:
-        `Among completed projects, those that included <em>${f.person}</em> ` +
-        `succeeded <em>${pct(f.success_rate_with)}</em> of the time, ` +
-        `versus <em>${pct(f.success_rate_without)}</em> for projects without — ` +
-        `a <em>× ${f.lift.toFixed(2)}</em> lift. Treat with care: confounded ` +
-        `with project type and seniority.`,
+        `${f.label}: <em>${f.value}</em>. Among completed projects ` +
+        `${isPerson ? "with this person on the team" : `with this ${f.label.toLowerCase()}`}, ` +
+        `<em>${pct(f.success_rate_with)}</em> succeeded — versus ` +
+        `<em>${pct(f.success_rate_without)}</em> across the rest of the ` +
+        `portfolio. Lift <em>× ${f.lift.toFixed(2)}</em>. Treat as ` +
+        `correlation, not cause: factors confound with project type, ` +
+        `priority and seniority.`,
       query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
 {<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"success"</span>: <span class="q-n">true</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: <span class="q-p">"team_members"</span><br/>
-}`,
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"${sourceTable}"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"${successKey}"</span>: <span class="q-n">true</span> },<br/>
+&nbsp;&nbsp;<span class="q-k">"relate"</span>: <span class="q-p">"${fieldOnly}"</span><br/>
+}<br/>
+<br/>
+<span class="q-d">// p(${fieldOnly}=${f.value} | success) = ${pct(f.success_rate_with)}</span><br/>
+<span class="q-d">// p(${fieldOnly}=${f.value})           = ${pct(f.success_rate_without)}</span>`,
       links: [
         { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
       ],
@@ -278,35 +290,41 @@ export default function ProjectsPage() {
                     </table>
                   </section>
 
-                  {/* Staffing factors discovered by _relate */}
+                  {/* Success factors discovered by _relate */}
                   <aside className="card">
                     <div className="card-head">
-                      <span className="card-title">Staffing factors</span>
+                      <span className="card-title">Success factors</span>
                       <span className="card-meta">aito.._relate</span>
                     </div>
                     <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
-                      People whose presence on the team correlates with
-                      project success — discovered by Aito's <code>_relate</code>{" "}
-                      over completed-project history.
+                      Signals that move the success rate across completed
+                      projects — people from <code>assignments</code> and
+                      project-level fields (<code>manager</code>,{" "}
+                      <code>project_type</code>, <code>priority</code>) from{" "}
+                      <code>projects</code>. One <code>_relate</code> call
+                      per source.
                     </div>
-                    <div className="staffing-list">
-                      {data.staffing_factors.length === 0 ? (
-                        <div className="staffing-empty">
+                    <div className="factors-list">
+                      {data.success_factors.length === 0 ? (
+                        <div className="factors-empty">
                           Not enough completed-project history yet.
                         </div>
                       ) : (
-                        data.staffing_factors.map((f) => (
+                        data.success_factors.map((f) => (
                           <button
-                            key={f.person}
+                            key={`${f.kind}:${f.value}`}
                             type="button"
-                            className={`staffing-row staffing-${f.role_in_pattern}`}
-                            onClick={() => handleStaffingClick(f)}
+                            className={`factors-row factors-${f.role_in_pattern}`}
+                            onClick={() => handleFactorClick(f)}
                           >
-                            <span className="staffing-person">{f.person}</span>
-                            <span className={`staffing-lift staffing-${f.role_in_pattern}`}>
+                            <span className={`factors-kind factors-kind-${f.kind}`}>
+                              {f.label}
+                            </span>
+                            <span className="factors-value">{f.value}</span>
+                            <span className={`factors-lift factors-${f.role_in_pattern}`}>
                               × {f.lift.toFixed(2)}
                             </span>
-                            <span className="staffing-meta">
+                            <span className="factors-meta">
                               {pct(f.success_rate_with)}{" "}
                               <span style={{ color: "var(--mid)" }}>vs</span>{" "}
                               {pct(f.success_rate_without)}{" "}

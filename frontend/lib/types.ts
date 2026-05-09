@@ -476,8 +476,13 @@ export interface ProjectRow {
   success_why: WhyExplanation | Record<string, never>;
 }
 
-export interface StaffingFactor {
-  person: string;
+export interface SuccessFactor {
+  /** Discriminator: "person" comes from assignments.person; the rest
+   *  come from projects.<field>. */
+  kind: "person" | "manager" | "project_type" | "priority";
+  label: string;             // human-readable group label, e.g. "Manager"
+  field: string;             // source — "assignments.person", "projects.manager", …
+  value: string;             // concrete value
   role_in_pattern: "boost" | "drag";
   lift: number;
   coverage: number;
@@ -488,7 +493,7 @@ export interface StaffingFactor {
 export interface PortfolioResponse {
   kpis: ProjectKPIs;
   projects: ProjectRow[];
-  staffing_factors: StaffingFactor[];
+  success_factors: SuccessFactor[];
 }
 
 /* ─── Aito Panel ─── */

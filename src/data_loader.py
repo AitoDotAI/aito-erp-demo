@@ -89,9 +89,14 @@ SCHEMAS = {
             "manager": {"type": "String", "nullable": False},
             "team_lead": {"type": "String", "nullable": False},
             "team_size": {"type": "Int", "nullable": False},
-            # Text so Aito tokenizes individual names — that's what
-            # makes "presence of person X predicts success" learnable.
-            "team_members": {"type": "Text", "nullable": False},
+            # Display-only String of space-joined names. We deliberately
+            # do NOT tokenize this into a Text feature — surfacing
+            # "presence of person X" via Text gives noisy single-letter
+            # tokens like "R" from "R. Keinonen". The clean signal lives
+            # one table over: `assignments.person` is a String, so each
+            # name is a distinct value, and `_relate` over assignments
+            # surfaces real people, not text fragments.
+            "team_members": {"type": "String", "nullable": False},
             "budget_eur": {"type": "Decimal", "nullable": False},
             "duration_days": {"type": "Int", "nullable": False},
             "priority": {"type": "String", "nullable": False},

@@ -44,7 +44,7 @@ const config: VerticalEntryConfig = {
       href: "/projects",
       pitch:
         "Predicted success per active maintenance & construction project, with " +
-        "people-as-staffing-factors mined from completed-project history.",
+        "the factors that move outcomes mined from completed-project history.",
       stat: "65 active projects",
     },
   ],
