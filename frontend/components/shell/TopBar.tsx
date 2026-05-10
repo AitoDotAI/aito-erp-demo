@@ -1,5 +1,6 @@
 "use client";
 
+import LatencyBadge from "./LatencyBadge";
 import TenantSwitcher from "./TenantSwitcher";
 import { NAV_OPEN_EVENT } from "./Nav";
 
@@ -59,6 +60,7 @@ export default function TopBar({ title, subtitle, breadcrumb, kpis, live }: TopB
             {kpi.icon} {kpi.label}
           </span>
         ))}
+        <LatencyBadge />
         <TenantSwitcher />
       </div>
     </div>

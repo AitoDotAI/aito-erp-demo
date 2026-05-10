@@ -329,9 +329,14 @@ body {
   height: 50px;
   display: flex;
   align-items: center;
-  padding: 0 24px;
+  /* Right padding tracks the Aito panel's width so the topbar's right
+     cluster (live pill, latency badge, tenant switcher) never sits
+     under the panel. Variable comes from AitoPanel; mobile overrides
+     to 0 in the media query below. */
+  padding: 0 calc(var(--aito-panel-w, 320px) + 24px) 0 24px;
   justify-content: space-between;
   flex-shrink: 0;
+  transition: padding-right 0.25s ease;
 }
 
 .topbar-left { display: flex; align-items: center; gap: 8px; }
@@ -376,11 +381,92 @@ body {
   animation: pulse 1.5s ease infinite;
 }
 
+/* ─── LATENCY BADGE (topbar) ────────────────────────────────────
+   Persistent green pill that shows the most recent Aito request's
+   total round-trip ms. Hover for min/p50/p95/avg over the last 30
+   requests. Mirrors accounting.aito.ai's pattern. */
+.latency-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid #a8d8b0;
+  background: var(--green-light);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  cursor: default;
+}
+.latency-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(45, 122, 79, 0.5);
+}
+.latency-badge-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+  min-width: 220px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 400;
+  cursor: default;
+}
+.latency-badge-tooltip-title {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.latency-badge-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  font-size: 11.5px;
+}
+.latency-badge-stat-label {
+  color: var(--mid);
+}
+.latency-badge-stat-val {
+  font-family: 'DM Mono', monospace;
+}
+.latency-badge-stat-aside {
+  color: var(--mid);
+  margin-left: 6px;
+}
+.latency-badge-tooltip-foot {
+  display: block;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--mid);
+  line-height: 1.5;
+}
+
 /* ─── CONTENT AREA ─── */
 .content-area {
   flex: 1;
   display: flex;
   overflow: hidden;
+  /* Same right reflow as the topbar — the panel is absolutely
+     positioned and would otherwise overlap the content. */
+  padding-right: var(--aito-panel-w, 320px);
+  transition: padding-right 0.25s ease;
 }
 
 /* ─── MAIN CONTENT ─── */
@@ -751,10 +837,17 @@ body {
 
 /* ─── AITO SIDE PANEL ─── */
 /* Mirrors aito-demo's ContextPanel: navy bg with knowledge-garden backdrop,
-   purple-tinted borders, semi-transparent layered surfaces. */
+   purple-tinted borders, semi-transparent layered surfaces.
+   Absolutely positioned so the panel extends from the top of `.main`
+   (above the topbar) all the way to the bottom — matches accounting
+   .aito.ai / aito-demo. The topbar and content reflow via the
+   `--aito-panel-w` CSS variable, set by the AitoPanel component. */
 .aito-side {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   width: 320px;
-  min-width: 320px;
   background-color: var(--aito-bg);
   background-image: url('/assets/knowledge_garden_with_river.png');
   background-position: bottom center;
@@ -764,7 +857,8 @@ body {
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid rgba(93, 80, 255, 0.2);
-  transition: width 0.25s ease, min-width 0.25s ease;
+  z-index: 10;
+  transition: width 0.25s ease, transform 0.25s ease;
 }
 
 .aito-side-header {
@@ -1039,71 +1133,41 @@ body {
 .aito-note em { color: var(--aito-teal); font-style: normal; }
 
 /* ─── AITO COLLAPSED PANEL ─── */
+/* When collapsed the panel slides off to the right entirely; only the
+   toggle handle (below) remains visible. transform-based hide keeps
+   the inner DOM in place so its scroll/state isn't reset on toggle. */
 .aito-side.collapsed {
-  width: 36px;
-  min-width: 36px;
-  overflow: hidden;
+  transform: translateX(100%);
 }
 
-.aito-side.collapsed .aito-side-header,
-.aito-side.collapsed .aito-side-body,
-.aito-side.collapsed .aito-side-cta {
-  display: none;
-}
-
-.aito-side.collapsed .aito-tab-strip {
-  flex-direction: column;
-  align-items: center;
-  padding: 10px 0;
-  gap: 6px;
-}
-
+/* Vertical-tab collapse handle — sits on the panel's left edge,
+   vertically centered. Mirrors .aito-panel-toggle in
+   aito-accounting-demo / aito-demo. position: fixed so it never
+   participates in the topbar's right cluster (which used to overlap
+   the old circular toggle). */
 .aito-toggle {
-  position: absolute;
-  top: 12px;
-  right: 308px;
-  width: 26px;
-  height: 26px;
+  position: fixed;
+  top: 50%;
+  right: var(--aito-panel-w, 320px);
+  transform: translateY(-50%);
+  width: 22px;
+  height: 64px;
   background: var(--aito-bg);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 50%;
+  border: 1px solid rgba(93, 80, 255, 0.3);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   cursor: pointer;
-  z-index: 100;
-  font-size: 12px;
-  color: var(--aito-dim);
-  transition: right 0.25s ease;
+  color: var(--aito-teal);
+  z-index: 1001;
+  box-shadow: -2px 0 8px rgba(12, 15, 65, 0.3);
+  transition: right 0.25s ease, background-color 0.15s ease;
   user-select: none;
 }
-
-.aito-toggle:hover { color: var(--aito-teal); }
-.aito-toggle.collapsed { right: 4px; }
-
-.aito-tab-strip {
-  display: none;
-  background: var(--aito-bg);
-  width: 36px;
-  padding: 12px 0;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  border-left: 1px solid rgba(255,255,255,0.04);
-}
-
-.aito-side.collapsed .aito-tab-strip { display: flex; }
-
-.aito-strip-label {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  font-family: 'DM Mono', monospace;
-  font-size: 9px;
-  color: var(--aito-teal);
-  letter-spacing: 0.1em;
-  transform: rotate(180deg);
-  padding: 8px 0;
-}
+.aito-toggle:hover { background: #37336B; }
 
 /* ─── AUTOMATION BAR ─── */
 .auto-bar-wrap { padding: 0 16px 16px; }
@@ -2351,6 +2415,9 @@ body {
     display: none !important;
   }
 
+  /* No panel on mobile, so no right-edge reflow either. */
+  .content-area { padding-right: 0; }
+
   /* Floating round info button, bottom-right. Opens the bottom sheet. */
   .aito-mobile-toggle {
     display: flex;
@@ -2381,10 +2448,17 @@ body {
     object-fit: contain;
   }
 
-  /* Lift the latency pill above the floating button so they don't
-     stack on the same pixel. */
+  /* The mobile Aito toggle now sits bottom-RIGHT and the latency
+     ticker bottom-LEFT, so they no longer fight for the same pixel.
+     But on narrow screens we shrink the pills to keep the row from
+     overflowing into the toggle's territory. */
   .latency-pill {
-    bottom: 80px;
+    max-width: calc(100vw - 80px);
+    overflow: hidden;
+  }
+  .latency-entry {
+    flex-shrink: 1;
+    min-width: 0;
   }
 
   /* Backdrop behind the bottom sheet. */
@@ -2873,54 +2947,48 @@ body {
    Lives in the bottom-right corner. Fades in on every API call,
    auto-hides after 4s. Visible across all pages so visitors see
    sub-50ms _predict / _relate timings as they click around. */
+/* Ticker container is bottom-LEFT — clears the right-side Aito panel. */
 .latency-pill {
   position: fixed;
+  left: 16px;
   bottom: 16px;
-  right: 16px;
   z-index: 80;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  pointer-events: none;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.latency-entry {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(12, 15, 65, 0.94);  /* aito panel bg, slightly translucent */
-  color: #fff;
-  border-radius: 18px;
-  font-size: 11px;
-  font-family: 'DM Mono', monospace;
-  letter-spacing: 0.02em;
-  box-shadow: 0 4px 14px rgba(12, 15, 65, 0.18);
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.25s ease, transform 0.25s ease;
-  pointer-events: none;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: var(--ink);
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(12, 15, 65, 0.06);
+  transition: opacity 1s ease;
 }
-.latency-pill.visible {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
+.latency-entry--cached {
+  font-style: italic;
+  color: var(--mid);
 }
 .latency-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--aito-teal);
-  box-shadow: 0 0 6px rgba(18, 181, 173, 0.6);
-}
-.latency-dot--cached {
-  background: rgba(255, 255, 255, 0.35);
-  box-shadow: none;
 }
 .latency-endpoint {
-  color: var(--aito-teal);
   font-weight: 500;
 }
 .latency-ms {
-  color: rgba(255, 255, 255, 0.92);
   font-weight: 600;
-}
-.latency-label {
-  color: rgba(255, 255, 255, 0.55);
-  font-style: italic;
+  color: var(--ink);
 }
 
 /* ─── Relearn banner (PO Queue) ─────────────────────────────────
