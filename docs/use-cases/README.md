@@ -21,6 +21,8 @@ on tradeoffs and gotchas.
 | 12 | [Project Portfolio](12-project-portfolio.md) | `_predict` success + `_relate` over `assignments.person` for staffing factors |
 | 13 | [Utilization & Capacity](13-utilization.md) *(Studio-only)* | `_predict` role + allocation_pct on assignments (single-table after denormalising project_type) |
 | 14 | [Recommendations](14-recommendations.md) *(Aurora-only)* | `_search` co-occurrence + attribute scoring (cross-sell + similar) |
+| 15 | [Cold Start](15-cold-start.md) | `_evaluate` with `testSource` + month cutoff, slider-driven accuracy curve |
+| 16 | [Project Plan](16-project-plan.md) *(Metsä-only)* | Generative plan via `_predict` × N + `_recommend goal:{success: true}` matchmaking + per-phase auto-PO drafts |
 
 Each guide is self-contained; read in any order. Prerequisites
 (running demo, loaded data) are listed in the project [README](../../README.md).

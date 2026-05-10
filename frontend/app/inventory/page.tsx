@@ -22,6 +22,8 @@ const defaultPanel: AitoPanelConfig = {
   links: [
     { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
     { label: "aito.ai/docs/relate", url: "https://aito.ai/docs/api/relate" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/10-inventory-intelligence.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/inventory_service.py", kind: "github" },
   ],
 };
 

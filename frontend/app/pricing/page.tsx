@@ -21,6 +21,8 @@ const defaultPanel: AitoPanelConfig = {
   query: `<span class="q-k">POST</span> <span class="q-v">/api/v1/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,\n  <span class="q-k">"where"</span>: {\n    <span class="q-k">"product"</span>: <span class="q-v">"Industrial Relay"</span>,\n    <span class="q-k">"volume"</span>: <span class="q-n">100</span>\n  },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"unit_price"</span>\n}`,
   links: [
     { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/08-price-intelligence.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/pricing_service.py", kind: "github" },
   ],
 };
 

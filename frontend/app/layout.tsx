@@ -1,6 +1,7 @@
 import "./globals.css";
+import Script from "next/script";
 import { TenantProvider } from "@/lib/tenant-context";
-import LatencyPill from "@/components/shell/LatencyPill";
+import Analytics from "@/components/shell/Analytics";
 
 export const metadata = {
   title: "Predictive ERP — by Aito",
@@ -21,6 +22,11 @@ export const viewport = {
   initialScale: 1,
 };
 
+// Google Analytics 4 measurement ID. Same property aito-demo and
+// aito-accounting-demo use, so this demo's pageviews land in the
+// same GA4 view. anonymize_ip + cookie_expires:0 mirror those.
+const GA_MEASUREMENT_ID = "G-FDTBRCMZWJ";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -29,8 +35,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="app">
             {children}
           </div>
-          <LatencyPill />
+          {/* Segment page() on every client-side route change */}
+          <Analytics />
         </TenantProvider>
+
+        {/* Google Analytics 4 — same property as the other Aito demos.
+            `afterInteractive` keeps the script off the critical path. */}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="ga-init" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_MEASUREMENT_ID}', {
+              anonymize_ip: true,
+              cookie_expires: 0,
+            });
+          `}
+        </Script>
       </body>
     </html>
   );

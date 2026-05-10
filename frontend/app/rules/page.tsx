@@ -37,6 +37,8 @@ const defaultPanel: AitoPanelConfig = {
   links: [
     { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
     { label: "Rule lifecycle guide", url: "https://aito.ai/docs/guides/rule-mining" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/06-rule-mining.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/rulemining_service.py", kind: "github" },
   ],
 };
 

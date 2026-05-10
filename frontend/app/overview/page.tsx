@@ -40,6 +40,8 @@ const defaultPanel: AitoPanelConfig = {
   links: [
     { label: "_evaluate API reference", url: "https://aito.ai/docs/api/evaluate" },
     { label: "aito.ai/docs", url: "https://aito.ai/docs" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/11-automation-overview.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/overview_service.py", kind: "github" },
   ],
 };
 

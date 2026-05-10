@@ -36,6 +36,8 @@ const defaultPanel: AitoPanelConfig = {
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     { label: "Approval routing guide", url: "https://aito.ai/docs/guides/approval-routing" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/03-approval-routing.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/approval_service.py", kind: "github" },
   ],
 };
 

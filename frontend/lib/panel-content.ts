@@ -15,6 +15,7 @@
  * panel: add a builder function.
  */
 
+import { referenceLinks } from "./references";
 import type { TenantId } from "./tenants";
 import type { AitoPanelConfig } from "./types";
 
@@ -105,6 +106,7 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
     links: [
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       { label: "Confidence thresholds", url: "https://aito.ai/docs/guides/confidence" },
+      ...referenceLinks({ useCase: "01-po-queue", source: "src/po_service.py" }),
     ],
   };
 }
@@ -137,6 +139,7 @@ export function supplierPanel(tenant: TenantId): AitoPanelConfig {
 <span class="q-d">// → ${c.riskySupplier}: lift × 1.6 (high risk)</span>`,
     links: [
       { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
+      ...referenceLinks({ useCase: "05-supplier-intel", source: "src/supplier_service.py" }),
     ],
   };
 }
@@ -173,6 +176,7 @@ export function anomaliesPanel(tenant: TenantId): AitoPanelConfig {
 <span class="q-d">// p(actual) = 0.04 → flagged</span>`,
     links: [
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
+      ...referenceLinks({ useCase: "04-anomaly-detection", source: "src/anomaly_service.py" }),
     ],
   };
 }

@@ -496,6 +496,76 @@ export interface PortfolioResponse {
   success_factors: SuccessFactor[];
 }
 
+/* ─── Project Plan (Metsä — generative + matchmaking) ─── */
+export interface PlanTaskCandidate {
+  phase: string;
+  task_name: string;
+  assignee_kind: "subcontractor" | "employee";
+  assignee: string;
+  assignee_confidence: number;
+  planned_days: number;
+  planned_cost_eur: number;
+  success_p: number;
+}
+
+export interface PurchaseSuggestion {
+  phase: string;
+  category: string;
+  supplier: string;
+  supplier_confidence: number;
+  typical_amount_eur: number | null;
+  coverage: number;
+}
+
+export interface GeneratedPlanResponse {
+  project_type: string;
+  region: string;
+  season: string;
+  estimated_budget_eur: number | null;
+  phases: string[];
+  tasks: PlanTaskCandidate[];
+  purchases: PurchaseSuggestion[];
+  total_planned_days: number;
+  total_planned_cost_eur: number;
+  total_purchases_eur: number;
+  avg_success_p: number;
+}
+
+export interface AlternativeAssignee {
+  name: string;
+  success_p: number;
+  coverage: number;
+  avg_days: number | null;
+  avg_cost_eur: number | null;
+}
+
+export interface RerankResponse {
+  candidates: AlternativeAssignee[];
+}
+
+/* ─── Project Plan: step-by-step walker ─── */
+export interface PhaseOption {
+  phase: string;
+  p: number;
+  typical_task_count: number;
+}
+export interface TaskOption {
+  task_name: string;
+  p: number;
+  typical_days: number;
+  typical_cost_eur: number;
+}
+export interface AssigneeOption {
+  assignee_kind: "subcontractor" | "employee";
+  name: string;
+  p: number;          // confidence from `_predict assignee`
+  success_p: number;  // P(success) given this assignment
+}
+export interface NextPhaseResponse { options: PhaseOption[] }
+export interface NextTasksResponse { options: TaskOption[] }
+export interface NextAssigneeResponse { options: AssigneeOption[] }
+export interface PhasePurchasesResponse { purchases: PurchaseSuggestion[] }
+
 /* ─── Aito Panel ─── */
 export interface AitoPanelConfig {
   operation: string;

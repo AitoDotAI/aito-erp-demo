@@ -48,6 +48,8 @@ const PANEL: AitoPanelConfig = {
 }`,
   links: [
     { label: "_evaluate API reference", url: "https://aito.ai/docs/api/evaluate" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/15-cold-start.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/frontend/app/coldstart/page.tsx", kind: "github" },
   ],
 };
 

@@ -457,6 +457,65 @@ body {
   color: var(--mid);
   line-height: 1.5;
 }
+.latency-badge-count {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(45, 122, 79, 0.15);
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 600;
+}
+.latency-badge-divider {
+  display: block;
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+}
+.latency-badge-subtitle {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.latency-badge-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+}
+.latency-badge-call {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+.latency-badge-call-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.latency-badge-call-op {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.latency-badge-call-ms {
+  font-weight: 600;
+  color: var(--ink);
+}
+.latency-badge-call-more {
+  font-size: 10.5px;
+  color: var(--mid);
+  font-style: italic;
+  margin-top: 2px;
+}
 
 /* ─── CONTENT AREA ─── */
 .content-area {
@@ -597,6 +656,510 @@ body {
 .b-red { background: var(--red-light); color: var(--red); }
 .b-blue { background: var(--blue-light); color: var(--blue); }
 .b-gray { background: #f0ede6; color: #6a6a5a; }
+.b-purple { background: rgba(155, 105, 255, 0.12); color: #6b3fc4; }
+
+/* ─── PROJECT PLAN form + phase chip ─── */
+.plan-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+.plan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plan-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.plan-form select,
+.plan-form input {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.plan-form select:focus,
+.plan-form input:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
+}
+.plan-generate {
+  height: 34px;
+  padding: 0 16px;
+  background: var(--gold);
+  color: var(--ink);
+  border: 1px solid var(--gold-dark);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.plan-generate:hover { background: var(--gold-dark); color: #fff; }
+.plan-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.phase-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(212, 160, 48, 0.16);
+  color: var(--gold-dark);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ─── PROJECT PLAN walker (step-by-step mode) ─── */
+.plan-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.plan-walker {
+  height: 34px;
+  padding: 0 16px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.plan-walker:hover {
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+.plan-walker:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.walker-card .card-meta {
+  font-style: italic;
+  color: var(--mid);
+}
+.walker-built {
+  padding: 12px 14px;
+  background: #fbf8f0;
+  border-bottom: 1px solid var(--border);
+}
+.walker-built-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  margin-bottom: 8px;
+}
+.walker-built-phase {
+  margin-bottom: 6px;
+}
+.walker-built-phase ul {
+  margin: 4px 0 0 0;
+  padding: 0 0 0 20px;
+  list-style: square;
+}
+.walker-built-phase li {
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.walker-built-name { font-weight: 500; }
+.walker-built-meta {
+  margin-left: 6px;
+  color: var(--mid);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+}
+.walker-stage {
+  padding: 14px;
+}
+.walker-stage-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  margin-bottom: 10px;
+}
+.walker-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.walker-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+.walker-option:hover {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.walker-option-meta {
+  color: var(--mid);
+  font-size: 11px;
+}
+.walker-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.walker-task {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+}
+.walker-task-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+.walker-task-name {
+  font-weight: 500;
+  color: var(--ink);
+  font-size: 13px;
+}
+.walker-task-meta {
+  font-size: 11px;
+  color: var(--mid);
+}
+.walker-task-accept {
+  height: 28px;
+  padding: 0 12px;
+  background: var(--gold-light);
+  color: var(--gold-dark);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.walker-task-accept:hover {
+  background: var(--gold);
+  color: #fff;
+}
+.walker-task-accept:disabled { opacity: 0.5; cursor: not-allowed; }
+.walker-assignees {
+  border-top: 1px solid var(--border);
+  background: #fbf8f0;
+  padding: 10px 12px;
+}
+.walker-assignees-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.walker-assignee {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+.walker-assignee:hover {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.walker-assignee.is-top { border-color: var(--green); }
+.walker-assignee-name { font-weight: 500; color: var(--ink); }
+.walker-assignee-meta { color: var(--mid); font-size: 11px; }
+.walker-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.walker-finish {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--gold);
+  color: var(--ink);
+  border: 1px solid var(--gold-dark);
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.walker-finish:hover { background: var(--gold-dark); color: #fff; }
+.walker-finish:disabled { opacity: 0.5; cursor: not-allowed; }
+.walker-empty {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--mid);
+  padding: 8px 0;
+}
+.walker-loading {
+  padding: 10px 14px;
+  font-size: 11.5px;
+  color: var(--mid);
+  font-style: italic;
+}
+.walker-pos {
+  border-top: 1px solid var(--border);
+  background: #fbf8f0;
+  padding: 12px 14px;
+}
+.walker-po-cat {
+  font-size: 11px;
+  color: var(--mid);
+  font-family: 'DM Mono', monospace;
+}
+
+/* ─── PROJECT PLAN editor mode ─── */
+.editor-phase {
+  border-top: 1px solid var(--border);
+}
+.editor-phase:first-of-type { border-top: none; }
+.editor-phase-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fdfcf9;
+  border-bottom: 1px solid var(--border);
+}
+.editor-phase-count {
+  font-size: 11px;
+  color: var(--mid);
+  margin-left: 4px;
+}
+.editor-add-task {
+  margin-left: auto;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--gold-light);
+  color: var(--gold-dark);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-add-task:hover {
+  background: var(--gold);
+  color: #fff;
+}
+.editor-add-task:disabled { opacity: 0.5; cursor: not-allowed; }
+.editor-remove-phase {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  color: var(--mid);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.editor-remove-phase:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+.editor-tbl {
+  width: 100%;
+}
+.editor-tbl tbody tr td {
+  padding: 8px 14px;
+  vertical-align: middle;
+}
+.editor-assignee-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink);
+  text-align: left;
+}
+.editor-assignee-chip:hover {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.editor-assignee-name { font-weight: 500; }
+.editor-assignee-swap {
+  color: var(--mid);
+  font-size: 11px;
+  margin-left: 2px;
+}
+.editor-numeric {
+  width: 60px;
+  height: 26px;
+  padding: 0 6px;
+  text-align: right;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  color: var(--ink);
+}
+.editor-numeric-wide { width: 100px; }
+.editor-numeric:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
+}
+.editor-row-delete {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  color: var(--mid);
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.editor-row-delete:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+.editor-inline-row td {
+  background: #fbf8f0;
+  padding: 0 !important;
+}
+.editor-inline-row .walker-assignees {
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+.walker-assignee.is-current {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.walker-assignee-cancel {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--mid);
+  cursor: pointer;
+}
+.walker-assignee-cancel:hover { color: var(--ink); }
+.editor-picker {
+  padding: 12px 14px;
+  background: #fbf8f0;
+  border-bottom: 1px solid var(--border);
+}
+.editor-picker-phase {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+}
+.editor-cancel-phase {
+  margin-top: 10px;
+  background: transparent;
+  color: var(--mid);
+  border: 1px solid var(--border);
+}
+.editor-cancel-phase:hover { color: var(--ink); }
+.editor-pos {
+  background: #fbf8f0;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--border);
+}
+.editor-pos-head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.editor-pos .phase-po {
+  grid-template-columns: 110px 1fr auto auto;
+}
+.editor-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: #fdfcf9;
+}
+.editor-add-phase {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px dashed var(--mid);
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-add-phase:hover {
+  border-style: solid;
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+.editor-add-phase:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Per-phase auto-drafted PO strip. Lives inside each phase card,
+   under the task table. Renders the Lemonsoft+Jakamo punchline:
+   when Aito drafts a phase, it ALSO drafts the typical material POs. */
+.phase-pos {
+  border-top: 1px solid var(--border);
+  background: #fbf8f0;
+  padding: 10px 14px 12px;
+}
+.phase-pos-head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  margin-bottom: 6px;
+}
+.phase-pos-label { font-weight: 600; color: var(--ink); }
+.phase-pos-meta  { font-style: italic; }
+.phase-pos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.phase-po {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.phase-po-supplier { color: var(--ink); font-weight: 500; }
+.phase-po-meta {
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--ink);
+}
 
 /* ─── CONFIDENCE BAR ─── */
 .conf { display: flex; align-items: center; gap: 7px; }
@@ -2349,19 +2912,6 @@ body {
     object-fit: contain;
   }
 
-  /* The mobile Aito toggle now sits bottom-RIGHT and the latency
-     ticker bottom-LEFT, so they no longer fight for the same pixel.
-     But on narrow screens we shrink the pills to keep the row from
-     overflowing into the toggle's territory. */
-  .latency-pill {
-    max-width: calc(100vw - 80px);
-    overflow: hidden;
-  }
-  .latency-entry {
-    flex-shrink: 1;
-    min-width: 0;
-  }
-
   /* Backdrop behind the bottom sheet. */
   .aito-mobile-overlay {
     display: block;
@@ -2844,53 +3394,9 @@ body {
   text-decoration-color: rgba(192,57,43,0.4);
 }
 
-/* ─── Latency pill ──────────────────────────────────────────────
-   Lives in the bottom-right corner. Fades in on every API call,
-   auto-hides after 4s. Visible across all pages so visitors see
-   sub-50ms _predict / _relate timings as they click around. */
-/* Ticker container is bottom-LEFT — clears the right-side Aito panel. */
-.latency-pill {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 80;
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  pointer-events: none;
-  font-family: 'DM Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-.latency-entry {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 12px;
-  background: var(--card);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  color: var(--ink);
-  white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(12, 15, 65, 0.06);
-  transition: opacity 1s ease;
-}
-.latency-entry--cached {
-  font-style: italic;
-  color: var(--mid);
-}
-.latency-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.latency-endpoint {
-  font-weight: 500;
-}
-.latency-ms {
-  font-weight: 600;
-  color: var(--ink);
-}
+/* (Old bottom-left latency ticker dropped — the topbar LatencyBadge
+   is the only latency surface now. Per-call breakdown lives inside
+   its hover popover, mirroring the accounting demo's pattern.) */
 
 /* ─── Relearn banner (PO Queue) ─────────────────────────────────
    Surfaces only when the user has just submitted via Smart Entry.

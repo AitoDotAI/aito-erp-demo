@@ -68,15 +68,30 @@ export default function WhyPopover({
     };
   }, [open]);
 
-  // Notify parent about cross-highlight fields
+  // Notify parent about cross-highlight fields ONLY when the popover
+  // toggles open/closed. Earlier this effect listed `why` and
+  // `onContextFieldsChange` in its dep array — both are fresh
+  // references on every parent render, so the effect re-fired on
+  // every render, called the parent's setter with a new `Set()`,
+  // re-rendered the parent, made the callback a fresh ref again, and
+  // looped. Capture the latest values via refs and depend only on
+  // `open`.
+  const onContextChangeRef = useRef(onContextFieldsChange);
+  const whyRef = useRef(why);
   useEffect(() => {
-    if (!onContextFieldsChange) return;
-    if (open && why?.context_fields?.length) {
-      onContextFieldsChange(new Set(why.context_fields));
+    onContextChangeRef.current = onContextFieldsChange;
+    whyRef.current = why;
+  });
+  useEffect(() => {
+    const handler = onContextChangeRef.current;
+    if (!handler) return;
+    if (open) {
+      const fields = whyRef.current?.context_fields ?? [];
+      handler(fields.length ? new Set(fields) : new Set());
     } else {
-      onContextFieldsChange(new Set());
+      handler(new Set());
     }
-  }, [open, why, onContextFieldsChange]);
+  }, [open]);
 
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();

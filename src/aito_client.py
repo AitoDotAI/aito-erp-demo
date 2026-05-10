@@ -77,10 +77,16 @@ class AitoClient:
     def _request(self, method: str, path: str, json: dict | None = None) -> Any:
         """Make an HTTP request to Aito and return the parsed JSON response.
 
-        Wall time is recorded on the per-request timing context (when
-        called inside a FastAPI handler) so the browser can render a
-        latency pill from the `X-Aito-Calls` response header. Errors
-        are recorded too — a slow failing call is still informative.
+        Per-call timing is recorded onto the per-request timing context
+        (when called inside a FastAPI handler) so the browser can render
+        a latency pill from the `X-Aito-Calls` response header.
+
+        We prefer Aito's own `x-aitoai-response-time` header (server-side
+        processing time, in ms) over the httpx wall-clock, because the
+        wall-clock includes server→Aito network round-trip which is not
+        what the demo wants to surface as "this is what a query costs".
+        We fall back to wall-clock when the header is absent (errors,
+        connection failures, mocked responses).
 
         Raises AitoError on non-2xx status or connection failure.
         """
@@ -94,12 +100,22 @@ class AitoClient:
                 timeout=30.0,
             )
         except httpx.HTTPError as exc:
+            # No response → no Aito-side time available. Wall-clock is
+            # still useful telemetry (probably "I just timed out").
             timing.record_call(path, (time.perf_counter() - start) * 1000)
             raise AitoError(
                 f"Aito request failed: {method} {path}: {exc}"
             ) from exc
 
-        timing.record_call(path, (time.perf_counter() - start) * 1000)
+        aito_ms_header = response.headers.get("x-aitoai-response-time")
+        if aito_ms_header:
+            try:
+                ms = float(aito_ms_header)
+            except ValueError:
+                ms = (time.perf_counter() - start) * 1000
+        else:
+            ms = (time.perf_counter() - start) * 1000
+        timing.record_call(path, ms)
 
         if response.status_code >= 400:
             raise AitoError(

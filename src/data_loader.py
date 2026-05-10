@@ -123,6 +123,48 @@ SCHEMAS = {
             "project_success": {"type": "Boolean", "nullable": True},
         },
     },
+    # Per-task rows that sit underneath each project: phase, assignee
+    # (either an internal employee or an external subcontractor), and
+    # the realised outcome. Drives the Project Plan view — Aito both
+    # generates plans (predict task list + assignee + duration from
+    # context) and re-ranks subcontractor candidates (`_recommend
+    # goal: {success: true}`) for active tasks. Currently only Metsä
+    # ships fixture data; the schema is created on every tenant so
+    # cross-tenant queries don't break.
+    "tasks": {
+        "type": "table",
+        "columns": {
+            "task_id": {"type": "String", "nullable": False},
+            "project_id": {"type": "String", "nullable": False, "link": "projects.project_id"},
+            # Phase is the work-breakdown bucket: site-prep, foundations,
+            # mep, commissioning, … Used as the primary categorical
+            # feature when matching a subcontractor or proposing tasks.
+            "phase": {"type": "String", "nullable": False},
+            # Free-text task name (e.g. "HVAC commissioning") — Text so
+            # Aito tokenises and `_predict task_name` can compose names
+            # from history. Kept short enough to render verbatim in the
+            # plan view.
+            "task_name": {"type": "Text", "nullable": False},
+            "assignee_kind": {"type": "String", "nullable": False},   # subcontractor | employee
+            "subcontractor": {"type": "String", "nullable": True},     # set when assignee_kind = subcontractor
+            "assignee_person": {"type": "String", "nullable": True},   # set when assignee_kind = employee
+            "planned_days": {"type": "Int", "nullable": False},
+            "actual_days": {"type": "Int", "nullable": True},
+            "planned_cost_eur": {"type": "Decimal", "nullable": False},
+            "actual_cost_eur": {"type": "Decimal", "nullable": True},
+            # Categorical contextual columns Aito conditions on.
+            "season": {"type": "String", "nullable": False},     # winter / spring / summer / autumn
+            "region": {"type": "String", "nullable": False},     # Helsinki / Tampere / Oulu / …
+            "status": {"type": "String", "nullable": False},     # planned / active / complete
+            # Outcomes — nullable until the task reaches `complete`.
+            "on_time": {"type": "Boolean", "nullable": True},
+            "on_budget": {"type": "Boolean", "nullable": True},
+            "success": {"type": "Boolean", "nullable": True},
+            # Denormalised mirror of projects.project_type so `_predict`
+            # and `_recommend` on tasks can filter by it without joining.
+            "project_type": {"type": "String", "nullable": False},
+        },
+    },
     # Browsing/cart impressions — drives `_recommend goal: {clicked: true}`
     # cross-sell ranking. Only Aurora ships fixture data for this; the
     # other personas don't surface a Recommendations view, so loading
@@ -149,7 +191,7 @@ SCHEMAS = {
 # silently skips these instead of erroring — the Aito table is created
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
-OPTIONAL_TABLES = {"impressions"}
+OPTIONAL_TABLES = {"impressions", "tasks"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:
