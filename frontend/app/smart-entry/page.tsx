@@ -79,6 +79,8 @@ const defaultPanel: AitoPanelConfig = {
   links: [
     { label: "_predict reference", url: "https://aito.ai/docs/api/predict" },
     { label: "$why factors", url: "https://aito.ai/docs/api/predict#why" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/02-smart-entry.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/smartentry_service.py", kind: "github" },
   ],
 };
 

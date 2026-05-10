@@ -42,6 +42,8 @@ const DEFAULT_PANEL: AitoPanelConfig = {
 }`,
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/13-utilization.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/utilization_service.py", kind: "github" },
   ],
 };
 

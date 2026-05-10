@@ -46,6 +46,8 @@ const DEFAULT_PANEL: AitoPanelConfig = {
   links: [
     { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
     { label: "Match API reference", url: "https://aito.ai/docs/api/match" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/14-recommendations.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/recommendation_service.py", kind: "github" },
   ],
 };
 

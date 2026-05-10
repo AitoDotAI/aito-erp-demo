@@ -63,6 +63,8 @@ const DEFAULT_PANEL: AitoPanelConfig = {
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     { label: "Recommend API reference", url: "https://aito.ai/docs/api/recommend" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/16-project-plan.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/task_service.py", kind: "github" },
   ],
 };
 

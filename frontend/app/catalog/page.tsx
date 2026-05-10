@@ -21,6 +21,8 @@ const defaultPanel: AitoPanelConfig = {
   query: `<span class="q-k">POST</span> <span class="q-v">/api/v1/_predict</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"sku"</span>: <span class="q-v">"EL-4420"</span> },\n  <span class="q-k">"predict"</span>: <span class="q-p">"hs_code"</span>\n}`,
   links: [
     { label: "aito.ai/docs/predict", url: "https://aito.ai/docs/api/predict" },
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/07-catalog-intelligence.md", kind: "doc" },
+    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/catalog_service.py", kind: "github" },
   ],
 };
 
