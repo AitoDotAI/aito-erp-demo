@@ -720,6 +720,220 @@ body {
   text-transform: uppercase;
 }
 
+/* ─── PROJECT PLAN walker (step-by-step mode) ─── */
+.plan-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.plan-walker {
+  height: 34px;
+  padding: 0 16px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.plan-walker:hover {
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+.plan-walker:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.walker-card .card-meta {
+  font-style: italic;
+  color: var(--mid);
+}
+.walker-built {
+  padding: 12px 14px;
+  background: #fbf8f0;
+  border-bottom: 1px solid var(--border);
+}
+.walker-built-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  margin-bottom: 8px;
+}
+.walker-built-phase {
+  margin-bottom: 6px;
+}
+.walker-built-phase ul {
+  margin: 4px 0 0 0;
+  padding: 0 0 0 20px;
+  list-style: square;
+}
+.walker-built-phase li {
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.walker-built-name { font-weight: 500; }
+.walker-built-meta {
+  margin-left: 6px;
+  color: var(--mid);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+}
+.walker-stage {
+  padding: 14px;
+}
+.walker-stage-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  margin-bottom: 10px;
+}
+.walker-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.walker-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+.walker-option:hover {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.walker-option-meta {
+  color: var(--mid);
+  font-size: 11px;
+}
+.walker-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.walker-task {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+}
+.walker-task-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+.walker-task-name {
+  font-weight: 500;
+  color: var(--ink);
+  font-size: 13px;
+}
+.walker-task-meta {
+  font-size: 11px;
+  color: var(--mid);
+}
+.walker-task-accept {
+  height: 28px;
+  padding: 0 12px;
+  background: var(--gold-light);
+  color: var(--gold-dark);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.walker-task-accept:hover {
+  background: var(--gold);
+  color: #fff;
+}
+.walker-task-accept:disabled { opacity: 0.5; cursor: not-allowed; }
+.walker-assignees {
+  border-top: 1px solid var(--border);
+  background: #fbf8f0;
+  padding: 10px 12px;
+}
+.walker-assignees-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.walker-assignee {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+.walker-assignee:hover {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.walker-assignee.is-top { border-color: var(--green); }
+.walker-assignee-name { font-weight: 500; color: var(--ink); }
+.walker-assignee-meta { color: var(--mid); font-size: 11px; }
+.walker-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.walker-finish {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--gold);
+  color: var(--ink);
+  border: 1px solid var(--gold-dark);
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.walker-finish:hover { background: var(--gold-dark); color: #fff; }
+.walker-finish:disabled { opacity: 0.5; cursor: not-allowed; }
+.walker-empty {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--mid);
+  padding: 8px 0;
+}
+.walker-loading {
+  padding: 10px 14px;
+  font-size: 11.5px;
+  color: var(--mid);
+  font-style: italic;
+}
+.walker-pos {
+  border-top: 1px solid var(--border);
+  background: #fbf8f0;
+  padding: 12px 14px;
+}
+.walker-po-cat {
+  font-size: 11px;
+  color: var(--mid);
+  font-family: 'DM Mono', monospace;
+}
+
 /* Per-phase auto-drafted PO strip. Lives inside each phase card,
    under the task table. Renders the Lemonsoft+Jakamo punchline:
    when Aito drafts a phase, it ALSO drafts the typical material POs. */

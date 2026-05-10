@@ -451,6 +451,248 @@ def predict_purchases_for_phase(
     return out
 
 
+# ── interactive / step-by-step planning ───────────────────────────
+
+
+@dataclass
+class PhaseOption:
+    """One candidate phase in the step-by-step walker."""
+    phase: str
+    p: float                 # probability from `_predict phase`
+    typical_task_count: int  # historical mean of N tasks/phase
+
+    def to_dict(self) -> dict:
+        return {
+            "phase": self.phase,
+            "p": self.p,
+            "typical_task_count": self.typical_task_count,
+        }
+
+
+@dataclass
+class TaskOption:
+    """One candidate task name in the step-by-step walker."""
+    task_name: str
+    p: float
+    typical_days: int
+    typical_cost_eur: float
+
+    def to_dict(self) -> dict:
+        return {
+            "task_name": self.task_name,
+            "p": self.p,
+            "typical_days": self.typical_days,
+            "typical_cost_eur": self.typical_cost_eur,
+        }
+
+
+@dataclass
+class AssigneeOption:
+    """One candidate assignee for a specific task."""
+    assignee_kind: str       # "subcontractor" | "employee"
+    name: str
+    p: float                 # confidence from `_predict subcontractor|assignee_person`
+    success_p: float         # P(success) given this assignment
+
+    def to_dict(self) -> dict:
+        return {
+            "assignee_kind": self.assignee_kind,
+            "name": self.name,
+            "p": self.p,
+            "success_p": self.success_p,
+        }
+
+
+def suggest_next_phase(
+    client: AitoClient,
+    project_type: str,
+    region: str,
+    season: str,
+    accepted_phases: list[str],
+    top_n: int = 3,
+) -> list[PhaseOption]:
+    """Aito's best guesses for the *next* phase, given the project
+    context plus the phases the user has already accepted. Used by the
+    step-by-step walker — every click triggers a fresh `_predict`."""
+    where = {
+        "project_type": project_type,
+        "region": region,
+        "season": season,
+    }
+    try:
+        response = client.predict("tasks", where, "phase", limit=top_n + len(accepted_phases) + 2)
+    except Exception as exc:
+        log.warning("predict phase failed: %s", exc)
+        return []
+    hits = response.get("hits") or []
+
+    # Historical task-count per phase, used to show "~N tasks" so the
+    # user knows how big a phase is before accepting it.
+    history = _completed_tasks_for_type(client, project_type, limit=1500)
+    counts_per_project: dict[tuple[str, str], int] = {}
+    for row in history:
+        key = (row["project_id"], row["phase"])
+        counts_per_project[key] = counts_per_project.get(key, 0) + 1
+    by_phase: dict[str, list[int]] = {}
+    for (_pid, phase), n in counts_per_project.items():
+        by_phase.setdefault(phase, []).append(n)
+    typical = {p: round(sum(ns) / len(ns)) for p, ns in by_phase.items()}
+
+    accepted = set(accepted_phases)
+    candidates: list[PhaseOption] = []
+    for hit in hits:
+        phase = hit.get("feature")
+        if not phase or phase in accepted:
+            continue
+        candidates.append(PhaseOption(
+            phase=str(phase),
+            p=float(hit.get("$p", 0.0)),
+            typical_task_count=typical.get(str(phase), 0),
+        ))
+
+    # Sort by (PHASE_ORDER position, descending P). The walker is
+    # building a plan in execution order; surfacing `site-prep` first
+    # before `mep` matches what the user expects, even when MEP wins
+    # on raw frequency. Phases unknown to PHASE_ORDER sink to the
+    # bottom but stay sorted by P among themselves.
+    def order_key(opt: PhaseOption):
+        try:
+            pos = PHASE_ORDER.index(opt.phase)
+        except ValueError:
+            pos = len(PHASE_ORDER)
+        return (pos, -opt.p)
+
+    candidates.sort(key=order_key)
+    return candidates[:top_n]
+
+
+def suggest_tasks_for_phase(
+    client: AitoClient,
+    project_type: str,
+    phase: str,
+    region: str,
+    season: str,
+    accepted_task_names: list[str],
+    top_n: int = 4,
+) -> list[TaskOption]:
+    """Top-N task name suggestions for the current phase, with typical
+    days/cost from history. The walker calls this once per phase and
+    lets the user accept individual tasks (or accept all at once).
+
+    Why `_search` + Counter and not `_predict task_name`: the schema
+    keeps `task_name` as a Text column so Aito tokenises it (so the
+    full-plan generator's `_predict task_name` would return token-
+    level hits like "HVAC" instead of the whole "HVAC commissioning"
+    string). For the demo's purpose — proposing the typical task
+    names for a phase from history — frequency over a `_search` slice
+    is the right shape and is what `generate_plan` already uses."""
+    history = _completed_tasks_for_type(client, project_type, limit=1500)
+    by_name: dict[str, list[dict]] = {}
+    for row in history:
+        if row["phase"] != phase:
+            continue
+        by_name.setdefault(row["task_name"], []).append(row)
+
+    if not by_name:
+        return []
+
+    total = sum(len(rs) for rs in by_name.values())
+    accepted = set(accepted_task_names)
+    ranked = sorted(by_name.items(), key=lambda kv: -len(kv[1]))
+
+    out: list[TaskOption] = []
+    for name, rows in ranked:
+        if name in accepted:
+            continue
+        avg_days = sum(r["planned_days"] for r in rows) / len(rows)
+        avg_cost = sum(float(r["planned_cost_eur"]) for r in rows) / len(rows)
+        out.append(TaskOption(
+            task_name=name,
+            # Frequency-as-probability: the share of tasks in this phase
+            # × project_type slice that carry this name. Honest with
+            # what the demo is doing (not labelling raw `_search`
+            # results as `_predict`).
+            p=len(rows) / total,
+            typical_days=int(round(avg_days)),
+            typical_cost_eur=round(avg_cost, -1),
+        ))
+        if len(out) >= top_n:
+            break
+    return out
+
+
+def suggest_assignees(
+    client: AitoClient,
+    project_type: str,
+    phase: str,
+    task_name: str,
+    region: str,
+    season: str,
+    top_n: int = 3,
+) -> list[AssigneeOption]:
+    """For one task context, return the top-N candidate assignees with
+    P(success) for each — the step-by-step walker's per-task slot.
+
+    Unlike `_predict_task_assignment` (which picks the single most-likely
+    assignee for one row of a generated plan), this one returns multiple
+    candidates so the UI can show the user what *else* Aito would
+    consider — closer to the rerank flow but constrained to the task
+    name the user just accepted.
+    """
+    where = {
+        "project_type": project_type,
+        "phase": phase,
+        "task_name": task_name,
+        "region": region,
+        "season": season,
+    }
+    # First decide the kind. Top hit's value drives whether we predict
+    # subcontractors or employees on the next round.
+    kind, _kind_p = _predict_value(client, where, "assignee_kind")
+    kind = str(kind or "subcontractor")
+    predict_field = "subcontractor" if kind == "subcontractor" else "assignee_person"
+
+    try:
+        response = client.predict(
+            "tasks", {**where, "assignee_kind": kind}, predict_field, limit=top_n,
+        )
+    except Exception as exc:
+        log.warning("predict assignee failed: %s", exc)
+        return []
+    hits = response.get("hits") or []
+
+    # Run success-P lookups in parallel so the per-step UI stays snappy.
+    out: list[AssigneeOption] = []
+    parallel_args: list[tuple[str, float]] = []
+    for hit in hits[:top_n]:
+        name = hit.get("feature")
+        p = float(hit.get("$p", 0.0))
+        if name:
+            parallel_args.append((str(name), p))
+
+    if not parallel_args:
+        return []
+
+    with ThreadPoolExecutor(max_workers=max(2, len(parallel_args))) as pool:
+        success_ps = _ctx_map(
+            pool,
+            lambda np: _success_p(
+                client,
+                {**where, "assignee_kind": kind, predict_field: np[0]},
+            ),
+            parallel_args,
+        )
+
+    for (name, p), success_p in zip(parallel_args, success_ps):
+        out.append(AssigneeOption(
+            assignee_kind=kind,
+            name=name,
+            p=p,
+            success_p=success_p,
+        ))
+    return out
+
+
 # ── public API ──────────────────────────────────────────────────────
 
 

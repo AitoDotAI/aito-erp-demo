@@ -773,6 +773,77 @@ def project_plan_rerank(body: dict, request: Request):
     return {"candidates": [c.to_dict() for c in candidates]}
 
 
+# Step-by-step walker — three small endpoints, one per "next" question.
+# Each call ships a handful of `_predict`s and lights up the latency
+# badge so visitors see Aito running at every choice.
+
+@app.post("/api/project-plan/next-phase")
+def project_plan_next_phase(body: dict, request: Request):
+    from src.task_service import suggest_next_phase
+    _, aito = client_from_request(request)
+    options = suggest_next_phase(
+        aito,
+        project_type=body.get("project_type", "construction"),
+        region=body.get("region", "Helsinki"),
+        season=body.get("season", "summer"),
+        accepted_phases=body.get("accepted_phases") or [],
+    )
+    return {"options": [o.to_dict() for o in options]}
+
+
+@app.post("/api/project-plan/next-tasks")
+def project_plan_next_tasks(body: dict, request: Request):
+    from src.task_service import suggest_tasks_for_phase
+    _, aito = client_from_request(request)
+    phase = body.get("phase")
+    project_type = body.get("project_type")
+    if not phase or not project_type:
+        return {"error": "phase and project_type are required"}
+    options = suggest_tasks_for_phase(
+        aito,
+        project_type=project_type,
+        phase=phase,
+        region=body.get("region", "Helsinki"),
+        season=body.get("season", "summer"),
+        accepted_task_names=body.get("accepted_task_names") or [],
+    )
+    return {"options": [o.to_dict() for o in options]}
+
+
+@app.post("/api/project-plan/next-assignee")
+def project_plan_next_assignee(body: dict, request: Request):
+    from src.task_service import suggest_assignees
+    _, aito = client_from_request(request)
+    required = ("project_type", "phase", "task_name")
+    missing = [k for k in required if not body.get(k)]
+    if missing:
+        return {"error": f"missing: {', '.join(missing)}"}
+    options = suggest_assignees(
+        aito,
+        project_type=body["project_type"],
+        phase=body["phase"],
+        task_name=body["task_name"],
+        region=body.get("region", "Helsinki"),
+        season=body.get("season", "summer"),
+    )
+    return {"options": [o.to_dict() for o in options]}
+
+
+@app.post("/api/project-plan/phase-purchases")
+def project_plan_phase_purchases(body: dict, request: Request):
+    """Per-phase auto-PO suggestions — fired when the walker finishes
+    a phase. Same payload shape as the full-plan generator's per-phase
+    purchases, just scoped to one phase."""
+    from src.task_service import predict_purchases_for_phase
+    _, aito = client_from_request(request)
+    phase = body.get("phase")
+    project_type = body.get("project_type")
+    if not phase or not project_type:
+        return {"error": "phase and project_type are required"}
+    suggestions = predict_purchases_for_phase(aito, project_type, phase)
+    return {"purchases": [s.to_dict() for s in suggestions]}
+
+
 # ── Cold start ───────────────────────────────────────────────────
 #
 # Static snapshot, captured offline by `scripts/capture_coldstart.py`

@@ -543,6 +543,29 @@ export interface RerankResponse {
   candidates: AlternativeAssignee[];
 }
 
+/* ─── Project Plan: step-by-step walker ─── */
+export interface PhaseOption {
+  phase: string;
+  p: number;
+  typical_task_count: number;
+}
+export interface TaskOption {
+  task_name: string;
+  p: number;
+  typical_days: number;
+  typical_cost_eur: number;
+}
+export interface AssigneeOption {
+  assignee_kind: "subcontractor" | "employee";
+  name: string;
+  p: number;          // confidence from `_predict assignee`
+  success_p: number;  // P(success) given this assignment
+}
+export interface NextPhaseResponse { options: PhaseOption[] }
+export interface NextTasksResponse { options: TaskOption[] }
+export interface NextAssigneeResponse { options: AssigneeOption[] }
+export interface PhasePurchasesResponse { purchases: PurchaseSuggestion[] }
+
 /* ─── Aito Panel ─── */
 export interface AitoPanelConfig {
   operation: string;
