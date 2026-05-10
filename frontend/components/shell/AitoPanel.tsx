@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AitoPanelConfig } from "@/lib/types";
+
+/** CSS variable the topbar and content read to keep their right edge
+ *  flush with the panel. 320px expanded, 0 collapsed — matches the
+ *  aito-accounting-demo / aito-demo pattern where the collapse handle
+ *  is the only thing sticking out when the panel is hidden. */
+const PANEL_WIDTH_VAR = "--aito-panel-w";
+const PANEL_WIDTH_EXPANDED = "320px";
+const PANEL_WIDTH_COLLAPSED = "0px";
 
 interface AitoPanelProps {
   config: AitoPanelConfig;
@@ -27,6 +35,16 @@ interface AitoPanelProps {
 export default function AitoPanel({ config }: AitoPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Topbar / content read this var to size their right padding so the
+  // panel doesn't overlap them. Mobile media queries override it to 0.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty(
+      PANEL_WIDTH_VAR,
+      collapsed ? PANEL_WIDTH_COLLAPSED : PANEL_WIDTH_EXPANDED,
+    );
+  }, [collapsed]);
 
   // The body block is rendered both in the desktop `<aside>` and inside
   // the mobile bottom sheet — extract once so the markup stays in one
@@ -99,14 +117,20 @@ export default function AitoPanel({ config }: AitoPanelProps) {
 
   return (
     <>
-      {/* Desktop collapse toggle — hidden under mobile media query. */}
+      {/* Desktop collapse handle — vertical tab on the panel's left edge,
+          vertically centered. Mirrors aito-accounting-demo / aito-demo's
+          `aito-panel-toggle`. Hidden under mobile media query. */}
       <button
         className={`aito-toggle${collapsed ? " collapsed" : ""}`}
         onClick={() => setCollapsed((v) => !v)}
-        title={collapsed ? "Expand prediction panel" : "Collapse prediction panel"}
-        aria-label="Toggle prediction panel"
+        title={collapsed ? "Open Aito panel" : "Close Aito panel"}
+        aria-label={collapsed ? "Open Aito panel" : "Close Aito panel"}
       >
-        {collapsed ? "◀" : "▶"}
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
+          {collapsed
+            ? <path d="M10.5 3l-5 5 5 5L12 11.5 8.5 8 12 4.5z" />
+            : <path d="M5.5 3l5 5-5 5L4 11.5 7.5 8 4 4.5z" />}
+        </svg>
       </button>
 
       {/* Desktop side rail — hidden under mobile media query. */}
@@ -139,11 +163,6 @@ export default function AitoPanel({ config }: AitoPanelProps) {
         <div className="aito-side-body">{body}</div>
 
         {cta}
-
-        {/* Collapsed strip — visible when aside has .collapsed class */}
-        <div className="aito-tab-strip">
-          <div className="aito-strip-label">aito.. prediction</div>
-        </div>
       </aside>
 
       {/* ───────── Mobile: floating button + bottom sheet ─────────
