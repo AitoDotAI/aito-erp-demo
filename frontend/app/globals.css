@@ -934,6 +934,197 @@ body {
   font-family: 'DM Mono', monospace;
 }
 
+/* ─── PROJECT PLAN editor mode ─── */
+.editor-phase {
+  border-top: 1px solid var(--border);
+}
+.editor-phase:first-of-type { border-top: none; }
+.editor-phase-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fdfcf9;
+  border-bottom: 1px solid var(--border);
+}
+.editor-phase-count {
+  font-size: 11px;
+  color: var(--mid);
+  margin-left: 4px;
+}
+.editor-add-task {
+  margin-left: auto;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--gold-light);
+  color: var(--gold-dark);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-add-task:hover {
+  background: var(--gold);
+  color: #fff;
+}
+.editor-add-task:disabled { opacity: 0.5; cursor: not-allowed; }
+.editor-remove-phase {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  color: var(--mid);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.editor-remove-phase:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+.editor-tbl {
+  width: 100%;
+}
+.editor-tbl tbody tr td {
+  padding: 8px 14px;
+  vertical-align: middle;
+}
+.editor-assignee-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink);
+  text-align: left;
+}
+.editor-assignee-chip:hover {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.editor-assignee-name { font-weight: 500; }
+.editor-assignee-swap {
+  color: var(--mid);
+  font-size: 11px;
+  margin-left: 2px;
+}
+.editor-numeric {
+  width: 60px;
+  height: 26px;
+  padding: 0 6px;
+  text-align: right;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  color: var(--ink);
+}
+.editor-numeric-wide { width: 100px; }
+.editor-numeric:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
+}
+.editor-row-delete {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  color: var(--mid);
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.editor-row-delete:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+.editor-inline-row td {
+  background: #fbf8f0;
+  padding: 0 !important;
+}
+.editor-inline-row .walker-assignees {
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+.walker-assignee.is-current {
+  border-color: var(--gold);
+  background: #fdfcf9;
+}
+.walker-assignee-cancel {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--mid);
+  cursor: pointer;
+}
+.walker-assignee-cancel:hover { color: var(--ink); }
+.editor-picker {
+  padding: 12px 14px;
+  background: #fbf8f0;
+  border-bottom: 1px solid var(--border);
+}
+.editor-picker-phase {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+}
+.editor-cancel-phase {
+  margin-top: 10px;
+  background: transparent;
+  color: var(--mid);
+  border: 1px solid var(--border);
+}
+.editor-cancel-phase:hover { color: var(--ink); }
+.editor-pos {
+  background: #fbf8f0;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--border);
+}
+.editor-pos-head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.editor-pos .phase-po {
+  grid-template-columns: 110px 1fr auto auto;
+}
+.editor-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: #fdfcf9;
+}
+.editor-add-phase {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px dashed var(--mid);
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-add-phase:hover {
+  border-style: solid;
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+.editor-add-phase:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Per-phase auto-drafted PO strip. Lives inside each phase card,
    under the task table. Renders the Lemonsoft+Jakamo punchline:
    when Aito drafts a phase, it ALSO drafts the typical material POs. */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Nav from "@/components/shell/Nav";
 import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
@@ -112,12 +112,16 @@ function rerankPanel(
 type Mode = "idle" | "full" | "walker";
 
 interface BuiltTask {
+  id: string;            // stable key — task_name can repeat across phases otherwise
   phase: string;
   task_name: string;
   assignee: AssigneeOption;
   typical_days: number;
   typical_cost_eur: number;
 }
+
+let _taskIdSeq = 0;
+const nextTaskId = () => `bt-${++_taskIdSeq}`;
 
 export default function ProjectPlanPage() {
   const [projectType, setProjectType] = useState("construction");
@@ -133,18 +137,35 @@ export default function ProjectPlanPage() {
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<AlternativeAssignee[]>([]);
 
-  // ── Step-by-step walker state ────────────────────────────────
+  // ── Plan editor state ────────────────────────────────────────
+  // The walker builds the plan, but every accepted task and phase is
+  // editable afterwards: delete, swap assignee, add more tasks to an
+  // existing phase, or add a new phase at any time. The state below
+  // covers both the "build" affordances (candidate panels) and the
+  // "edit" affordances (per-task swap / delete) on the same data.
   const [walkerLoading, setWalkerLoading] = useState(false);
   const [acceptedPhases, setAcceptedPhases] = useState<string[]>([]);
-  const [phaseOptions, setPhaseOptions] = useState<PhaseOption[]>([]);
-  const [currentPhase, setCurrentPhase] = useState<string | null>(null);
-  const [taskOptions, setTaskOptions] = useState<TaskOption[]>([]);
-  const [acceptedInPhase, setAcceptedInPhase] = useState<BuiltTask[]>([]);
   const [builtTasks, setBuiltTasks] = useState<BuiltTask[]>([]);
   const [phasePurchases, setPhasePurchases] = useState<PurchaseSuggestion[]>([]);
-  // Track which task slot is "asking Aito for an assignee" so we can
-  // surface candidates alongside the row instead of as a modal.
-  const [resolvingTask, setResolvingTask] = useState<string | null>(null);
+
+  // "Pick a phase" panel — open when user clicks "Add phase" or at
+  // walker bootstrap. Closes once a phase is picked (or cancelled).
+  const [phaseOptions, setPhaseOptions] = useState<PhaseOption[]>([]);
+  const [pickingPhase, setPickingPhase] = useState(false);
+
+  // "Pick tasks for <phase>" panel — open when user clicks "+ Add
+  // task in <phase>" or right after picking the phase itself. The
+  // panel can re-open on demand for any phase, so the user can add
+  // more tasks to a finished phase.
+  const [pickingTasksFor, setPickingTasksFor] = useState<string | null>(null);
+  const [taskOptions, setTaskOptions] = useState<TaskOption[]>([]);
+
+  // "Pick assignee for <pendingTaskName> in <pendingPhase>" — the
+  // user clicked Accept on a task candidate and Aito is fanning out
+  // alternatives. Shared by the swap-assignee flow on existing tasks
+  // (then `swapForTaskId` is set instead).
+  const [pendingTaskCandidate, setPendingTaskCandidate] = useState<TaskOption | null>(null);
+  const [swapForTaskId, setSwapForTaskId] = useState<string | null>(null);
   const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
 
   const handleGenerate = async () => {
@@ -175,7 +196,17 @@ export default function ProjectPlanPage() {
     }
   };
 
-  // ── Step-by-step walker handlers ─────────────────────────────
+  // ── Plan editor handlers ─────────────────────────────────────
+
+  const closeAllPickers = () => {
+    setPickingPhase(false);
+    setPickingTasksFor(null);
+    setPendingTaskCandidate(null);
+    setSwapForTaskId(null);
+    setAssigneeOptions([]);
+    setPhaseOptions([]);
+    setTaskOptions([]);
+  };
 
   const fetchNextPhase = async (already: string[]) => {
     setWalkerLoading(true);
@@ -197,26 +228,8 @@ export default function ProjectPlanPage() {
     }
   };
 
-  const handleStartWalker = () => {
-    setMode("walker");
-    setError(null);
-    setPlan(null);
-    setAcceptedPhases([]);
-    setBuiltTasks([]);
-    setAcceptedInPhase([]);
-    setCurrentPhase(null);
-    setPhaseOptions([]);
-    setTaskOptions([]);
-    setPhasePurchases([]);
-    setAssigneeOptions([]);
-    setResolvingTask(null);
-    fetchNextPhase([]);
-  };
-
-  const handlePickPhase = async (option: PhaseOption) => {
-    setCurrentPhase(option.phase);
-    setAcceptedInPhase([]);
-    setTaskOptions([]);
+  const fetchNextTasks = async (phase: string) => {
+    const acceptedNames = builtTasks.filter((t) => t.phase === phase).map((t) => t.task_name);
     setWalkerLoading(true);
     try {
       const r = await apiFetch<NextTasksResponse>(
@@ -224,36 +237,12 @@ export default function ProjectPlanPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            project_type: projectType, region, season,
-            phase: option.phase, accepted_task_names: [],
+            project_type: projectType, region, season, phase,
+            accepted_task_names: acceptedNames,
           }),
         },
       );
       setTaskOptions(r.options);
-      // Tell the panel what just happened.
-      setPanel({
-        operation: "_predict",
-        endpoints: ["_predict"],
-        stats: [
-          { label: "Phase", value: option.phase },
-          { label: "Picked at", value: `P ${pct(option.p)}` },
-          { label: "Typical", value: `${option.typical_task_count} tasks` },
-        ],
-        description:
-          `Building <em>${option.phase}</em>. Aito's <em>_predict</em> on ` +
-          `<em>tasks.task_name</em> conditioned on (project_type, phase, ` +
-          `region, season) suggested the typical task names from history. ` +
-          `Click <em>Accept</em> on a task to ask Aito who should do it.`,
-        query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"project_type"</span>: <span class="q-v">"${projectType}"</span>, <span class="q-k">"phase"</span>: <span class="q-v">"${option.phase}"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"task_name"</span><br/>
-}`,
-        links: [
-          { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
-        ],
-      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -261,18 +250,80 @@ export default function ProjectPlanPage() {
     }
   };
 
-  const handleAskAssignee = async (task: TaskOption) => {
-    if (!currentPhase) return;
-    setResolvingTask(task.task_name);
-    setAssigneeOptions([]);
+  const handleStartWalker = () => {
+    setMode("walker");
+    setError(null);
+    setPlan(null);
+    setAcceptedPhases([]);
+    setBuiltTasks([]);
+    setPhasePurchases([]);
+    closeAllPickers();
+    setPickingPhase(true);
+    fetchNextPhase([]);
+    setPanel(DEFAULT_PANEL);
+  };
+
+  // Open the phase picker on demand (used by "+ Add phase" too).
+  const handleOpenPhasePicker = () => {
+    setMode("walker");
+    setError(null);
+    closeAllPickers();
+    setPickingPhase(true);
+    fetchNextPhase(acceptedPhases);
+  };
+
+  const handlePickPhase = async (option: PhaseOption) => {
+    if (!acceptedPhases.includes(option.phase)) {
+      setAcceptedPhases((prev) => [...prev, option.phase]);
+      // Fire phase-purchases in the background so material POs are
+      // ready by the time the user finishes adding tasks.
+      apiFetch<PhasePurchasesResponse>("/api/project-plan/phase-purchases/", {
+        method: "POST",
+        body: JSON.stringify({ project_type: projectType, phase: option.phase }),
+      }).then((resp) => {
+        setPhasePurchases((prev) => [
+          ...prev.filter((p) => p.phase !== option.phase),
+          ...resp.purchases,
+        ]);
+      }).catch(() => { /* non-fatal — POs are advisory */ });
+    }
+    setPickingPhase(false);
+    setPhaseOptions([]);
+    setPickingTasksFor(option.phase);
+    await fetchNextTasks(option.phase);
+    setPanel({
+      operation: "_predict",
+      endpoints: ["_predict"],
+      stats: [
+        { label: "Phase", value: option.phase },
+        { label: "Picked at", value: `P ${pct(option.p)}` },
+        { label: "Typical", value: `${option.typical_task_count} tasks` },
+      ],
+      description:
+        `Editing <em>${option.phase}</em>. Aito's <em>_search</em> over ` +
+        `<em>tasks</em> for the (project_type, phase) slice surfaced the ` +
+        `typical task names from history. Click <em>Accept</em> on a ` +
+        `candidate to ask Aito who should do it. Each accepted task is ` +
+        `editable afterwards — swap assignee, delete, or add more.`,
+      query: `<span class="q-k">POST</span> /api/v1/_search<br/>
+{<br/>
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"project_type"</span>: <span class="q-v">"${projectType}"</span>, <span class="q-k">"phase"</span>: <span class="q-v">"${option.phase}"</span> }<br/>
+}`,
+      links: [
+        { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
+      ],
+    });
+  };
+
+  const fetchAssigneeOptions = async (phase: string, taskName: string) => {
     try {
       const r = await apiFetch<NextAssigneeResponse>(
         "/api/project-plan/next-assignee/",
         {
           method: "POST",
           body: JSON.stringify({
-            project_type: projectType, region, season,
-            phase: currentPhase, task_name: task.task_name,
+            project_type: projectType, region, season, phase, task_name: taskName,
           }),
         },
       );
@@ -281,20 +332,20 @@ export default function ProjectPlanPage() {
         operation: "_predict",
         endpoints: ["_predict"],
         stats: [
-          { label: "Task", value: task.task_name },
+          { label: "Task", value: taskName },
           { label: "Top", value: r.options[0]?.name ?? "—" },
           { label: "P(success)", value: pct(r.options[0]?.success_p ?? 0) },
         ],
         description:
           `Aito ran two <em>_predict</em>s back-to-back: first on ` +
-          `<em>assignee_kind</em> (subcontractor vs employee), then on ` +
-          `the actual assignee, plus <em>_predict success</em> for each ` +
-          `candidate. The top option is what history says is most likely; ` +
-          `the alternatives let you see what else Aito would consider.`,
+          `<em>assignee_kind</em>, then on the actual assignee, plus ` +
+          `<em>_predict success</em> for each candidate. Pick the top ` +
+          `(what history most likely matches) or any of the alternatives ` +
+          `to swap.`,
         query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"phase"</span>: <span class="q-v">"${currentPhase}"</span>, <span class="q-k">"task_name"</span>: <span class="q-v">"${task.task_name}"</span> },<br/>
+&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"phase"</span>: <span class="q-v">"${phase}"</span>, <span class="q-k">"task_name"</span>: <span class="q-v">"${taskName}"</span> },<br/>
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"subcontractor"</span><br/>
 }`,
         links: [
@@ -306,59 +357,78 @@ export default function ProjectPlanPage() {
     }
   };
 
-  const handleConfirmAssignee = (task: TaskOption, assignee: AssigneeOption) => {
-    if (!currentPhase) return;
+  // User clicked Accept on a task *candidate* — start the assignee
+  // fan-out so they can confirm or pick an alternative.
+  const handleAcceptCandidate = async (task: TaskOption, phase: string) => {
+    setPendingTaskCandidate(task);
+    setSwapForTaskId(null);
+    setAssigneeOptions([]);
+    await fetchAssigneeOptions(phase, task.task_name);
+  };
+
+  // Confirm the assignee for a *new* task being added.
+  const handleConfirmNewTask = (task: TaskOption, phase: string, assignee: AssigneeOption) => {
     const built: BuiltTask = {
-      phase: currentPhase,
+      id: nextTaskId(),
+      phase,
       task_name: task.task_name,
       assignee,
       typical_days: task.typical_days,
       typical_cost_eur: task.typical_cost_eur,
     };
-    setAcceptedInPhase((prev) => [...prev, built]);
     setBuiltTasks((prev) => [...prev, built]);
-    setResolvingTask(null);
+    setPendingTaskCandidate(null);
     setAssigneeOptions([]);
-    // Drop this task from the candidates so it doesn't reappear; if the
-    // pool runs dry the user can move on to the next phase.
+    // Drop the candidate from the picker; if more remain, the user can keep adding.
     setTaskOptions((prev) => prev.filter((t) => t.task_name !== task.task_name));
   };
 
-  const handleFinishPhase = async () => {
-    if (!currentPhase) return;
-    const newAccepted = [...acceptedPhases, currentPhase];
-    setAcceptedPhases(newAccepted);
-    setWalkerLoading(true);
-    try {
-      // Two parallel calls: the per-phase POs that just closed, and
-      // the next-phase candidates for the cumulative context.
-      const [posResp, _] = await Promise.all([
-        apiFetch<PhasePurchasesResponse>("/api/project-plan/phase-purchases/", {
-          method: "POST",
-          body: JSON.stringify({ project_type: projectType, phase: currentPhase }),
-        }),
-        fetchNextPhase(newAccepted),
-      ]);
-      setPhasePurchases((prev) => [...prev, ...posResp.purchases]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCurrentPhase(null);
-      setAcceptedInPhase([]);
-      setTaskOptions([]);
-      setResolvingTask(null);
-      setAssigneeOptions([]);
-      setWalkerLoading(false);
-    }
+  // User clicked an existing task's assignee chip — swap mode.
+  const handleSwapAssignee = async (taskId: string) => {
+    const task = builtTasks.find((t) => t.id === taskId);
+    if (!task) return;
+    setSwapForTaskId(taskId);
+    setPendingTaskCandidate(null);
+    setAssigneeOptions([]);
+    await fetchAssigneeOptions(task.phase, task.task_name);
   };
 
-  const handleFinishPlan = () => {
-    // Close out — keep what's been built visible but stop offering more.
-    setPhaseOptions([]);
-    setTaskOptions([]);
-    setCurrentPhase(null);
+  const handleConfirmSwap = (taskId: string, assignee: AssigneeOption) => {
+    setBuiltTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, assignee } : t)),
+    );
+    setSwapForTaskId(null);
     setAssigneeOptions([]);
-    setResolvingTask(null);
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    setBuiltTasks((prev) => prev.filter((t) => t.id !== taskId));
+    if (swapForTaskId === taskId) setSwapForTaskId(null);
+  };
+
+  const handleAddTaskToPhase = async (phase: string) => {
+    closeAllPickers();
+    setPickingTasksFor(phase);
+    await fetchNextTasks(phase);
+  };
+
+  const handleRemovePhase = (phase: string) => {
+    setBuiltTasks((prev) => prev.filter((t) => t.phase !== phase));
+    setAcceptedPhases((prev) => prev.filter((p) => p !== phase));
+    setPhasePurchases((prev) => prev.filter((p) => p.phase !== phase));
+    if (pickingTasksFor === phase) setPickingTasksFor(null);
+  };
+
+  const handleDeletePO = (phase: string, category: string, supplier: string) => {
+    setPhasePurchases((prev) =>
+      prev.filter((p) => !(p.phase === phase && p.category === category && p.supplier === supplier)),
+    );
+  };
+
+  const handleEditTaskField = (taskId: string, field: "typical_days" | "typical_cost_eur", value: number) => {
+    setBuiltTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, [field]: value } : t)),
+    );
   };
 
   const handleTaskClick = async (task: PlanTaskCandidate) => {
@@ -482,54 +552,279 @@ export default function ProjectPlanPage() {
               </div>
             </section>
 
-            {/* Step-by-step walker */}
+            {/* Plan editor (step-by-step build + free editing) */}
             {mode === "walker" && (
               <section className="card walker-card" style={{ marginTop: 16 }}>
                 <div className="card-head">
-                  <span className="card-title">Step-by-step walker</span>
+                  <span className="card-title">
+                    Plan editor · {acceptedPhases.length} phase{acceptedPhases.length === 1 ? "" : "s"} ·{" "}
+                    {builtTasks.length} task{builtTasks.length === 1 ? "" : "s"}
+                  </span>
                   <span className="card-meta">
-                    aito.._predict at every choice
+                    aito.._predict on every edit
                   </span>
                 </div>
 
-                {/* Built-so-far summary */}
-                {builtTasks.length > 0 && (
-                  <div className="walker-built">
-                    <div className="walker-built-head">
-                      Plan so far · {acceptedPhases.length + (currentPhase ? 1 : 0)} phase(s) ·{" "}
-                      {builtTasks.length} task(s)
-                    </div>
-                    {[...acceptedPhases, ...(currentPhase ? [currentPhase] : [])].map((ph) => {
-                      const rows = builtTasks.filter((t) => t.phase === ph);
-                      if (rows.length === 0) return null;
-                      return (
-                        <div key={ph} className="walker-built-phase">
-                          <span className="phase-chip">{ph}</span>
-                          <ul>
-                            {rows.map((r, i) => (
-                              <li key={i}>
-                                <span className="walker-built-name">{r.task_name}</span>
-                                <span className="walker-built-meta">
-                                  → {r.assignee.name}{" "}
-                                  <span className="mono">P(succ) {pct(r.assignee.success_p)}</span>
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                {/* Per-phase editor sections */}
+                {acceptedPhases.map((ph) => {
+                  const rows = builtTasks.filter((t) => t.phase === ph);
+                  const isPickingTasksHere = pickingTasksFor === ph;
+                  const phasePos = phasePurchases.filter((p) => p.phase === ph);
+                  return (
+                    <div key={ph} className="editor-phase">
+                      <div className="editor-phase-head">
+                        <span className="phase-chip">{ph}</span>
+                        <span className="editor-phase-count">
+                          {rows.length} task{rows.length === 1 ? "" : "s"}
+                        </span>
+                        <button
+                          type="button"
+                          className="editor-add-task"
+                          onClick={() => handleAddTaskToPhase(ph)}
+                          disabled={walkerLoading}
+                        >
+                          + Add task
+                        </button>
+                        <button
+                          type="button"
+                          className="editor-remove-phase"
+                          onClick={() => handleRemovePhase(ph)}
+                          title="Remove phase and all its tasks"
+                        >
+                          ×
+                        </button>
+                      </div>
 
-                {/* Picking a phase */}
-                {!currentPhase && phaseOptions.length > 0 && (
-                  <div className="walker-stage">
+                      {/* Accepted tasks — editable rows */}
+                      {rows.length > 0 && (
+                        <table className="tbl editor-tbl">
+                          <thead>
+                            <tr>
+                              <th>Task</th>
+                              <th>Assignee</th>
+                              <th style={{ textAlign: "right" }}>Days</th>
+                              <th style={{ textAlign: "right" }}>Cost</th>
+                              <th style={{ textAlign: "right" }}>P(success)</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((row) => (
+                              <Fragment key={row.id}>
+                                <tr>
+                                  <td>{row.task_name}</td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="editor-assignee-chip"
+                                      onClick={() => handleSwapAssignee(row.id)}
+                                      title="Click to ask Aito for alternatives"
+                                    >
+                                      <span className={`badge ${row.assignee.assignee_kind === "subcontractor" ? "b-purple" : "b-blue"}`}>
+                                        {row.assignee.assignee_kind}
+                                      </span>
+                                      <span className="editor-assignee-name">{row.assignee.name}</span>
+                                      <span className="editor-assignee-swap" aria-hidden="true">↻</span>
+                                    </button>
+                                  </td>
+                                  <td style={{ textAlign: "right" }}>
+                                    <input
+                                      type="number"
+                                      className="editor-numeric"
+                                      value={row.typical_days}
+                                      min={0}
+                                      onChange={(e) =>
+                                        handleEditTaskField(row.id, "typical_days", Number(e.target.value) || 0)
+                                      }
+                                    />
+                                  </td>
+                                  <td style={{ textAlign: "right" }}>
+                                    <input
+                                      type="number"
+                                      className="editor-numeric editor-numeric-wide"
+                                      value={row.typical_cost_eur}
+                                      min={0}
+                                      step={100}
+                                      onChange={(e) =>
+                                        handleEditTaskField(row.id, "typical_cost_eur", Number(e.target.value) || 0)
+                                      }
+                                    />
+                                  </td>
+                                  <td style={{ textAlign: "right" }} className="mono">
+                                    {pct(row.assignee.success_p)}
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="editor-row-delete"
+                                      onClick={() => handleDeleteTask(row.id)}
+                                      title="Delete task"
+                                    >
+                                      ×
+                                    </button>
+                                  </td>
+                                </tr>
+                                {/* Inline assignee swap panel for this row */}
+                                {swapForTaskId === row.id && assigneeOptions.length > 0 && (
+                                  <tr className="editor-inline-row">
+                                    <td colSpan={6}>
+                                      <div className="walker-assignees">
+                                        <div className="walker-assignees-head">
+                                          Aito's top {assigneeOptions.length} alternatives — click to swap
+                                        </div>
+                                        {assigneeOptions.map((a, i) => (
+                                          <button
+                                            key={a.name}
+                                            type="button"
+                                            className={`walker-assignee${i === 0 ? " is-top" : ""}${
+                                              a.name === row.assignee.name ? " is-current" : ""
+                                            }`}
+                                            onClick={() => handleConfirmSwap(row.id, a)}
+                                          >
+                                            {i === 0 && <span className="badge b-green">top</span>}
+                                            <span className="walker-assignee-name">{a.name}</span>
+                                            <span className={`badge ${a.assignee_kind === "subcontractor" ? "b-purple" : "b-blue"}`}>
+                                              {a.assignee_kind}
+                                            </span>
+                                            <span className="walker-assignee-meta mono">
+                                              P {pct(a.p)} · P(succ) {pct(a.success_p)}
+                                            </span>
+                                          </button>
+                                        ))}
+                                        <button
+                                          type="button"
+                                          className="walker-assignee-cancel"
+                                          onClick={() => { setSwapForTaskId(null); setAssigneeOptions([]); }}
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+
+                      {/* Task candidate picker — shown when the user clicked + Add task */}
+                      {isPickingTasksHere && (
+                        <div className="editor-picker">
+                          <div className="walker-stage-title">
+                            Aito's task suggestions for {ph}
+                          </div>
+                          {taskOptions.length === 0 && !walkerLoading && (
+                            <div className="walker-empty">
+                              No more tasks suggested. (You've accepted them all, or this phase is unusual.)
+                            </div>
+                          )}
+                          <div className="walker-tasks">
+                            {taskOptions.map((t) => (
+                              <div key={t.task_name} className="walker-task">
+                                <div className="walker-task-row">
+                                  <span className="walker-task-name">{t.task_name}</span>
+                                  <span className="walker-task-meta">
+                                    <span className="mono">P {pct(t.p)}</span>
+                                    {" · "}
+                                    <span className="mono">~{t.typical_days}d</span>
+                                    {" · "}
+                                    <span className="mono">{fmtAmount(t.typical_cost_eur)}</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="walker-task-accept"
+                                    onClick={() => handleAcceptCandidate(t, ph)}
+                                    disabled={pendingTaskCandidate?.task_name === t.task_name}
+                                  >
+                                    {pendingTaskCandidate?.task_name === t.task_name ? "Asking Aito…" : "Accept"}
+                                  </button>
+                                </div>
+                                {pendingTaskCandidate?.task_name === t.task_name && assigneeOptions.length > 0 && (
+                                  <div className="walker-assignees">
+                                    <div className="walker-assignees-head">
+                                      Aito's top {assigneeOptions.length} picks for this task — click to confirm
+                                    </div>
+                                    {assigneeOptions.map((a, i) => (
+                                      <button
+                                        key={a.name}
+                                        type="button"
+                                        className={`walker-assignee${i === 0 ? " is-top" : ""}`}
+                                        onClick={() => handleConfirmNewTask(t, ph, a)}
+                                      >
+                                        {i === 0 && <span className="badge b-green">top</span>}
+                                        <span className="walker-assignee-name">{a.name}</span>
+                                        <span className={`badge ${a.assignee_kind === "subcontractor" ? "b-purple" : "b-blue"}`}>
+                                          {a.assignee_kind}
+                                        </span>
+                                        <span className="walker-assignee-meta mono">
+                                          P {pct(a.p)} · P(succ) {pct(a.success_p)}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="walker-actions">
+                            <button
+                              type="button"
+                              className="walker-finish"
+                              onClick={() => { setPickingTasksFor(null); setTaskOptions([]); setPendingTaskCandidate(null); setAssigneeOptions([]); }}
+                            >
+                              Done editing {ph}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Per-phase auto-drafted POs (deletable) */}
+                      {phasePos.length > 0 && (
+                        <div className="editor-pos">
+                          <div className="editor-pos-head">
+                            <span>Material POs · auto-drafted</span>
+                          </div>
+                          {phasePos.map((po, i) => (
+                            <div key={i} className="phase-po">
+                              <span className="badge b-gold">{po.category}</span>
+                              <span className="phase-po-supplier">{po.supplier}</span>
+                              <span className="phase-po-meta">
+                                <span className="mono">P {pct(po.supplier_confidence)}</span>
+                                {po.typical_amount_eur != null && (
+                                  <>
+                                    {" · "}
+                                    <span className="mono">~{fmtAmount(po.typical_amount_eur)}</span>
+                                  </>
+                                )}
+                              </span>
+                              <button
+                                type="button"
+                                className="editor-row-delete"
+                                onClick={() => handleDeletePO(po.phase, po.category, po.supplier)}
+                                title="Remove this PO from the draft"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Phase picker — shown by default at bootstrap and on demand via "+ Add phase" */}
+                {pickingPhase && (
+                  <div className="editor-picker editor-picker-phase">
                     <div className="walker-stage-title">
                       {acceptedPhases.length === 0
                         ? "Pick the first phase"
-                        : `Pick the next phase (${acceptedPhases.length} so far)`}
+                        : "Pick another phase to add"}
                     </div>
+                    {phaseOptions.length === 0 && !walkerLoading && (
+                      <div className="walker-empty">No more phases suggested.</div>
+                    )}
                     <div className="walker-options">
                       {phaseOptions.map((p) => (
                         <button
@@ -537,6 +832,7 @@ export default function ProjectPlanPage() {
                           type="button"
                           className="walker-option walker-option-phase"
                           onClick={() => handlePickPhase(p)}
+                          disabled={walkerLoading}
                         >
                           <span className="phase-chip">{p.phase}</span>
                           <span className="walker-option-meta">
@@ -550,109 +846,26 @@ export default function ProjectPlanPage() {
                     {acceptedPhases.length > 0 && (
                       <button
                         type="button"
-                        className="walker-finish"
-                        onClick={handleFinishPlan}
+                        className="walker-finish editor-cancel-phase"
+                        onClick={() => { setPickingPhase(false); setPhaseOptions([]); }}
                       >
-                        I'm done — finish plan
+                        Cancel
                       </button>
                     )}
                   </div>
                 )}
 
-                {/* Picking tasks for the current phase */}
-                {currentPhase && (
-                  <div className="walker-stage">
-                    <div className="walker-stage-title">
-                      Tasks for <span className="phase-chip">{currentPhase}</span>
-                    </div>
-                    {taskOptions.length === 0 && acceptedInPhase.length === 0 && (
-                      <div className="walker-empty">No more tasks suggested for this phase.</div>
-                    )}
-                    <div className="walker-tasks">
-                      {taskOptions.map((t) => (
-                        <div key={t.task_name} className="walker-task">
-                          <div className="walker-task-row">
-                            <span className="walker-task-name">{t.task_name}</span>
-                            <span className="walker-task-meta">
-                              <span className="mono">P {pct(t.p)}</span>
-                              {" · "}
-                              <span className="mono">~{t.typical_days}d</span>
-                              {" · "}
-                              <span className="mono">{fmtAmount(t.typical_cost_eur)}</span>
-                            </span>
-                            <button
-                              type="button"
-                              className="walker-task-accept"
-                              onClick={() => handleAskAssignee(t)}
-                              disabled={resolvingTask === t.task_name}
-                            >
-                              {resolvingTask === t.task_name ? "Asking Aito…" : "Accept"}
-                            </button>
-                          </div>
-                          {resolvingTask === t.task_name && assigneeOptions.length > 0 && (
-                            <div className="walker-assignees">
-                              <div className="walker-assignees-head">
-                                Aito's top {assigneeOptions.length} picks for this task
-                              </div>
-                              {assigneeOptions.map((a, i) => (
-                                <button
-                                  key={a.name}
-                                  type="button"
-                                  className={`walker-assignee${i === 0 ? " is-top" : ""}`}
-                                  onClick={() => handleConfirmAssignee(t, a)}
-                                >
-                                  {i === 0 && <span className="badge b-green">top</span>}
-                                  <span className="walker-assignee-name">{a.name}</span>
-                                  <span className={`badge ${a.assignee_kind === "subcontractor" ? "b-purple" : "b-blue"}`}>
-                                    {a.assignee_kind}
-                                  </span>
-                                  <span className="walker-assignee-meta mono">
-                                    P {pct(a.p)} · P(succ) {pct(a.success_p)}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="walker-actions">
-                      <button
-                        type="button"
-                        className="walker-finish"
-                        onClick={handleFinishPhase}
-                        disabled={walkerLoading}
-                      >
-                        {acceptedInPhase.length === 0
-                          ? "Skip this phase →"
-                          : `Done with ${currentPhase} (${acceptedInPhase.length} task${acceptedInPhase.length === 1 ? "" : "s"}) →`}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Accumulated material POs from finished phases */}
-                {phasePurchases.length > 0 && (
-                  <div className="walker-pos">
-                    <div className="walker-stage-title" style={{ marginTop: 4 }}>
-                      Material POs auto-drafted across the finished phases
-                    </div>
-                    {phasePurchases.map((po, i) => (
-                      <div key={i} className="phase-po">
-                        <span className="badge b-gold">{po.phase}</span>
-                        <span className="walker-po-cat">{po.category}</span>
-                        <span className="phase-po-supplier">{po.supplier}</span>
-                        <span className="phase-po-meta">
-                          <span className="mono">P {pct(po.supplier_confidence)}</span>
-                          {po.typical_amount_eur != null && (
-                            <>
-                              {" · "}
-                              <span className="mono">~{fmtAmount(po.typical_amount_eur)}</span>
-                            </>
-                          )}
-                        </span>
-                      </div>
-                    ))}
+                {/* Footer: + Add phase always available so the editor never feels "done" */}
+                {!pickingPhase && acceptedPhases.length > 0 && (
+                  <div className="editor-footer">
+                    <button
+                      type="button"
+                      className="editor-add-phase"
+                      onClick={handleOpenPhasePicker}
+                      disabled={walkerLoading}
+                    >
+                      + Add phase
+                    </button>
                   </div>
                 )}
 
