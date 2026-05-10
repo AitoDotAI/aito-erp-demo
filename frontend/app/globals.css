@@ -457,6 +457,65 @@ body {
   color: var(--mid);
   line-height: 1.5;
 }
+.latency-badge-count {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(45, 122, 79, 0.15);
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 600;
+}
+.latency-badge-divider {
+  display: block;
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+}
+.latency-badge-subtitle {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--mid);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.latency-badge-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+}
+.latency-badge-call {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+.latency-badge-call-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.latency-badge-call-op {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.latency-badge-call-ms {
+  font-weight: 600;
+  color: var(--ink);
+}
+.latency-badge-call-more {
+  font-size: 10.5px;
+  color: var(--mid);
+  font-style: italic;
+  margin-top: 2px;
+}
 
 /* ─── CONTENT AREA ─── */
 .content-area {
@@ -2448,19 +2507,6 @@ body {
     object-fit: contain;
   }
 
-  /* The mobile Aito toggle now sits bottom-RIGHT and the latency
-     ticker bottom-LEFT, so they no longer fight for the same pixel.
-     But on narrow screens we shrink the pills to keep the row from
-     overflowing into the toggle's territory. */
-  .latency-pill {
-    max-width: calc(100vw - 80px);
-    overflow: hidden;
-  }
-  .latency-entry {
-    flex-shrink: 1;
-    min-width: 0;
-  }
-
   /* Backdrop behind the bottom sheet. */
   .aito-mobile-overlay {
     display: block;
@@ -2943,53 +2989,9 @@ body {
   text-decoration-color: rgba(192,57,43,0.4);
 }
 
-/* ─── Latency pill ──────────────────────────────────────────────
-   Lives in the bottom-right corner. Fades in on every API call,
-   auto-hides after 4s. Visible across all pages so visitors see
-   sub-50ms _predict / _relate timings as they click around. */
-/* Ticker container is bottom-LEFT — clears the right-side Aito panel. */
-.latency-pill {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 80;
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  pointer-events: none;
-  font-family: 'DM Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-.latency-entry {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 12px;
-  background: var(--card);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  color: var(--ink);
-  white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(12, 15, 65, 0.06);
-  transition: opacity 1s ease;
-}
-.latency-entry--cached {
-  font-style: italic;
-  color: var(--mid);
-}
-.latency-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.latency-endpoint {
-  font-weight: 500;
-}
-.latency-ms {
-  font-weight: 600;
-  color: var(--ink);
-}
+/* (Old bottom-left latency ticker dropped — the topbar LatencyBadge
+   is the only latency surface now. Per-call breakdown lives inside
+   its hover popover, mirroring the accounting demo's pattern.) */
 
 /* ─── Relearn banner (PO Queue) ─────────────────────────────────
    Surfaces only when the user has just submitted via Smart Entry.

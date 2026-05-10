@@ -1,6 +1,5 @@
 import "./globals.css";
 import { TenantProvider } from "@/lib/tenant-context";
-import LatencyPill from "@/components/shell/LatencyPill";
 
 export const metadata = {
   title: "Predictive ERP — by Aito",
@@ -29,7 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="app">
             {children}
           </div>
-          <LatencyPill />
         </TenantProvider>
       </body>
     </html>

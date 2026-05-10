@@ -30,15 +30,47 @@ right context per call.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from src.aito_client import AitoClient
 
 log = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+def _ctx_map(pool: ThreadPoolExecutor, fn: Callable[..., T], iterable) -> list[T]:
+    """`ThreadPoolExecutor.map` that propagates the calling thread's
+    `contextvars` context into each worker.
+
+    Without this, the per-request timing bucket bound by the FastAPI
+    middleware (in `src/timing.py`) never reaches worker threads, and
+    every Aito call made in the fan-out fails to record into the
+    `X-Aito-Calls` response header. The latency badge then shows just
+    the main-thread `_search` instead of the real ~140 calls a
+    generated plan ships.
+
+    Two subtleties:
+      - `copy_context()` must be called from the *parent* thread; if
+        called inside the worker it captures the worker's (empty)
+        context. So we pre-create one copy per item before submitting.
+      - We need a *separate* copy per worker — `Context.run` rejects
+        concurrent re-entries of the same Context. Different copies
+        still share the underlying ContextVar storage references, so
+        all workers' `record_call` appends land in the same list that
+        the middleware reads.
+    """
+    def submit(item: Any):
+        ctx = contextvars.copy_context()
+        return pool.submit(ctx.run, fn, item)
+
+    futures = [submit(item) for item in iterable]
+    return [f.result() for f in futures]
 
 # Limit how many tasks we propose per phase. The fixture's most-
 # frequent task names per phase are 3-4; capping at 4 keeps the
@@ -303,10 +335,13 @@ def _predict_task_assignment(
         "season": season,
     }
 
+    # One copy per submitted task — Context.run rejects concurrent
+    # re-entries of the same Context. All copies share the underlying
+    # timing-bucket list via the ContextVar's reference semantics.
     with ThreadPoolExecutor(max_workers=4) as pool:
-        kind_future       = pool.submit(_predict_value, client, where, "assignee_kind")
-        days_future       = pool.submit(_predict_value, client, where, "planned_days")
-        cost_future       = pool.submit(_predict_value, client, where, "planned_cost_eur")
+        kind_future = pool.submit(contextvars.copy_context().run, _predict_value, client, where, "assignee_kind")
+        days_future = pool.submit(contextvars.copy_context().run, _predict_value, client, where, "planned_days")
+        cost_future = pool.submit(contextvars.copy_context().run, _predict_value, client, where, "planned_cost_eur")
 
         assignee_kind, _kind_p = kind_future.result()
         days_value, _days_p    = days_future.result()
@@ -395,10 +430,11 @@ def predict_purchases_for_phase(
     # Run the per-category supplier predictions in parallel — each
     # category is two Aito calls (predict supplier, search history).
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(
+        results = _ctx_map(
+            pool,
             lambda c: (c, *_predict_purchase_supplier(client, project_type, c)),
             categories,
-        ))
+        )
 
     out: list[PurchaseSuggestion] = []
     for category, supplier, p, avg, coverage in results:
@@ -467,21 +503,23 @@ def generate_plan(
             work.append((phase, task_name))
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        plan.tasks = list(pool.map(
+        plan.tasks = _ctx_map(
+            pool,
             lambda pt: _predict_task_assignment(
                 client, project_type, pt[0], pt[1], region, season,
             ),
             work,
-        ))
+        )
 
         # Per-phase material POs: which categories does this phase
         # typically need, and which supplier does Aito recommend per
         # category? Runs alongside the task fan-out so the entire
         # plan (tasks + auto-POs) lands in one round-trip.
-        purchases_per_phase = list(pool.map(
+        purchases_per_phase = _ctx_map(
+            pool,
             lambda phase: predict_purchases_for_phase(client, project_type, phase),
             phases,
-        ))
+        )
     plan.purchases = [p for sub in purchases_per_phase for p in sub]
 
     return plan
