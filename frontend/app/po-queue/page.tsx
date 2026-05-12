@@ -30,11 +30,13 @@ export default function POQueuePage() {
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<POQueueResponse>("/api/po/pending")
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   const handleBulkApprove = (kind: "rule" | "aito_high") => {
     if (!data) return;

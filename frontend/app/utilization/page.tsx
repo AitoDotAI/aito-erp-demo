@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type {
   AitoPanelConfig,
   UtilizationOverview,
@@ -58,6 +59,7 @@ function loadBarColor(pct: number): string {
 }
 
 export default function UtilizationPage() {
+  const { tenantId } = useTenant();
   const [data, setData] = useState<UtilizationOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,8 @@ export default function UtilizationPage() {
   const [panel, setPanel] = useState<AitoPanelConfig>(DEFAULT_PANEL);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<UtilizationOverview>("/api/utilization/overview")
       .then((d) => {
         setData(d);
@@ -75,7 +79,7 @@ export default function UtilizationPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   // Refresh forecast whenever the selected person OR project_type changes.
   useEffect(() => {

@@ -365,12 +365,21 @@ body {
   font-weight: 500;
 }
 
+/* Pill treatment matches the latency badge + tenant switcher so the
+   topbar right-cluster reads as one row of pills on every viewport. */
 .topbar-live {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 10px;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid #a8d8b0;
+  background: var(--green-light);
   color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  white-space: nowrap;
 }
 
 .topbar-live-dot {
@@ -378,6 +387,7 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--green);
+  box-shadow: 0 0 4px rgba(45, 122, 79, 0.5);
   animation: pulse 1.5s ease infinite;
 }
 

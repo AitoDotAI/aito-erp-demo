@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type { PricingResponse, PricingProduct, PriceEstimate, QuoteScore, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -27,6 +28,7 @@ const defaultPanel: AitoPanelConfig = {
 };
 
 export default function PricingPage() {
+  const { tenantId } = useTenant();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<PricingResponse | null>(null);
@@ -36,6 +38,8 @@ export default function PricingPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<PricingResponse>("/api/pricing/estimate")
       .then((res) => {
         setData(res);
@@ -44,7 +48,7 @@ export default function PricingPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   const currentProduct: PricingProduct | null = selectedProduct && data ? data.products[selectedProduct] ?? null : null;
 

@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type { CatalogResponse, IncompleteProduct, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -43,6 +44,7 @@ interface CatalogPredictionResponse {
 }
 
 export default function CatalogPage() {
+  const { tenantId } = useTenant();
   const [products, setProducts] = useState<IncompleteProduct[]>([]);
   const [totalProducts, setTotalProducts] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -94,6 +96,8 @@ export default function CatalogPage() {
   };
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<CatalogResponse>("/api/catalog/incomplete")
       .then((data) => {
         if (data.products?.length) {
@@ -105,7 +109,7 @@ export default function CatalogPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   const handleRowClick = (idx: number) => {
     const p = products[idx];

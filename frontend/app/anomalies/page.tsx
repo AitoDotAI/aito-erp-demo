@@ -121,11 +121,13 @@ export default function AnomaliesPage() {
 
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<AnomalyResponse>("/api/anomalies/scan")
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   // Re-tone whenever data loads OR the tenant changes — persona
   // description swaps to the new industry, live stats stay intact.
