@@ -2874,12 +2874,21 @@ body {
   }
   .topbar-hamburger:hover { background: var(--bg); }
 
-  /* Tighten TopBar so title + persona switcher fit on a phone. */
+  /* Tighten TopBar so title + persona switcher fit on a phone.
+     `height: 50px` from the desktop rule clips wrapped pills (the
+     Live indicator falling onto a second row was being covered by
+     the banner immediately under the topbar). Switch to min-height
+     so the bar grows to fit whatever wraps. */
   .topbar {
+    height: auto;
+    min-height: 50px;
     padding: 10px 12px;
     flex-wrap: wrap;
     row-gap: 6px;
   }
+  /* The right cluster also needs to wrap rather than overflow once
+     the title row above already filled the bar. */
+  .topbar-right { flex-wrap: wrap; }
   .topbar-title { font-size: 15px; }
   .topbar-sub  { font-size: 11px; }
 
