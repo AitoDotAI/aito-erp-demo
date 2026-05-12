@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import type { ApprovalResponse, ApprovalPrediction, AitoPanelConfig } from "@/lib/types";
 
@@ -52,6 +53,7 @@ function escalationBadge(reason: string) {
 }
 
 export default function ApprovalPage() {
+  const { tenantId } = useTenant();
   const [data, setData] = useState<ApprovalResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,11 +61,13 @@ export default function ApprovalPage() {
   const [panel, setPanel] = useState<AitoPanelConfig>(defaultPanel);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<ApprovalResponse>("/api/approval/queue")
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     if (!data) return;

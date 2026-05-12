@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type { InventoryResponse, InventoryItem, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -28,6 +29,7 @@ const defaultPanel: AitoPanelConfig = {
 };
 
 export default function InventoryPage() {
+  const { tenantId } = useTenant();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<InventoryResponse | null>(null);
@@ -36,11 +38,13 @@ export default function InventoryPage() {
   const [bannerOpen, setBannerOpen] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<InventoryResponse>("/api/inventory/status")
       .then((res) => setData(res))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   const items = data?.items ?? [];
   const [reordering, setReordering] = useState<string | null>(null);

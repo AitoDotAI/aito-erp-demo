@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type { OverviewMetrics, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -46,12 +47,15 @@ const defaultPanel: AitoPanelConfig = {
 };
 
 export default function OverviewPage() {
+  const { tenantId } = useTenant();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null);
   const [panel, setPanel] = useState<AitoPanelConfig>(defaultPanel);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<OverviewMetrics>("/api/overview/metrics")
       .then((data) => {
         setMetrics(data);
@@ -66,7 +70,7 @@ export default function OverviewPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   if (error) {
     return (

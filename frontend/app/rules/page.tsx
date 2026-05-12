@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type { RulesResponse, RuleCandidate, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -43,6 +44,7 @@ const defaultPanel: AitoPanelConfig = {
 };
 
 export default function RulesPage() {
+  const { tenantId } = useTenant();
   const [data, setData] = useState<RulesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,11 +52,13 @@ export default function RulesPage() {
   const [panel, setPanel] = useState<AitoPanelConfig>(defaultPanel);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<RulesResponse>("/api/rules/candidates")
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     if (!data) return;

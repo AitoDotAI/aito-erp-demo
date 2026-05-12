@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type { DemandResponse, DemandForecast, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -28,6 +29,7 @@ const defaultPanel: AitoPanelConfig = {
 };
 
 export default function DemandPage() {
+  const { tenantId } = useTenant();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DemandResponse | null>(null);
@@ -36,11 +38,13 @@ export default function DemandPage() {
   const [bannerOpen, setBannerOpen] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<DemandResponse>("/api/demand/forecast")
       .then((res) => setData(res))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   const forecasts = data?.forecasts ?? [];
 

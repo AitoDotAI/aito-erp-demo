@@ -24,6 +24,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import SmartField, { FieldSource } from "@/components/prediction/SmartField";
 import { apiFetch } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type {
   SmartEntryResponse,
   SmartEntryField,
@@ -85,6 +86,7 @@ const defaultPanel: AitoPanelConfig = {
 };
 
 export default function SmartEntryPage() {
+  const { tenantId } = useTenant();
   const [suppliers, setSuppliers] = useState<string[]>([]);
   const [supplier, setSupplier] = useState("");
   const [description, setDescription] = useState("");
@@ -121,11 +123,13 @@ export default function SmartEntryPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<{ suppliers: string[] }>("/api/smartentry/suppliers")
       .then((res) => setSuppliers(res.suppliers))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   /**
    * Fetch predictions and merge them into field state.

@@ -22,11 +22,13 @@ export default function SupplierPage() {
   const [selectedRisk, setSelectedRisk] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<SupplierResponse>("/api/supplier/overview")
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   // Re-tone whenever data loads OR the tenant changes — the persona
   // description swaps to the new industry, but live stats (suppliers,

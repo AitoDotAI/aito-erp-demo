@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type {
   AitoPanelConfig,
   RecommendationOverview,
@@ -56,6 +57,7 @@ function fmtPriceMaybe(p: number | null): string {
 }
 
 export default function RecommendationsPage() {
+  const { tenantId } = useTenant();
   const [overview, setOverview] = useState<RecommendationOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,6 +69,8 @@ export default function RecommendationsPage() {
   const [panel, setPanel] = useState<AitoPanelConfig>(DEFAULT_PANEL);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<RecommendationOverview>("/api/recommendations/overview")
       .then((data) => {
         setOverview(data);
@@ -76,7 +80,7 @@ export default function RecommendationsPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   // Fetch cross-sell + similar whenever the anchor changes.
   useEffect(() => {

@@ -365,12 +365,21 @@ body {
   font-weight: 500;
 }
 
+/* Pill treatment matches the latency badge + tenant switcher so the
+   topbar right-cluster reads as one row of pills on every viewport. */
 .topbar-live {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 10px;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid #a8d8b0;
+  background: var(--green-light);
   color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  white-space: nowrap;
 }
 
 .topbar-live-dot {
@@ -378,6 +387,7 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--green);
+  box-shadow: 0 0 4px rgba(45, 122, 79, 0.5);
   animation: pulse 1.5s ease infinite;
 }
 
@@ -2864,12 +2874,21 @@ body {
   }
   .topbar-hamburger:hover { background: var(--bg); }
 
-  /* Tighten TopBar so title + persona switcher fit on a phone. */
+  /* Tighten TopBar so title + persona switcher fit on a phone.
+     `height: 50px` from the desktop rule clips wrapped pills (the
+     Live indicator falling onto a second row was being covered by
+     the banner immediately under the topbar). Switch to min-height
+     so the bar grows to fit whatever wraps. */
   .topbar {
+    height: auto;
+    min-height: 50px;
     padding: 10px 12px;
     flex-wrap: wrap;
     row-gap: 6px;
   }
+  /* The right cluster also needs to wrap rather than overflow once
+     the title row above already filled the bar. */
+  .topbar-right { flex-wrap: wrap; }
   .topbar-title { font-size: 15px; }
   .topbar-sub  { font-size: 11px; }
 

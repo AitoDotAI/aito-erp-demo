@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type {
   AitoPanelConfig,
   PortfolioResponse,
@@ -66,6 +67,7 @@ function statusClass(s: string): string {
 }
 
 export default function ProjectsPage() {
+  const { tenantId } = useTenant();
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,11 +75,13 @@ export default function ProjectsPage() {
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     apiFetch<PortfolioResponse>("/api/projects/portfolio")
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     if (!data) return;
