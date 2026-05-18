@@ -333,6 +333,17 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # ── Health & schema ──────────────────────────────────────────────
 
+@app.get("/health")
+def liveness():
+    """Cheap liveness probe — does not touch Aito or per-tenant state.
+
+    Matches the /health convention shared by all aito-demo-server demos so
+    the unified container's nginx per-demo health proxies work uniformly.
+    For an Aito-connectivity readiness check see /api/health below.
+    """
+    return {"ok": True}
+
+
 @app.get("/api/health")
 def health(request: Request):
     tenant, aito = client_from_request(request)
