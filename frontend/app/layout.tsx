@@ -22,10 +22,10 @@ export const viewport = {
   initialScale: 1,
 };
 
-// GA4 measurement ID is provisioned at build time via
-// aito-demo-server's env_secrets (Azure Key Vault). Same GA4
-// property as the other Aito demos so events land in the same view.
-const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID;
+// Same GA4 property as the other Aito demos so events land in the same
+// view. Hardcoded literal — measurement ID is public anyway (visible in
+// the deployed bundle since GA4 was launched).
+const GA_MEASUREMENT_ID = "G-FDTBRCMZWJ";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -41,25 +41,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Google Analytics 4 — same property as the other Aito demos.
             `afterInteractive` keeps the script off the critical path. */}
-        {GA_MEASUREMENT_ID && (
-          <>
-            <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
-              strategy="afterInteractive"
-            />
-            <Script id="ga-init" strategy="afterInteractive">
-              {`
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                gtag('js', new Date());
-                gtag('config', '${GA_MEASUREMENT_ID}', {
-                  anonymize_ip: true,
-                  cookie_expires: 0,
-                });
-              `}
-            </Script>
-          </>
-        )}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="ga-init" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_MEASUREMENT_ID}', {
+              anonymize_ip: true,
+              cookie_expires: 0,
+            });
+          `}
+        </Script>
       </body>
     </html>
   );
