@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
 
 from src.aito_client import AitoClient
+from src.why_processor import process_factors
 
 log = logging.getLogger(__name__)
 
@@ -119,6 +120,34 @@ PHASE_PURCHASE_CATEGORIES: dict[str, list[str]] = {
 }
 
 
+# Supplier-portal listings — the storyline punchline. The ERP customer
+# operates an external supplier management system (think Jakamo-style
+# supplier portal); suppliers register their offerings against each
+# category there. When the planner edits a material PO, we surface
+# Aito's history-ranked picks *plus* portal-listed candidates as
+# additional options. The portal candidates have no purchase history
+# yet, so they show a "new entrant" badge instead of an Aito $p — once
+# they execute even a few POs, `_predict` would start picking them
+# up alongside the historical ones.
+#
+# Picked to NOT collide with the suppliers already in Metsä's fixtures
+# so the demo visibly mixes "from history" with "from portal".
+SUPPLIER_PORTAL_LISTINGS: dict[str, list[str]] = {
+    "production":   ["Pohjola Industrial", "Nordic Machinery"],
+    "construction": ["Skanska Suomi", "Peab Finland"],
+    "electrical":   ["Sähkö-Pekka", "Helsinki Electrical"],
+    "maintenance":  ["Are Talotekniikka"],
+    "fuel":         ["St1 Oy"],
+    "ppe":          ["Würth Finland"],
+    "cleaning":     ["ISS Suomi"],
+    "capex":        ["Granlund Manufacturing"],
+    "security":     ["Securitas Finland"],
+    "telecom":      ["Elisa Yritysasiakkaat"],
+    "office":       ["Staples Finland"],
+    "utilities":    ["Helen Oy"],
+}
+
+
 # Hand-curated execution order for phases. The `tasks` table doesn't
 # carry an explicit phase ordering, so we sort the discovered phases
 # against this canonical list. Phases not in the list keep their
@@ -150,6 +179,7 @@ class TaskCandidate:
     planned_days: int
     planned_cost_eur: float
     success_p: float            # P(success) for the predicted assignment
+    materials: list["MaterialSuggestion"] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -161,6 +191,48 @@ class TaskCandidate:
             "planned_days": self.planned_days,
             "planned_cost_eur": self.planned_cost_eur,
             "success_p": self.success_p,
+            "materials": [m.to_dict() for m in self.materials],
+        }
+
+
+@dataclass
+class MaterialSuggestion:
+    """One material line under a task — what's needed, who supplies it, what it costs.
+
+    The Aito story per material:
+      - product line: top `description` from `purchases` history for the
+        task's phase category (search + counter — same pattern as
+        `suggest_tasks_for_phase`, because `description` is a Text column
+        and `_predict` would return tokens).
+      - supplier: `_predict from=purchases predict=supplier
+        where={category, description}` — who, in this buyer's history,
+        usually delivers this product line. The processed `$why` rides
+        along so the UI's `?` popover shows the lift chain.
+      - estimated amount: `_predict from=purchases predict=amount_eur
+        where={category, description, supplier}` — Aito's numeric
+        prediction for the line's EUR cost.
+    """
+    description: str                # product line, e.g. "Steel erection batch"
+    category: str                   # purchases.category bucket
+    supplier: str
+    supplier_source: str            # "history" | "portal"
+    supplier_confidence: float
+    supplier_why: dict | None
+    estimated_amount_eur: float | None
+    amount_confidence: float        # $p for the amount prediction
+    coverage: int                   # # of historical rows behind the supplier pick
+
+    def to_dict(self) -> dict:
+        return {
+            "description": self.description,
+            "category": self.category,
+            "supplier": self.supplier,
+            "supplier_source": self.supplier_source,
+            "supplier_confidence": self.supplier_confidence,
+            "supplier_why": self.supplier_why,
+            "estimated_amount_eur": self.estimated_amount_eur,
+            "amount_confidence": self.amount_confidence,
+            "coverage": self.coverage,
         }
 
 
@@ -325,6 +397,7 @@ def _predict_task_assignment(
     task_name: str,
     region: str,
     season: str,
+    descriptions_by_category: dict[str, list[str]] | None = None,
 ) -> TaskCandidate:
     """Three parallel _predicts give Aito's best guess for one task row."""
     where = {
@@ -356,6 +429,11 @@ def _predict_task_assignment(
     success_where = {**where, "assignee_kind": assignee_kind, predict_field: assignee}
     success_p = _success_p(client, success_where)
 
+    materials = predict_materials_for_task(
+        client, phase, task_name=task_name,
+        descriptions_by_category=descriptions_by_category,
+    )
+
     return TaskCandidate(
         phase=phase,
         task_name=task_name,
@@ -365,6 +443,7 @@ def _predict_task_assignment(
         planned_days=int(days_value or 0) if isinstance(days_value, (int, float)) else 0,
         planned_cost_eur=float(cost_value or 0) if isinstance(cost_value, (int, float)) else 0.0,
         success_p=success_p,
+        materials=materials,
     )
 
 
@@ -449,6 +528,382 @@ def predict_purchases_for_phase(
             coverage=coverage,
         ))
     return out
+
+
+# ── per-task materials (product line + supplier + amount) ────────
+
+
+# How many product lines we surface per task. 2 is a calibrated demo
+# choice: a task like "Steel erection" naturally has ~2 dominant
+# product lines in the buyer's history (e.g. "Steel erection batch"
+# from construction + "Spare parts kit" from production); going higher
+# adds noise without storytelling value.
+MAX_MATERIALS_PER_TASK = 2
+
+
+def _typical_descriptions_for_category(
+    client: AitoClient, category: str, top_n: int = 4,
+) -> list[str]:
+    """Top-N product line names (Text `description` values) for a category.
+
+    Mirrors `suggest_tasks_for_phase`'s approach for the same reason:
+    `description` is a Text column, so `_predict description` would
+    return token-level hits ("Steel", "erection", "batch") rather than
+    the whole product line. Grouping a `_search` slice by exact value
+    is the right shape and reads honestly in the panel."""
+    try:
+        sample = client.search(
+            "purchases", {"category": category}, limit=600,
+        )
+    except Exception as exc:
+        log.warning("description search (%s) failed: %s", category, exc)
+        return []
+    rows = sample.get("hits") or []
+    if not rows:
+        return []
+    counts: Counter = Counter()
+    for r in rows:
+        d = r.get("description")
+        if d:
+            counts[d] += 1
+    return [d for d, _ in counts.most_common(top_n)]
+
+
+def _predict_material_supplier_and_amount(
+    client: AitoClient, category: str, description: str,
+) -> MaterialSuggestion | None:
+    """Two-call fan-out per product line: who supplies it, and at what cost.
+
+    Both calls condition on (category, description) so the prediction
+    is scoped to the exact product line — not a broad category average.
+    Returns None if Aito can't pick a supplier (unloaded slice, missing
+    table, etc.) so the caller can drop the line cleanly.
+    """
+    where = {"category": category, "description": description}
+    try:
+        supplier_resp = client.predict("purchases", where, "supplier", limit=1)
+    except Exception as exc:
+        log.warning("predict material supplier failed (%s/%s): %s", category, description, exc)
+        return None
+    s_hits = supplier_resp.get("hits") or []
+    if not s_hits:
+        return None
+    supplier_hit = s_hits[0]
+    supplier = supplier_hit.get("feature")
+    if not supplier:
+        return None
+    supplier_p = float(supplier_hit.get("$p", 0.0))
+    supplier_why = process_factors(supplier_hit.get("$why"), supplier_p)
+
+    # Amount is conditioned on the chosen supplier — gets us the
+    # supplier-specific price band rather than the category-wide one.
+    amount_where = {**where, "supplier": supplier}
+    estimated: float | None = None
+    amount_p = 0.0
+    try:
+        amount_resp = client.predict("purchases", amount_where, "amount_eur", limit=1)
+        a_hits = amount_resp.get("hits") or []
+        if a_hits:
+            feat = a_hits[0].get("feature")
+            if isinstance(feat, (int, float)):
+                estimated = float(feat)
+                amount_p = float(a_hits[0].get("$p", 0.0))
+    except Exception as exc:
+        log.warning("predict material amount failed (%s/%s/%s): %s", category, description, supplier, exc)
+
+    # Coverage = # of historical rows that match the exact slice. One
+    # cheap search so the UI can show "n=42 history rows behind this".
+    coverage = 0
+    try:
+        s = client.search("purchases", amount_where, limit=1)
+        coverage = int(s.get("total", 0))
+    except Exception:
+        pass
+
+    return MaterialSuggestion(
+        description=description,
+        category=category,
+        supplier=str(supplier),
+        supplier_source="history",
+        supplier_confidence=supplier_p,
+        supplier_why=supplier_why,
+        estimated_amount_eur=estimated,
+        amount_confidence=amount_p,
+        coverage=coverage,
+    )
+
+
+# Tokens that distract more than they help when matching task names
+# against purchase descriptions ("Drainage installation" → useful token
+# is "drainage", not "installation" which is generic). Trimmed to the
+# few that actually pollute the metsä task corpus — keep small.
+_TASK_STOP_TOKENS = {
+    "installation", "subcontract", "service", "services",
+    "system", "systems", "with", "and", "the", "for", "of",
+}
+
+
+def _task_name_tokens(task_name: str) -> list[str]:
+    """Tokens worth matching against `purchases.description`.
+
+    Lowercase, keep alphanumeric, drop generic words and tokens <4 chars
+    so "Steel erection" → ["steel", "erection"] and "Drainage installation"
+    → ["drainage"] (rather than ["drainage","installation"] which would
+    flood matches with every "installation" row in the table).
+    """
+    import re
+    raw = re.split(r"[^A-Za-z0-9]+", task_name.lower())
+    return [t for t in raw if len(t) >= 4 and t not in _TASK_STOP_TOKENS]
+
+
+def _task_specific_descriptions(
+    client: AitoClient, phase: str, task_name: str, top_n: int,
+) -> list[tuple[str, str]]:
+    """Find (category, description) candidates whose tokens overlap with
+    the task name. Drives task-specific materials — e.g. a "Steel
+    erection" task surfaces "Steel erection batch", not whatever's
+    most frequent in the construction category overall.
+
+    One `_search` per phase category using `$or` over token-level
+    `$has` clauses; aggregate by frequency. Returns empty when no
+    overlap is found; the caller falls back to phase-wide descriptions.
+    """
+    categories = PHASE_PURCHASE_CATEGORIES.get(phase, [])
+    tokens = _task_name_tokens(task_name)
+    if not categories or not tokens:
+        return []
+
+    or_clause = [{"description": {"$has": t}} for t in tokens]
+    counts: Counter = Counter()
+    for cat in categories:
+        where = {"category": cat, "$or": or_clause}
+        try:
+            resp = client.search("purchases", where, limit=200)
+        except Exception:
+            continue
+        for row in (resp.get("hits") or []):
+            d = row.get("description")
+            if d:
+                counts[(cat, d)] += 1
+    return [pair for pair, _ in counts.most_common(top_n)]
+
+
+def predict_materials_for_task(
+    client: AitoClient,
+    phase: str,
+    task_name: str | None = None,
+    descriptions_by_category: dict[str, list[str]] | None = None,
+    top_n: int = MAX_MATERIALS_PER_TASK,
+) -> list[MaterialSuggestion]:
+    """Predict the typical material lines for one task.
+
+    Two-step strategy:
+      1. If `task_name` is given, try a task-specific lookup that
+         filters `purchases.description` by token overlap with the
+         task name (Aito's `$has` on the Text column). A task called
+         "Steel erection" surfaces "Steel erection batch" rather than
+         the phase's most-frequent description overall.
+      2. Fall back to phase-wide top descriptions per category when
+         no overlap is found — covers tasks whose names don't share
+         vocabulary with any purchase line (e.g. "Site survey",
+         "Quality control").
+
+    For each surfaced (category, description) pair we then run two
+    `_predict`s on `purchases`: one for the supplier, one for the
+    amount. Each result rides with the supplier's processed `$why`
+    so the UI's `?` popover shows the lift chain.
+
+    `descriptions_by_category` is an optional pre-computed map used by
+    the full-plan generator to avoid repeating per-category searches
+    across many tasks.
+    """
+    categories = PHASE_PURCHASE_CATEGORIES.get(phase, [])
+    if not categories:
+        return []
+
+    candidates: list[tuple[str, str]] = []
+    if task_name:
+        candidates = _task_specific_descriptions(client, phase, task_name, top_n)
+
+    if len(candidates) < top_n:
+        # Pad with phase-wide top descriptions, round-robin across
+        # the phase's categories so the materials feel diverse.
+        descriptions_by_category = descriptions_by_category or {}
+        seen: set[tuple[str, str]] = set(candidates)
+        per_cat_idx = {cat: 0 for cat in categories}
+        while len(candidates) < top_n:
+            progressed = False
+            for cat in categories:
+                descs = descriptions_by_category.get(cat) or _typical_descriptions_for_category(
+                    client, cat, top_n=top_n,
+                )
+                descriptions_by_category[cat] = descs
+                idx = per_cat_idx[cat]
+                while idx < len(descs) and (cat, descs[idx]) in seen:
+                    idx += 1
+                if idx < len(descs):
+                    pair = (cat, descs[idx])
+                    candidates.append(pair)
+                    seen.add(pair)
+                    per_cat_idx[cat] = idx + 1
+                    progressed = True
+                    if len(candidates) >= top_n:
+                        break
+                else:
+                    per_cat_idx[cat] = idx
+            if not progressed:
+                break
+
+    if not candidates:
+        return []
+
+    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
+        results = _ctx_map(
+            pool,
+            lambda cd: _predict_material_supplier_and_amount(client, cd[0], cd[1]),
+            candidates,
+        )
+
+    return [m for m in results if m is not None]
+
+
+# ── supplier swap (editable material rows) ────────────────────────
+
+
+@dataclass
+class SupplierOption:
+    """One candidate supplier in the material-PO editor's dropdown.
+
+    Two sources are mixed in a single ranked list:
+
+      - `source="history"` — Aito's `_predict from=purchases predict=supplier`
+        hits for the category. Confidence is the model's $p; `why` carries
+        the processed $why factors for the WhyPopover.
+
+      - `source="portal"` — suppliers listed against the category in the
+        external supplier management system the ERP customer just
+        acquired. They have no purchase history yet, so $p is meaningless
+        — we surface a synthetic `portal_listed_at` score (newest first)
+        and let the UI badge them as "new entrant via portal".
+    """
+    supplier: str
+    source: str                    # "history" | "portal"
+    confidence: float              # $p from _predict (history) or 0.0 (portal)
+    coverage: int                  # # of historical POs (history) or 0 (portal)
+    avg_amount_eur: float | None
+    why: dict | None               # processed $why for history; None for portal
+
+    def to_dict(self) -> dict:
+        return {
+            "supplier": self.supplier,
+            "source": self.source,
+            "confidence": self.confidence,
+            "coverage": self.coverage,
+            "avg_amount_eur": self.avg_amount_eur,
+            "why": self.why,
+        }
+
+
+def _supplier_history_stats_scoped(
+    client: AitoClient, category: str, supplier: str, description: str | None,
+) -> tuple[int, float | None]:
+    """Same as `_supplier_history_stats` but optionally scopes by
+    product line. When `description` is set, the dropdown's per-row
+    "n=… · ~€…" reflects rows for the exact product line — not the
+    category as a whole."""
+    where = {"category": category, "supplier": supplier}
+    if description:
+        where["description"] = description
+    try:
+        sample = client.search("purchases", where, limit=120)
+    except Exception:
+        return 0, None
+    rows = sample.get("hits") or []
+    coverage = sample.get("total", len(rows))
+    if not rows:
+        return coverage, None
+    avg = sum(float(r["amount_eur"]) for r in rows) / len(rows)
+    return coverage, avg
+
+
+def suggest_suppliers_for_category(
+    client: AitoClient,
+    category: str,
+    top_n: int = 5,
+    description: str | None = None,
+) -> list[SupplierOption]:
+    """Top-N supplier candidates for a material category, mixing
+    history (Aito _predict) with supplier-portal listings.
+
+    When `description` is provided, the where-clause narrows to that
+    product line so the dropdown surfaces who actually supplies it
+    (e.g. "Steel erection batch") rather than the category at large.
+    Each history hit carries the processed $why for the popover;
+    portal hits carry none.
+    """
+    where: dict = {"category": category}
+    if description:
+        where["description"] = description
+    try:
+        response = client.predict("purchases", where, "supplier", limit=top_n)
+    except Exception as exc:
+        log.warning("predict supplier candidates (%s/%s) failed: %s", category, description, exc)
+        response = {"hits": []}
+
+    hits = response.get("hits") or []
+
+    # Fan out the per-supplier stats in parallel so the dropdown
+    # populates in one round-trip even when top_n=5.
+    history_names: list[tuple[str, float, dict | None]] = []
+    for hit in hits:
+        name = hit.get("feature")
+        if not name:
+            continue
+        p = float(hit.get("$p", 0.0))
+        why = process_factors(hit.get("$why"), p)
+        history_names.append((str(name), p, why))
+
+    if history_names:
+        with ThreadPoolExecutor(max_workers=min(5, len(history_names))) as pool:
+            stats = _ctx_map(
+                pool,
+                lambda item: _supplier_history_stats_scoped(
+                    client, category, item[0], description,
+                ),
+                history_names,
+            )
+    else:
+        stats = []
+
+    options: list[SupplierOption] = []
+    seen: set[str] = set()
+    for (name, p, why), (coverage, avg) in zip(history_names, stats):
+        options.append(SupplierOption(
+            supplier=name,
+            source="history",
+            confidence=p,
+            coverage=coverage,
+            avg_amount_eur=avg,
+            why=why,
+        ))
+        seen.add(name)
+
+    # Append portal-listed suppliers that aren't already in the
+    # history list — they're the "supplier management system pushes a
+    # new entrant into planning" half of the demo.
+    for portal_name in SUPPLIER_PORTAL_LISTINGS.get(category, []):
+        if portal_name in seen:
+            continue
+        options.append(SupplierOption(
+            supplier=portal_name,
+            source="portal",
+            confidence=0.0,
+            coverage=0,
+            avg_amount_eur=None,
+            why=None,
+        ))
+
+    return options
 
 
 # ── interactive / step-by-step planning ───────────────────────────
@@ -737,8 +1192,29 @@ def generate_plan(
         phases=phases,
     )
 
-    # Run the per-task predict fan-out in parallel — keeps total latency
-    # under ~3s even for a 25-task construction plan.
+    # Pre-warm per-category descriptions once so the per-task fan-out
+    # doesn't repeat the same _search across 20+ tasks. One call per
+    # category that the plan's phases actually touch (typically ≤8).
+    needed_categories: set[str] = set()
+    for phase in phases:
+        for cat in PHASE_PURCHASE_CATEGORIES.get(phase, []):
+            needed_categories.add(cat)
+    descriptions_by_category: dict[str, list[str]] = {}
+    if needed_categories:
+        ordered_cats = sorted(needed_categories)
+        with ThreadPoolExecutor(max_workers=min(8, len(ordered_cats))) as pool:
+            desc_lists = _ctx_map(
+                pool,
+                lambda c: _typical_descriptions_for_category(client, c, top_n=MAX_MATERIALS_PER_TASK),
+                ordered_cats,
+            )
+        descriptions_by_category = dict(zip(ordered_cats, desc_lists))
+
+    # Run the per-task predict fan-out in parallel. Each task ships
+    # 4 predicts for assignment + ~4 predicts for materials (2 product
+    # lines × 2 predicts) → ~8 calls per task. The latency badge will
+    # light up with ~150-200 calls for a 25-task plan, which is the
+    # point: the planner *sees* Aito working at every step.
     work: list[tuple[str, str]] = []
     for phase in phases:
         for task_name in typical.get(phase, []):
@@ -749,20 +1225,34 @@ def generate_plan(
             pool,
             lambda pt: _predict_task_assignment(
                 client, project_type, pt[0], pt[1], region, season,
+                descriptions_by_category,
             ),
             work,
         )
 
-        # Per-phase material POs: which categories does this phase
-        # typically need, and which supplier does Aito recommend per
-        # category? Runs alongside the task fan-out so the entire
-        # plan (tasks + auto-POs) lands in one round-trip.
-        purchases_per_phase = _ctx_map(
-            pool,
-            lambda phase: predict_purchases_for_phase(client, project_type, phase),
-            phases,
+    # Phase-level purchases are derived from task-level materials so
+    # the legacy `purchases` field still summarises spend at the phase
+    # for any downstream consumers (KPIs, exports). Same shape as the
+    # old per-phase predictor, just rolled up from the new flow.
+    rollup: dict[tuple[str, str], list[MaterialSuggestion]] = {}
+    for t in plan.tasks:
+        for m in t.materials:
+            rollup.setdefault((t.phase, m.category), []).append(m)
+    for (phase, category), mats in rollup.items():
+        top_supplier = Counter(m.supplier for m in mats).most_common(1)[0][0]
+        in_top = [m for m in mats if m.supplier == top_supplier]
+        avg = (
+            sum(m.estimated_amount_eur for m in in_top if m.estimated_amount_eur is not None) / len(in_top)
+            if any(m.estimated_amount_eur for m in in_top) else None
         )
-    plan.purchases = [p for sub in purchases_per_phase for p in sub]
+        plan.purchases.append(PurchaseSuggestion(
+            phase=phase,
+            category=category,
+            supplier=top_supplier,
+            supplier_confidence=max(m.supplier_confidence for m in in_top),
+            typical_amount_eur=avg,
+            coverage=sum(m.coverage for m in in_top),
+        ))
 
     return plan
 

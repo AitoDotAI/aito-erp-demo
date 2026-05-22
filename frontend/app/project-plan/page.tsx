@@ -6,19 +6,19 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import WhyPopover from "@/components/prediction/WhyPopover";
 import type {
   AitoPanelConfig,
-  AlternativeAssignee,
   AssigneeOption,
   GeneratedPlanResponse,
+  MaterialSuggestion,
   NextAssigneeResponse,
   NextPhaseResponse,
   NextTasksResponse,
   PhaseOption,
-  PhasePurchasesResponse,
-  PlanTaskCandidate,
-  PurchaseSuggestion,
-  RerankResponse,
+  SupplierOption,
+  SwapSupplierResponse,
+  TaskMaterialsResponse,
   TaskOption,
 } from "@/lib/types";
 
@@ -35,19 +35,23 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     { label: "Sources", value: "history" },
   ],
   description:
-    "Project Plan combines three Aito flows. The generative side runs " +
-    "<em>aito.._predict</em> three times per task (assignee_kind, " +
-    "subcontractor or assignee_person, planned_days, planned_cost_eur) " +
-    "given the task context — drafting a complete plan from precedent " +
-    "instead of a hand-coded template. For each phase it also runs " +
-    "<em>aito.._predict</em> on the <em>purchases</em> table to auto-" +
-    "draft material POs to the supplier the buyer's history points " +
-    "at (the Lemonsoft+Jakamo punchline — Aito routes the spend " +
-    "before anyone touches the requisition). Click any task row to " +
-    "swap to the matchmaking flow: <em>aito.._recommend</em> with " +
-    "<em>goal:&nbsp;{success:&nbsp;true}</em> ranks subcontractors " +
-    "by predicted P(success) for that exact (phase, region, season) " +
-    "context.",
+    "Project Plan combines Aito flows on a single editable surface. " +
+    "The generative side runs <em>aito.._predict</em> per task on the " +
+    "<em>tasks</em> table for assignee_kind, subcontractor or " +
+    "assignee_person, planned_days, planned_cost_eur — drafting a " +
+    "plan from precedent rather than a template. Beneath each task " +
+    "it then fans out on the <em>purchases</em> table: a " +
+    "<em>_search</em> with <em>$has</em> overlap finds the product " +
+    "lines whose vocabulary matches the task name (\"Steel erection\" " +
+    "→ \"Steel erection batch\"), and two <em>_predict</em>s give " +
+    "the historically right supplier and the estimated EUR amount for " +
+    "that exact line. Click any supplier chip to open the swap " +
+    "dropdown: Aito's history-ranked candidates (with the full " +
+    "<em>$why</em> popover) plus newly-registered suppliers piped in " +
+    "from the acquired supplier management system — a sales/" +
+    "distribution channel that lets suppliers reach the planner " +
+    "directly. Every cell is editable; the live KPI strip recomputes " +
+    "in place.",
   query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
@@ -72,41 +76,49 @@ function pct(p: number): string {
   return `${Math.round(p * 100)}%`;
 }
 
-function rerankPanel(
-  task: PlanTaskCandidate,
-  candidates: AlternativeAssignee[],
+function supplierSwapPanel(
+  phase: string,
+  category: string,
+  description: string,
+  options: SupplierOption[],
 ): AitoPanelConfig {
-  const top = candidates[0];
-  const delta =
-    top && top.success_p > task.success_p
-      ? `Swap to <em>${top.name}</em> → P(success) <em>${pct(top.success_p)}</em>` +
-        ` (Δ <em>+${Math.round((top.success_p - task.success_p) * 100)}pp</em>).`
-      : "Currently-assigned vendor is at or above the historical best.";
+  const history = options.filter((o) => o.source === "history");
+  const portal = options.filter((o) => o.source === "portal");
+  const top = history[0];
   return {
-    operation: "_recommend",
-    endpoints: ["_recommend"],
+    operation: "_predict",
+    endpoints: ["_predict"],
     stats: [
-      { label: "Phase", value: task.phase },
-      { label: "Currently", value: task.assignee },
-      { label: "P(success)", value: pct(task.success_p) },
+      { label: "Phase", value: phase },
+      { label: "Product line", value: description },
+      { label: "Category", value: category },
+      { label: "Top", value: top ? `${top.supplier} · ${pct(top.confidence)}` : "—" },
     ],
     description:
-      `Matchmaking for <em>${task.task_name}</em>. Aito's ` +
-      `<em>_recommend</em> ranks subcontractors by predicted P(success) ` +
-      `given (<em>${task.phase}</em>, <em>${task.assignee_kind}</em> work, ` +
-      `region, season). ${delta}`,
-    query: `<span class="q-k">POST</span> /api/v1/_recommend<br/>
+      `Swapping supplier for <em>${description}</em>. Aito's ` +
+      `<em>_predict from=purchases predict=supplier</em> conditions on ` +
+      `(<em>category=${category}</em>, <em>description=${description}</em>) ` +
+      `to surface who actually supplies this product line in history — ` +
+      `${history.length} match${history.length === 1 ? "" : "es"} ` +
+      `(click <em>?</em> for the full <em>$why</em>). ` +
+      `${portal.length > 0
+        ? `Below them, ${portal.length} candidate${portal.length === 1 ? "" : "s"} from the ` +
+          `acquired supplier management system — suppliers that registered ` +
+          `against <em>${category}</em> via the portal, pushed straight into ` +
+          `the planning view as a sales/distribution channel.`
+        : "No portal listings registered for this category yet."}`,
+    query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
 {<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"phase"</span>: <span class="q-v">"${task.phase}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"assignee_kind"</span>: <span class="q-v">"subcontractor"</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"category"</span>: <span class="q-v">"${category}"</span>,<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: <span class="q-v">"${description}"</span><br/>
 &nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"recommend"</span>: <span class="q-p">"subcontractor"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"goal"</span>: { <span class="q-k">"success"</span>: <span class="q-n">true</span> }<br/>
+&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"supplier"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">5</span><br/>
 }`,
     links: [
-      { label: "Recommend API reference", url: "https://aito.ai/docs/api/recommend" },
+      { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     ],
   };
 }
@@ -120,6 +132,11 @@ interface BuiltTask {
   assignee: AssigneeOption;
   typical_days: number;
   typical_cost_eur: number;
+  // Materials arrive async — `null` means "Aito is still fanning out
+  // _predict supplier + _predict amount_eur for the product lines";
+  // `[]` means "Aito returned nothing for this phase's categories";
+  // a populated array is what the editor renders.
+  materials: MaterialSuggestion[] | null;
 }
 
 let _taskIdSeq = 0;
@@ -136,8 +153,6 @@ export default function ProjectPlanPage() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<AitoPanelConfig>(DEFAULT_PANEL);
-  const [selectedTask, setSelectedTask] = useState<string | null>(null);
-  const [candidates, setCandidates] = useState<AlternativeAssignee[]>([]);
 
   // ── Plan editor state ────────────────────────────────────────
   // The walker builds the plan, but every accepted task and phase is
@@ -148,7 +163,6 @@ export default function ProjectPlanPage() {
   const [walkerLoading, setWalkerLoading] = useState(false);
   const [acceptedPhases, setAcceptedPhases] = useState<string[]>([]);
   const [builtTasks, setBuiltTasks] = useState<BuiltTask[]>([]);
-  const [phasePurchases, setPhasePurchases] = useState<PurchaseSuggestion[]>([]);
 
   // "Pick a phase" panel — open when user clicks "Add phase" or at
   // walker bootstrap. Closes once a phase is picked (or cancelled).
@@ -170,13 +184,25 @@ export default function ProjectPlanPage() {
   const [swapForTaskId, setSwapForTaskId] = useState<string | null>(null);
   const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
 
+  // Material supplier swap. Key is (taskId, materialIndex) — uniquely
+  // identifies the row to mutate within `builtTasks[*].materials`.
+  // `loadingSwap` is true while the _predict round-trip is in flight.
+  const [swapForMaterial, setSwapForMaterial] = useState<
+    { taskId: string; materialIdx: number } | null
+  >(null);
+  const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([]);
+  const [loadingSwap, setLoadingSwap] = useState(false);
+
   const handleGenerate = async () => {
-    setMode("full");
+    // The full-plan path lands in the same editable surface as the
+    // step-by-step walker — one model, two ways to populate it. The
+    // user can immediately edit anything: assignee, days, cost,
+    // materials, supplier per material.
+    setMode("walker");
     setGenerating(true);
     setError(null);
-    setSelectedTask(null);
-    setCandidates([]);
     setPanel(DEFAULT_PANEL);
+    closeAllPickers();
     try {
       const result = await apiFetch<GeneratedPlanResponse>(
         "/api/project-plan/generate/",
@@ -191,6 +217,23 @@ export default function ProjectPlanPage() {
         },
       );
       setPlan(result);
+      setAcceptedPhases(result.phases);
+      setBuiltTasks(
+        result.tasks.map((t) => ({
+          id: nextTaskId(),
+          phase: t.phase,
+          task_name: t.task_name,
+          assignee: {
+            assignee_kind: t.assignee_kind,
+            name: t.assignee,
+            p: t.assignee_confidence,
+            success_p: t.success_p,
+          },
+          typical_days: t.planned_days,
+          typical_cost_eur: t.planned_cost_eur,
+          materials: t.materials,
+        })),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -258,7 +301,6 @@ export default function ProjectPlanPage() {
     setPlan(null);
     setAcceptedPhases([]);
     setBuiltTasks([]);
-    setPhasePurchases([]);
     closeAllPickers();
     setPickingPhase(true);
     fetchNextPhase([]);
@@ -277,17 +319,6 @@ export default function ProjectPlanPage() {
   const handlePickPhase = async (option: PhaseOption) => {
     if (!acceptedPhases.includes(option.phase)) {
       setAcceptedPhases((prev) => [...prev, option.phase]);
-      // Fire phase-purchases in the background so material POs are
-      // ready by the time the user finishes adding tasks.
-      apiFetch<PhasePurchasesResponse>("/api/project-plan/phase-purchases/", {
-        method: "POST",
-        body: JSON.stringify({ project_type: projectType, phase: option.phase }),
-      }).then((resp) => {
-        setPhasePurchases((prev) => [
-          ...prev.filter((p) => p.phase !== option.phase),
-          ...resp.purchases,
-        ]);
-      }).catch(() => { /* non-fatal — POs are advisory */ });
     }
     setPickingPhase(false);
     setPhaseOptions([]);
@@ -368,7 +399,10 @@ export default function ProjectPlanPage() {
     await fetchAssigneeOptions(phase, task.task_name);
   };
 
-  // Confirm the assignee for a *new* task being added.
+  // Confirm the assignee for a *new* task being added. Materials are
+  // fetched in the background — the row appears with a "predicting
+  // materials…" hint, then fills in when Aito's _predict supplier +
+  // _predict amount_eur fan-out completes.
   const handleConfirmNewTask = (task: TaskOption, phase: string, assignee: AssigneeOption) => {
     const built: BuiltTask = {
       id: nextTaskId(),
@@ -377,12 +411,26 @@ export default function ProjectPlanPage() {
       assignee,
       typical_days: task.typical_days,
       typical_cost_eur: task.typical_cost_eur,
+      materials: null,
     };
     setBuiltTasks((prev) => [...prev, built]);
     setPendingTaskCandidate(null);
     setAssigneeOptions([]);
-    // Drop the candidate from the picker; if more remain, the user can keep adding.
     setTaskOptions((prev) => prev.filter((t) => t.task_name !== task.task_name));
+
+    apiFetch<TaskMaterialsResponse>("/api/project-plan/task-materials/", {
+      method: "POST",
+      body: JSON.stringify({ phase, task_name: task.task_name }),
+    }).then((resp) => {
+      setBuiltTasks((prev) =>
+        prev.map((t) => (t.id === built.id ? { ...t, materials: resp.materials } : t)),
+      );
+    }).catch(() => {
+      // Non-fatal — empty materials list lets the user add manually.
+      setBuiltTasks((prev) =>
+        prev.map((t) => (t.id === built.id ? { ...t, materials: [] } : t)),
+      );
+    });
   };
 
   // User clicked an existing task's assignee chip — swap mode.
@@ -417,14 +465,115 @@ export default function ProjectPlanPage() {
   const handleRemovePhase = (phase: string) => {
     setBuiltTasks((prev) => prev.filter((t) => t.phase !== phase));
     setAcceptedPhases((prev) => prev.filter((p) => p !== phase));
-    setPhasePurchases((prev) => prev.filter((p) => p.phase !== phase));
     if (pickingTasksFor === phase) setPickingTasksFor(null);
   };
 
-  const handleDeletePO = (phase: string, category: string, supplier: string) => {
-    setPhasePurchases((prev) =>
-      prev.filter((p) => !(p.phase === phase && p.category === category && p.supplier === supplier)),
+  // Delete a single material line from a task's materials array.
+  const handleDeleteMaterial = (taskId: string, materialIdx: number) => {
+    setBuiltTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId || !t.materials) return t;
+        return { ...t, materials: t.materials.filter((_, i) => i !== materialIdx) };
+      }),
     );
+    if (
+      swapForMaterial &&
+      swapForMaterial.taskId === taskId &&
+      swapForMaterial.materialIdx === materialIdx
+    ) {
+      setSwapForMaterial(null);
+      setSupplierOptions([]);
+    }
+  };
+
+  // Edit a material's estimated amount in place.
+  const handleEditMaterialAmount = (taskId: string, materialIdx: number, value: number) => {
+    setBuiltTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId || !t.materials) return t;
+        return {
+          ...t,
+          materials: t.materials.map((m, i) =>
+            i === materialIdx ? { ...m, estimated_amount_eur: value } : m,
+          ),
+        };
+      }),
+    );
+  };
+
+  // Open the supplier dropdown for one material line. Scopes the
+  // _predict to (category, description) so candidates are who actually
+  // supplies this product line in history.
+  const handleOpenMaterialSwap = async (taskId: string, materialIdx: number) => {
+    if (
+      swapForMaterial &&
+      swapForMaterial.taskId === taskId &&
+      swapForMaterial.materialIdx === materialIdx
+    ) {
+      setSwapForMaterial(null);
+      setSupplierOptions([]);
+      return;
+    }
+    const task = builtTasks.find((t) => t.id === taskId);
+    const material = task?.materials?.[materialIdx];
+    if (!task || !material) return;
+    setSwapForMaterial({ taskId, materialIdx });
+    setSupplierOptions([]);
+    setLoadingSwap(true);
+    try {
+      const r = await apiFetch<SwapSupplierResponse>(
+        "/api/project-plan/swap-supplier/",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            category: material.category,
+            description: material.description,
+          }),
+        },
+      );
+      setSupplierOptions(r.options);
+      setPanel(supplierSwapPanel(task.phase, material.category, material.description, r.options));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingSwap(false);
+    }
+  };
+
+  const handleConfirmMaterialSupplier = (
+    taskId: string,
+    materialIdx: number,
+    next: SupplierOption,
+  ) => {
+    setBuiltTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId || !t.materials) return t;
+        return {
+          ...t,
+          materials: t.materials.map((m, i) => {
+            if (i !== materialIdx) return m;
+            return {
+              ...m,
+              supplier: next.supplier,
+              supplier_source: next.source,
+              supplier_confidence: next.source === "history" ? next.confidence : 0,
+              supplier_why: next.source === "history" ? next.why : null,
+              // Portal candidate has no historical amount yet — keep
+              // whatever the planner had typed in (they can re-estimate
+              // from a quote). History candidate inherits the historical
+              // mean when available.
+              estimated_amount_eur:
+                next.source === "history" && next.avg_amount_eur != null
+                  ? next.avg_amount_eur
+                  : m.estimated_amount_eur,
+              coverage: next.source === "history" ? next.coverage : 0,
+            };
+          }),
+        };
+      }),
+    );
+    setSwapForMaterial(null);
+    setSupplierOptions([]);
   };
 
   const handleEditTaskField = (taskId: string, field: "typical_days" | "typical_cost_eur", value: number) => {
@@ -433,47 +582,19 @@ export default function ProjectPlanPage() {
     );
   };
 
-  const handleTaskClick = async (task: PlanTaskCandidate) => {
-    const key = `${task.phase}::${task.task_name}`;
-    setSelectedTask(key);
-    if (task.assignee_kind !== "subcontractor") {
-      // Re-ranking only makes sense for subcontracted tasks.
-      setCandidates([]);
-      setPanel(rerankPanel(task, []));
-      return;
-    }
-    try {
-      const result = await apiFetch<RerankResponse>(
-        "/api/project-plan/rerank/",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            phase: task.phase,
-            project_type: projectType,
-            region,
-            season,
-          }),
-        },
-      );
-      setCandidates(result.candidates);
-      setPanel(rerankPanel(task, result.candidates));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const tasksByPhase = plan
-    ? plan.tasks.reduce<Record<string, PlanTaskCandidate[]>>((acc, t) => {
-        (acc[t.phase] ||= []).push(t);
-        return acc;
-      }, {})
-    : {};
-  const purchasesByPhase = plan
-    ? plan.purchases.reduce<Record<string, PurchaseSuggestion[]>>((acc, p) => {
-        (acc[p.phase] ||= []).push(p);
-        return acc;
-      }, {})
-    : {};
+  // Live KPIs from the editable state — reflects any edits the
+  // planner has made (added/deleted tasks, swapped suppliers, etc.).
+  const totalDays = builtTasks.reduce((s, t) => s + t.typical_days, 0);
+  const totalLabour = builtTasks.reduce((s, t) => s + t.typical_cost_eur, 0);
+  const allMaterials = builtTasks.flatMap((t) => t.materials ?? []);
+  const totalMaterialsEur = allMaterials.reduce(
+    (s, m) => s + (m.estimated_amount_eur ?? 0),
+    0,
+  );
+  const avgSuccess = builtTasks.length
+    ? builtTasks.reduce((s, t) => s + t.assignee.success_p, 0) / builtTasks.length
+    : 0;
+  const portalMaterials = allMaterials.filter((m) => m.supplier_source === "portal").length;
 
   return (
     <>
@@ -571,7 +692,6 @@ export default function ProjectPlanPage() {
                 {acceptedPhases.map((ph) => {
                   const rows = builtTasks.filter((t) => t.phase === ph);
                   const isPickingTasksHere = pickingTasksFor === ph;
-                  const phasePos = phasePurchases.filter((p) => p.phase === ph);
                   return (
                     <div key={ph} className="editor-phase">
                       <div className="editor-phase-head">
@@ -666,6 +786,140 @@ export default function ProjectPlanPage() {
                                     </button>
                                   </td>
                                 </tr>
+                                {/* Materials sub-row — product lines under each task with
+                                    per-material supplier swap + editable amount. */}
+                                {(row.materials === null || row.materials.length > 0) && (
+                                  <tr className="editor-materials-row">
+                                    <td colSpan={6}>
+                                      {row.materials === null ? (
+                                        <div className="editor-materials-loading">
+                                          Predicting materials with Aito…
+                                        </div>
+                                      ) : (
+                                        <div className="editor-materials">
+                                          <div className="editor-materials-head">
+                                            Materials · predicted product lines & suppliers
+                                          </div>
+                                          {row.materials.map((m, mi) => {
+                                            const swapOpen =
+                                              swapForMaterial?.taskId === row.id &&
+                                              swapForMaterial?.materialIdx === mi;
+                                            return (
+                                              <Fragment key={`${row.id}-m-${mi}`}>
+                                                <div className="material-row">
+                                                  <span className="badge b-gold material-cat">{m.category}</span>
+                                                  <span className="material-desc" title="Product line — predicted from history">
+                                                    {m.description}
+                                                  </span>
+                                                  <button
+                                                    type="button"
+                                                    className="material-supplier-chip"
+                                                    onClick={() => handleOpenMaterialSwap(row.id, mi)}
+                                                    title="Click to ask Aito for alternative suppliers offering this product line"
+                                                  >
+                                                    <span className="material-supplier-name">{m.supplier}</span>
+                                                    {m.supplier_source === "portal" ? (
+                                                      <span className="badge b-purple">via portal</span>
+                                                    ) : m.supplier_confidence > 0 && (
+                                                      <span className="mono material-supplier-p">{pct(m.supplier_confidence)}</span>
+                                                    )}
+                                                    <span className="editor-assignee-swap" aria-hidden="true">↻</span>
+                                                  </button>
+                                                  {m.supplier_source === "history" && m.supplier_why && (
+                                                    <WhyPopover
+                                                      value={m.supplier}
+                                                      confidence={m.supplier_confidence}
+                                                      why={m.supplier_why}
+                                                    />
+                                                  )}
+                                                  <input
+                                                    type="number"
+                                                    className="editor-numeric editor-numeric-wide material-amount"
+                                                    value={Math.round(m.estimated_amount_eur ?? 0)}
+                                                    min={0}
+                                                    step={100}
+                                                    onChange={(e) =>
+                                                      handleEditMaterialAmount(row.id, mi, Number(e.target.value) || 0)
+                                                    }
+                                                    title={
+                                                      m.amount_confidence > 0
+                                                        ? `Aito _predict amount_eur · P ${pct(m.amount_confidence)} · n=${m.coverage}`
+                                                        : "Estimated amount"
+                                                    }
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    className="editor-row-delete"
+                                                    onClick={() => handleDeleteMaterial(row.id, mi)}
+                                                    title="Remove this material from the task"
+                                                  >
+                                                    ×
+                                                  </button>
+                                                </div>
+                                                {swapOpen && (
+                                                  <div className="supplier-swap material-swap">
+                                                    <div className="supplier-swap-head">
+                                                      {loadingSwap
+                                                        ? "Asking Aito for supplier candidates…"
+                                                        : `Aito's top ${supplierOptions.filter((o) => o.source === "history").length} from history + ${supplierOptions.filter((o) => o.source === "portal").length} from supplier portal — for ${m.description}`}
+                                                    </div>
+                                                    {supplierOptions.map((opt) => {
+                                                      const isCurrent = opt.supplier === m.supplier;
+                                                      return (
+                                                        <div
+                                                          key={`${opt.source}-${opt.supplier}`}
+                                                          className={`supplier-swap-row${isCurrent ? " is-current" : ""}${opt.source === "portal" ? " is-portal" : ""}`}
+                                                        >
+                                                          <button
+                                                            type="button"
+                                                            className="supplier-swap-pick"
+                                                            onClick={() => handleConfirmMaterialSupplier(row.id, mi, opt)}
+                                                            disabled={isCurrent}
+                                                          >
+                                                            <span className="supplier-swap-name">{opt.supplier}</span>
+                                                            {opt.source === "portal" ? (
+                                                              <span className="badge b-purple">via portal</span>
+                                                            ) : (
+                                                              <span className="mono supplier-swap-p">{pct(opt.confidence)}</span>
+                                                            )}
+                                                            {opt.source === "history" && opt.avg_amount_eur != null && (
+                                                              <span className="mono supplier-swap-meta">
+                                                                ~{fmtAmount(opt.avg_amount_eur)} · n={opt.coverage}
+                                                              </span>
+                                                            )}
+                                                            {opt.source === "portal" && (
+                                                              <span className="supplier-swap-meta supplier-swap-portal-meta">
+                                                                new entrant — no history yet
+                                                              </span>
+                                                            )}
+                                                          </button>
+                                                          {opt.source === "history" && opt.why && (
+                                                            <WhyPopover
+                                                              value={opt.supplier}
+                                                              confidence={opt.confidence}
+                                                              why={opt.why}
+                                                            />
+                                                          )}
+                                                        </div>
+                                                      );
+                                                    })}
+                                                    <button
+                                                      type="button"
+                                                      className="walker-assignee-cancel"
+                                                      onClick={() => { setSwapForMaterial(null); setSupplierOptions([]); }}
+                                                    >
+                                                      Cancel
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </Fragment>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )}
                                 {/* Inline assignee swap panel for this row */}
                                 {swapForTaskId === row.id && assigneeOptions.length > 0 && (
                                   <tr className="editor-inline-row">
@@ -781,37 +1035,6 @@ export default function ProjectPlanPage() {
                         </div>
                       )}
 
-                      {/* Per-phase auto-drafted POs (deletable) */}
-                      {phasePos.length > 0 && (
-                        <div className="editor-pos">
-                          <div className="editor-pos-head">
-                            <span>Material POs · auto-drafted</span>
-                          </div>
-                          {phasePos.map((po, i) => (
-                            <div key={i} className="phase-po">
-                              <span className="badge b-gold">{po.category}</span>
-                              <span className="phase-po-supplier">{po.supplier}</span>
-                              <span className="phase-po-meta">
-                                <span className="mono">P {pct(po.supplier_confidence)}</span>
-                                {po.typical_amount_eur != null && (
-                                  <>
-                                    {" · "}
-                                    <span className="mono">~{fmtAmount(po.typical_amount_eur)}</span>
-                                  </>
-                                )}
-                              </span>
-                              <button
-                                type="button"
-                                className="editor-row-delete"
-                                onClick={() => handleDeletePO(po.phase, po.category, po.supplier)}
-                                title="Remove this PO from the draft"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -877,181 +1100,40 @@ export default function ProjectPlanPage() {
               </section>
             )}
 
-            {/* KPI strip */}
-            {plan && (
+            {/* Live KPI strip — reads off the editable state so edits update in place. */}
+            {builtTasks.length > 0 && (
               <div className="kpi-row" style={{ marginTop: 16 }}>
                 <div className="kpi">
                   <div className="kpi-label">Phases</div>
-                  <div className="kpi-val">{plan.phases.length}</div>
+                  <div className="kpi-val">{acceptedPhases.length}</div>
                 </div>
                 <div className="kpi">
                   <div className="kpi-label">Tasks</div>
-                  <div className="kpi-val">{plan.tasks.length}</div>
+                  <div className="kpi-val">{builtTasks.length}</div>
                 </div>
                 <div className="kpi">
-                  <div className="kpi-label">Total days (planned)</div>
-                  <div className="kpi-val">{plan.total_planned_days}</div>
+                  <div className="kpi-label">Total days</div>
+                  <div className="kpi-val">{totalDays}</div>
                 </div>
                 <div className="kpi">
-                  <div className="kpi-label">Total cost (planned)</div>
-                  <div className="kpi-val">{fmtAmount(plan.total_planned_cost_eur)}</div>
+                  <div className="kpi-label">Labour cost</div>
+                  <div className="kpi-val">{fmtAmount(totalLabour)}</div>
+                </div>
+                <div className="kpi">
+                  <div className="kpi-label">Materials cost</div>
+                  <div className="kpi-val">{fmtAmount(totalMaterialsEur)}</div>
+                  <div className="kpi-sub">
+                    {allMaterials.length} line{allMaterials.length === 1 ? "" : "s"}
+                    {portalMaterials > 0 && ` · ${portalMaterials} via portal`}
+                  </div>
                 </div>
                 <div className="kpi">
                   <div className="kpi-label">Avg P(success)</div>
                   <div className="kpi-val" style={{ color: "var(--green)" }}>
-                    {pct(plan.avg_success_p)}
-                  </div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Auto-drafted POs</div>
-                  <div className="kpi-val">
-                    {plan.purchases.length}
-                  </div>
-                  <div className="kpi-sub">
-                    {fmtAmount(plan.total_purchases_eur)} total
+                    {pct(avgSuccess)}
                   </div>
                 </div>
               </div>
-            )}
-
-            {/* Plan body — phases as groups */}
-            {plan && plan.phases.map((phase) => (
-              <section key={phase} className="card" style={{ marginTop: 16 }}>
-                <div className="card-head">
-                  <span className="card-title">
-                    <span className="phase-chip">{phase}</span>
-                  </span>
-                  <span className="card-meta">
-                    {tasksByPhase[phase]?.length ?? 0} tasks
-                  </span>
-                </div>
-                <table className="tbl">
-                  <thead>
-                    <tr>
-                      <th>Task</th>
-                      <th>Assignee</th>
-                      <th>Kind</th>
-                      <th style={{ textAlign: "right" }}>Days</th>
-                      <th style={{ textAlign: "right" }}>Cost</th>
-                      <th style={{ textAlign: "right" }}>P(success)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(tasksByPhase[phase] ?? []).map((t, i) => {
-                      const key = `${t.phase}::${t.task_name}`;
-                      return (
-                        <tr
-                          key={`${phase}-${i}`}
-                          className={`clickable${selectedTask === key ? " selected" : ""}`}
-                          onClick={() => handleTaskClick(t)}
-                        >
-                          <td>{t.task_name}</td>
-                          <td className="mono" style={{ fontSize: 11.5 }}>{t.assignee}</td>
-                          <td>
-                            <span
-                              className={`badge ${t.assignee_kind === "subcontractor" ? "b-purple" : "b-blue"}`}
-                            >
-                              {t.assignee_kind}
-                            </span>
-                          </td>
-                          <td className="mono" style={{ textAlign: "right" }}>
-                            {t.planned_days}
-                          </td>
-                          <td className="mono" style={{ textAlign: "right" }}>
-                            {fmtAmount(t.planned_cost_eur)}
-                          </td>
-                          <td style={{ textAlign: "right" }}>
-                            <div
-                              className={`conf-track ${confClass(t.success_p)}`}
-                              style={{ display: "inline-block", verticalAlign: "middle" }}
-                            >
-                              <div
-                                className="conf-fill"
-                                style={{ width: `${Math.round(t.success_p * 100)}%` }}
-                              />
-                            </div>{" "}
-                            <span className="mono" style={{ fontSize: 11 }}>
-                              {pct(t.success_p)}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-
-                {/* Per-phase auto-drafted POs (materials + supplier).
-                    Empty for admin-style phases (planning, design, …). */}
-                {(purchasesByPhase[phase] ?? []).length > 0 && (
-                  <div className="phase-pos">
-                    <div className="phase-pos-head">
-                      <span className="phase-pos-label">Material POs · </span>
-                      <span className="phase-pos-meta">
-                        aito.._predict supplier from purchase history
-                      </span>
-                    </div>
-                    <div className="phase-pos-list">
-                      {(purchasesByPhase[phase] ?? []).map((po, i) => (
-                        <div key={i} className="phase-po">
-                          <span className="badge b-gold">{po.category}</span>
-                          <span className="phase-po-supplier">{po.supplier}</span>
-                          <span className="phase-po-meta">
-                            <span className="mono">P {pct(po.supplier_confidence)}</span>
-                            {po.typical_amount_eur != null && (
-                              <>
-                                {" · "}
-                                <span className="mono">~{fmtAmount(po.typical_amount_eur)}</span>
-                              </>
-                            )}
-                            <span style={{ color: "var(--mid)" }}> · n={po.coverage}</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </section>
-            ))}
-
-            {/* Rerank candidates inline (matchmaking output) */}
-            {candidates.length > 0 && (
-              <section className="card" style={{ marginTop: 16 }}>
-                <div className="card-head">
-                  <span className="card-title">Subcontractor matchmaking</span>
-                  <span className="card-meta">aito.._recommend</span>
-                </div>
-                <table className="tbl">
-                  <thead>
-                    <tr>
-                      <th>Subcontractor</th>
-                      <th style={{ textAlign: "right" }}>P(success)</th>
-                      <th style={{ textAlign: "right" }}>n</th>
-                      <th style={{ textAlign: "right" }}>Avg days</th>
-                      <th style={{ textAlign: "right" }}>Avg cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates.map((c, i) => (
-                      <tr key={c.name}>
-                        <td>
-                          {i === 0 && <span className="badge b-green" style={{ marginRight: 6 }}>top</span>}
-                          {c.name}
-                        </td>
-                        <td style={{ textAlign: "right" }}>
-                          <span className="mono" style={{ fontSize: 11.5 }}>{pct(c.success_p)}</span>
-                        </td>
-                        <td className="mono" style={{ textAlign: "right" }}>{c.coverage}</td>
-                        <td className="mono" style={{ textAlign: "right" }}>
-                          {c.avg_days != null ? c.avg_days.toFixed(1) : "—"}
-                        </td>
-                        <td className="mono" style={{ textAlign: "right" }}>
-                          {c.avg_cost_eur != null ? fmtAmount(c.avg_cost_eur) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
             )}
           </div>
           <AitoPanel config={panel} />
