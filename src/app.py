@@ -844,6 +844,46 @@ def project_plan_phase_purchases(body: dict, request: Request):
     return {"purchases": [s.to_dict() for s in suggestions]}
 
 
+@app.post("/api/project-plan/swap-supplier")
+def project_plan_swap_supplier(body: dict, request: Request):
+    """Top-N supplier candidates for a material category, optionally
+    narrowed to a specific product line.
+
+    Mixes Aito's `_predict from=purchases predict=supplier` hits (with
+    `$why` for the popover) and supplier-portal listings (newly-
+    registered suppliers from the ERP customer's acquired supplier
+    management system). When `description` is supplied, the predict
+    scopes to that exact product line so the dropdown surfaces who
+    actually supplies it (e.g. "Steel erection batch") rather than
+    the category at large."""
+    from src.task_service import suggest_suppliers_for_category
+    _, aito = client_from_request(request)
+    category = body.get("category")
+    description = body.get("description")
+    if not category:
+        return {"error": "category is required"}
+    options = suggest_suppliers_for_category(aito, category, description=description)
+    return {"options": [o.to_dict() for o in options]}
+
+
+@app.post("/api/project-plan/task-materials")
+def project_plan_task_materials(body: dict, request: Request):
+    """Predict the typical material lines for one task.
+
+    For each category the task's phase tends to draw from, picks the
+    top product lines from history and runs `_predict supplier` +
+    `_predict amount_eur` for each. Used by the walker to populate
+    materials inline after a task is confirmed."""
+    from src.task_service import predict_materials_for_task
+    _, aito = client_from_request(request)
+    phase = body.get("phase")
+    if not phase:
+        return {"error": "phase is required"}
+    task_name = body.get("task_name")
+    materials = predict_materials_for_task(aito, phase, task_name=task_name)
+    return {"materials": [m.to_dict() for m in materials]}
+
+
 # ── Cold start ───────────────────────────────────────────────────
 #
 # Static snapshot, captured offline by `scripts/capture_coldstart.py`

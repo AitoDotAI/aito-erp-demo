@@ -506,6 +506,7 @@ export interface PlanTaskCandidate {
   planned_days: number;
   planned_cost_eur: number;
   success_p: number;
+  materials: MaterialSuggestion[];
 }
 
 export interface PurchaseSuggestion {
@@ -516,6 +517,22 @@ export interface PurchaseSuggestion {
   typical_amount_eur: number | null;
   coverage: number;
 }
+
+/** One material line beneath a task — predicted product line, predicted
+ * supplier, predicted amount. `supplier_source` mirrors SupplierOption
+ * so the UI can badge portal entrants the same way in both views. */
+export interface MaterialSuggestion {
+  description: string;            // product line, e.g. "Steel erection batch"
+  category: string;
+  supplier: string;
+  supplier_source: "history" | "portal";
+  supplier_confidence: number;
+  supplier_why: WhyExplanation | null;
+  estimated_amount_eur: number | null;
+  amount_confidence: number;
+  coverage: number;
+}
+export interface TaskMaterialsResponse { materials: MaterialSuggestion[] }
 
 export interface GeneratedPlanResponse {
   project_type: string;
@@ -565,6 +582,19 @@ export interface NextPhaseResponse { options: PhaseOption[] }
 export interface NextTasksResponse { options: TaskOption[] }
 export interface NextAssigneeResponse { options: AssigneeOption[] }
 export interface PhasePurchasesResponse { purchases: PurchaseSuggestion[] }
+
+/** One candidate supplier in the editable material-PO dropdown.
+ *  History candidates carry a processed $why for the popover;
+ *  supplier-portal candidates carry none (no purchase history yet). */
+export interface SupplierOption {
+  supplier: string;
+  source: "history" | "portal";
+  confidence: number;          // _predict $p (history) or 0 (portal)
+  coverage: number;
+  avg_amount_eur: number | null;
+  why: WhyExplanation | null;
+}
+export interface SwapSupplierResponse { options: SupplierOption[] }
 
 /* ─── Aito Panel ─── */
 export interface AitoPanelConfig {

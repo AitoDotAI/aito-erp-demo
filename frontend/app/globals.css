@@ -1112,6 +1112,157 @@ body {
 .editor-pos .phase-po {
   grid-template-columns: 110px 1fr auto auto;
 }
+
+/* Per-task materials sub-row. Lives beneath each task row in the
+   editor table, rendered as a colSpan=6 <tr>. Each material is a
+   product line (description), supplier (clickable for swap), and
+   editable amount. Empty for admin-style phases (planning, design). */
+.editor-materials-row > td {
+  padding: 0 !important;
+  background: #fbf8f0;
+}
+.editor-materials {
+  padding: 10px 14px 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.editor-materials-loading {
+  padding: 10px 14px;
+  color: var(--mid);
+  font-size: 12px;
+  font-style: italic;
+}
+.editor-materials-head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.material-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto auto 100px auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.material-cat { justify-self: start; }
+.material-desc {
+  color: var(--ink);
+  font-weight: 500;
+}
+.material-supplier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.material-supplier-chip:hover {
+  border-color: var(--gold);
+  background: #fffaf0;
+}
+.material-supplier-name { font-weight: 500; }
+.material-supplier-p { font-size: 11px; color: var(--mid); }
+.material-amount {
+  width: 100%;
+  text-align: right;
+  background: #fff;
+}
+.material-swap {
+  margin-left: 110px;
+}
+
+/* Supplier chip on the editor's auto-drafted PO row. Mirrors
+   .editor-assignee-chip but tighter; the rotating ↻ glyph hints at
+   "click to ask Aito for alternatives". */
+.editor-supplier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.editor-supplier-chip:hover {
+  background: #fff;
+  border-color: var(--gold);
+}
+
+/* Inline supplier picker — opened beneath a PO row. Mirrors
+   .walker-assignees visually so the editor reads as one coherent
+   "click anything to ask Aito" surface. */
+.supplier-swap {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 6px 0 10px 110px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.supplier-swap-head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mid);
+  font-weight: 600;
+}
+.supplier-swap-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.supplier-swap-row.is-portal { background: #faf7ff; border-radius: 6px; }
+.supplier-swap-pick {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+}
+.supplier-swap-pick:hover:not(:disabled) {
+  border-color: var(--gold);
+  background: #fffaf0;
+}
+.supplier-swap-pick:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.supplier-swap-row.is-current .supplier-swap-pick {
+  border-color: var(--gold);
+  background: #fdf6e3;
+}
+.supplier-swap-name { font-weight: 500; }
+.supplier-swap-p { font-size: 11.5px; }
+.supplier-swap-meta {
+  font-size: 11px;
+  color: var(--mid);
+}
+.supplier-swap-portal-meta { font-style: italic; }
 .editor-footer {
   padding: 12px 14px;
   border-top: 1px solid var(--border);
