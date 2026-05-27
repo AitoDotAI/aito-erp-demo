@@ -26,7 +26,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.aito_client import AitoClient, AitoError
@@ -286,6 +286,26 @@ app.add_middleware(
     # from JS unless explicitly exposed.
     expose_headers=["X-Aito-Calls"],
 )
+
+
+@app.middleware("http")
+async def strip_api_trailing_slash(request: Request, call_next):
+    """Redirect /api/.../  →  /api/... so the API routes always match.
+
+    The StaticFiles mount at "/" (added below) catches trailing-slash
+    requests before FastAPI's redirect_slashes mechanism gets a chance,
+    so a stale frontend bundle calling /api/smartentry/suppliers/ would
+    otherwise be served the Next.js 404.html and the user sees "API 404"
+    even though the real route exists at /api/smartentry/suppliers.
+    307 preserves method + body — required for POST endpoints.
+    """
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/" and path.endswith("/"):
+        target = path.rstrip("/")
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        return RedirectResponse(url=target, status_code=307)
+    return await call_next(request)
 
 
 @app.middleware("http")
