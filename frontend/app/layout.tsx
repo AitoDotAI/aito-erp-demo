@@ -22,9 +22,9 @@ export const viewport = {
   initialScale: 1,
 };
 
-// Google Analytics 4 measurement ID. Same property aito-demo and
-// aito-accounting-demo use, so this demo's pageviews land in the
-// same GA4 view. anonymize_ip + cookie_expires:0 mirror those.
+// Same GA4 property as the other Aito demos so events land in the same
+// view. Hardcoded literal — measurement ID is public anyway (visible in
+// the deployed bundle since GA4 was launched).
 const GA_MEASUREMENT_ID = "G-FDTBRCMZWJ";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="app">
             {children}
           </div>
-          {/* Segment page() on every client-side route change */}
+          {/* Amplitude page-view emit on every client-side route change */}
           <Analytics />
         </TenantProvider>
 
