@@ -13,6 +13,11 @@ Per-tenant data: looks under `data/<tenant>/` first; falls back to the
 flat `data/` directory if a tenant-specific file isn't present yet.
 This lets you migrate fixtures into per-tenant folders one persona at
 a time without breaking the others.
+
+API version: with `AITO_API_VERSION=v2` the same fixtures load into
+each tenant's `v2` environment as rep2 **collections** instead of rep1
+tables. The column definitions are identical — only the table `type`
+and a couple of endpoint semantics differ (see `_load_v2_tenant`).
 """
 
 import json
@@ -20,11 +25,15 @@ import sys
 from pathlib import Path
 
 from src.aito_client import AitoClient, AitoError
-from src.config import DEFAULT_TENANT, TENANT_IDS, TenantId, load_config
+from src.config import ApiVersion, DEFAULT_TENANT, TENANT_IDS, TenantId, load_config
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # Aito table schemas — field types match the fixture data.
+#
+# `type` is the rep1 spelling; `schema_for()` swaps it for `collection`
+# when loading the v2 surface. Everything else — types, nullability,
+# links — is shared, because v2 kept v1's schema vocabulary.
 SCHEMAS = {
     "purchases": {
         "type": "table",
@@ -216,10 +225,40 @@ def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:
         return json.load(f)
 
 
+def schema_for(table_name: str, api_version: ApiVersion) -> dict:
+    """Return the schema body to PUT for this table on this API version.
+
+    v2's engine is CollectionDb, so tables are declared `collection`
+    rather than `table`. A `table` on v2 still works for plain filters
+    and predict but not for `$match`/`$search`, which several views
+    depend on — so the demo declares collections and means it.
+    """
+    schema = dict(SCHEMAS[table_name])
+    if api_version == "v2":
+        schema["type"] = "collection"
+    return schema
+
+
 def create_schema(client: AitoClient, table_name: str, schema: dict) -> None:
-    """Create or replace a table schema in Aito."""
+    """Create a table schema in Aito.
+
+    v1's PUT replaces an existing table; v2's rejects it with
+    `schema.create_failed: Table '<t>' already exists`. Callers on v2
+    delete first (see `run_tenant`).
+    """
     print(f"  Creating schema for '{table_name}'...")
     client._request("PUT", f"/schema/{table_name}", json=schema)
+
+
+def optimize_table(client: AitoClient, table_name: str) -> None:
+    """Compact a v2 collection's write segments into one optimized state.
+
+    Rows are queryable the moment they land, but a freshly batch-loaded
+    collection is many small segments; optimize is what gets it to
+    steady-state query speed. No v1 equivalent — skipped there.
+    """
+    print(f"  Optimizing '{table_name}'...")
+    client._request("POST", f"/data/{table_name}/optimize", json={})
 
 
 def upload_data(client: AitoClient, table_name: str, records: list[dict]) -> None:
@@ -244,51 +283,90 @@ def delete_table(client: AitoClient, table_name: str) -> None:
             raise
 
 
-def run_tenant(tenant: TenantId, reset: bool = False) -> None:
+def _assert_env_scoped(tenant: TenantId, api_url: str) -> None:
+    """Refuse to run the v2 loader against a database's master env.
+
+    On v2 the default URL resolves to master and one key writes every
+    env, so a dropped `/env/<name>/` segment silently rewrites
+    production — and succeeds with a 200. The v2 fixtures belong in a
+    branched env; if the URL doesn't name one, that's a config mistake
+    worth stopping for, not a load worth attempting.
+    """
+    if "/env/" not in api_url:
+        raise ValueError(
+            f"[{tenant}] refusing to load v2 fixtures into master: {api_url}\n"
+            f"  The v2 loader drops and recreates every table. Point "
+            f"AITO_{tenant.upper()}_V2_API_URL at an env-scoped URL "
+            f"(…/db/<db>/env/v2) and run `./do env-init-v2` first."
+        )
+
+
+def run_tenant(tenant: TenantId, reset: bool = False,
+               api_version: str | None = None) -> None:
     """Load data into a single tenant's Aito DB."""
-    config = load_config()
+    config = load_config(api_version=api_version)
     creds = config.creds_for(tenant)
-    client = AitoClient.from_creds(creds.api_url, creds.api_key)
+    api_version = config.api_version
+    client = AitoClient.from_creds(creds.api_url, creds.api_key,
+                                   api_version=api_version)
+
+    if api_version == "v2":
+        _assert_env_scoped(tenant, creds.api_url)
 
     if not client.check_connectivity():
         print(f"[{tenant}] Cannot connect to Aito at {creds.api_url}")
         sys.exit(1)
 
-    print(f"\n=== Tenant: {tenant} ===")
-    print(f"[{tenant}] Connected to {creds.api_url}")
+    print(f"\n=== Tenant: {tenant} ({api_version}) ===")
+    print(f"[{tenant}] Connected to {creds.api_url}/api/{api_version}")
 
-    if reset:
-        print(f"[{tenant}] Resetting — deleting existing tables...")
+    # v2 has no replace-in-place: PUT /schema/{t} rejects a table that
+    # already exists, and a `v2` env branched from master inherits the
+    # rep1 tables it must replace. So the v2 path always drops first —
+    # the env exists for exactly this, and `_assert_env_scoped` has
+    # already confirmed we're not pointed at production.
+    if reset or api_version == "v2":
+        why = "reset requested" if reset else "v2 create is not a replace"
+        print(f"[{tenant}] Deleting existing tables ({why})...")
         delete_table(client, "prediction_cache")
         for table_name in reversed(list(SCHEMAS.keys())):
             delete_table(client, table_name)
 
     print(f"[{tenant}] Creating schemas...")
-    for table_name, schema in SCHEMAS.items():
-        create_schema(client, table_name, schema)
+    for table_name in SCHEMAS:
+        create_schema(client, table_name, schema_for(table_name, api_version))
 
     print(f"[{tenant}] Uploading data...")
     total = 0
+    loaded_tables = []
     for table_name in SCHEMAS:
         records = load_fixture(table_name, tenant=tenant)
         if records is None:
             print(f"  [{tenant}] no fixture for optional table '{table_name}' — schema created, no data uploaded.")
             continue
         upload_data(client, table_name, records)
+        loaded_tables.append(table_name)
         total += len(records)
+
+    if api_version == "v2":
+        print(f"[{tenant}] Compacting collections...")
+        for table_name in loaded_tables:
+            optimize_table(client, table_name)
 
     print(f"[{tenant}] Done. Loaded {total} records.")
 
 
-def run(reset: bool = False, tenants: list[TenantId] | None = None) -> None:
+def run(reset: bool = False, tenants: list[TenantId] | None = None,
+        api_version: str | None = None) -> None:
     """Main entry point for the data loader.
 
     If `tenants` is None, only the default tenant is loaded — keeps the
-    behaviour for `python -m src.data_loader` unchanged.
+    behaviour for `python -m src.data_loader` unchanged. `api_version`
+    overrides `AITO_API_VERSION` (see `load_config`).
     """
     targets: list[TenantId] = tenants if tenants else [DEFAULT_TENANT]
     seen_urls: set[str] = set()
-    config = load_config()
+    config = load_config(api_version=api_version)
 
     for tenant_id in targets:
         creds = config.creds_for(tenant_id)
@@ -299,7 +377,7 @@ def run(reset: bool = False, tenants: list[TenantId] | None = None) -> None:
                   f"tenant — skipping (single-tenant fallback).")
             continue
         seen_urls.add(creds.api_url)
-        run_tenant(tenant_id, reset=reset)
+        run_tenant(tenant_id, reset=reset, api_version=api_version)
 
 
 def _parse_tenants_arg(argv: list[str]) -> list[TenantId] | None:
@@ -317,7 +395,16 @@ def _parse_tenants_arg(argv: list[str]) -> list[TenantId] | None:
     return None
 
 
+def _parse_api_version_arg(argv: list[str]) -> str | None:
+    """Parse `--api-version=<v1|v2>`. Returns None to use the env value."""
+    for arg in argv:
+        if arg.startswith("--api-version="):
+            return arg.split("=", 1)[1].strip().lower()
+    return None
+
+
 if __name__ == "__main__":
     reset = "--reset" in sys.argv
     tenants = _parse_tenants_arg(sys.argv)
-    run(reset=reset, tenants=tenants)
+    run(reset=reset, tenants=tenants,
+        api_version=_parse_api_version_arg(sys.argv))

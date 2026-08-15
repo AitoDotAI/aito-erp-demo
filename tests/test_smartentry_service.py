@@ -9,9 +9,9 @@ def _make_client(p=0.85):
     client = MagicMock()
     client.predict.return_value = {
         "hits": [
-            {"$p": p, "feature": "predicted_value", "$why": {}},
-            {"$p": 0.10, "feature": "alt1", "$why": {}},
-            {"$p": 0.05, "feature": "alt2", "$why": {}},
+            {"$p": p, "$value": "predicted_value", "$why": {}},
+            {"$p": 0.10, "$value": "alt1", "$why": {}},
+            {"$p": 0.05, "$value": "alt2", "$why": {}},
         ]
     }
     return client

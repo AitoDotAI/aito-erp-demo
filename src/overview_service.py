@@ -150,7 +150,7 @@ def get_automation_breakdown(client: AitoClient) -> AutomationBreakdown:
 def _case_p(case: dict) -> float:
     """Pull the predicted top probability off an `_evaluate` case.
 
-    Live shape: `{ "top": {"$p": 0.99, "feature": "..."}, "accurate": true,
+    Live shape: `{ "top": {"$p": 0.99, "$value": "..."}, "accurate": true,
     "correct": {...}, "testCase": {...} }` — the model's most-likely
     answer is `top`, the ground truth is `correct`, `accurate` says
     whether they matched.

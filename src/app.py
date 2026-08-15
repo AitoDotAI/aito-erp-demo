@@ -69,10 +69,19 @@ def _build_clients() -> dict[TenantId, AitoClient]:
     been loaded for a tenant (e.g. Studio's `purchases`/`products`
     before `./do load-data --tenant=studio` runs) render an empty
     state instead of crashing the request with a 500.
+
+    `creds_for()` — not `config.tenants` — is what picks between the v1
+    and v2 credential sets, so `AITO_API_VERSION=v2` moves every tenant
+    onto its `v2` environment with no other change here.
     """
     return {
-        t: AitoClient.from_creds(c.api_url, c.api_key, tolerate_missing=True)
-        for t, c in config.tenants.items()
+        t: AitoClient.from_creds(
+            config.creds_for(t).api_url,
+            config.creds_for(t).api_key,
+            tolerate_missing=True,
+            api_version=config.api_version,
+        )
+        for t in config.tenants
     }
 
 
@@ -393,6 +402,10 @@ def tenants_list():
     base = {
         "default": DEFAULT_TENANT,
         "multi_tenant": config.is_multi_tenant,
+        # Which Aito REST surface every query goes to. Safe to expose
+        # publicly — it's a property of this deployment, not a secret,
+        # and it's the first thing to check when v2 output looks off.
+        "api_version": config.api_version,
     }
     if _PUBLIC:
         base["tenants"] = [{"id": t} for t in TENANT_IDS]

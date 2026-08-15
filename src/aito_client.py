@@ -1,11 +1,34 @@
 """HTTP client for Aito's predictive database API.
 
 Thin wrapper — each method maps directly to an Aito REST endpoint.
-No abstraction beyond authentication and error handling. An outside
-developer reading this file should see exactly what HTTP calls are
-made and what response shapes come back.
+No abstraction beyond authentication, error handling, and the v1↔v2
+response normalisation described below. An outside developer reading
+this file should see exactly what HTTP calls are made and what response
+shapes come back.
 
-Aito API docs: https://aito.ai/docs/api/
+Aito API docs: https://aito.ai/docs/api/  ·  v2: https://aito.ai/docs/v2/
+
+Two API versions
+────────────────
+`api_version` selects the REST surface: `v1` (the production default)
+or `v2` (the rep2 engine, running against a tenant's `v2` environment).
+The endpoints and query bodies are near-identical; a handful of response
+shapes are not. Rather than teach eleven service modules two dialects,
+this client normalises **both** versions onto one canonical shape, and
+that shape is v2's — the destination, not the legacy:
+
+  | Concept          | v1 wire shape                     | v2 wire shape        | canonical |
+  |------------------|-----------------------------------|----------------------|-----------|
+  | predicted value  | `hit["feature"]`                  | `hit["$value"]`      | `$value`  |
+  | relate target    | `relate: "supplier"`              | `relate: ["supplier"]` | n/a (request) |
+  | relate hit value | `related.supplier.$has`           | `related.supplier`   | `$has` unwrapped |
+  | relate probs     | `ps: {p, pOnCondition, …}`        | *absent*             | derived from `fs` |
+  | evaluate body    | flat `{accuracy, …}`              | `{kind, data: {…}}`  | flat      |
+
+Each translation is explicit and one-directional (v1 → canonical, or
+v2 → canonical); nothing is guessed or dropped. When v1 support is
+retired, every `if self._api_version == "v1"` branch here goes with it
+and the services need no further change.
 """
 
 import time
@@ -13,7 +36,7 @@ from typing import Any
 
 import httpx
 
-from src.config import Config
+from src.config import ApiVersion, Config, DEFAULT_API_VERSION
 from src import timing
 
 
@@ -31,26 +54,115 @@ class AitoError(Exception):
 
 
 def _is_missing_table_error(exc: "AitoError", table: str) -> bool:
-    """Detect Aito's `failed to open '<table>'` 400 response.
+    """Detect Aito's "no such table" response, on either API version.
 
     Returned when a query targets a table that doesn't exist in the
     tenant's DB — a normal demo-life situation if data hasn't been
     loaded yet for that tenant. Letting it bubble up as a 500 makes
     the whole page break; treating it as "empty result" keeps the
     page renderable so visitors see structure, not a stack trace.
+
+    v1 answers `400 failed to open '<table>'`; v2 answers a typed
+    `{"code": "not_found", "message": "<table> not found"}`. Both are
+    matched against the table name so an unrelated 400/404 still
+    raises.
     """
-    if not isinstance(exc, AitoError) or exc.status_code != 400:
+    if not isinstance(exc, AitoError):
         return False
-    return f"failed to open '{table}'" in str(exc)
+    if exc.status_code == 400 and f"failed to open '{table}'" in str(exc):
+        return True
+    return exc.status_code == 404 and f"{table} not found" in str(exc)
+
+
+def _canonical_predicted_values(response: dict, api_version: ApiVersion) -> dict:
+    """Rename v1's `feature` hit key to v2's `$value`.
+
+    Mutates and returns the response. A v2 response already speaks the
+    canonical vocabulary and is handed straight back. A v1 hit that
+    carries neither key is left alone rather than patched with a
+    placeholder — a shape we don't recognise should surface as a
+    KeyError at the call site, not as an empty prediction.
+    """
+    if api_version == "v2":
+        return response
+    for hit in response.get("hits", []):
+        if "feature" in hit:
+            hit["$value"] = hit.pop("feature")
+    return response
+
+
+def _canonical_relate_hits(response: dict, api_version: ApiVersion) -> dict:
+    """Normalise a `_relate` response onto the canonical shape.
+
+    Two v1↔v2 differences, both in the hit body:
+
+    * `related` — v1 wraps the matched value in the operator that
+      matched it (`{"supplier": {"$has": "Neste Oyj"}}`); v2 returns the
+      value directly (`{"supplier": "Neste Oyj"}`). We unwrap v1 so
+      callers read one shape.
+    * `ps` — v1 returns smoothed probabilities alongside the raw
+      frequencies; v2 returns frequencies only. We recompute the three
+      the demo reads (`p`, `pOnCondition`, `pOnNotCondition`) from `fs`
+      so a v2 response can't silently render as 0.0. These are the plain
+      empirical ratios, so they differ slightly from v1's smoothed
+      values — a visible, documented difference rather than a hidden
+      one. Filed as a core gap; see docs/v2-migration.md.
+    """
+    if api_version == "v1":
+        for hit in response.get("hits", []):
+            related = hit.get("related")
+            if isinstance(related, dict):
+                hit["related"] = {
+                    field: (next(iter(matched.values())) if isinstance(matched, dict) else matched)
+                    for field, matched in related.items()
+                }
+        return response
+
+    for hit in response.get("hits", []):
+        if "ps" in hit:
+            continue
+        fs = hit.get("fs", {})
+        n = fs.get("n", 0.0)
+        f_condition = fs.get("fCondition", 0.0)
+        n_not_condition = n - f_condition
+        hit["ps"] = {
+            "p": (fs.get("f", 0.0) / n) if n else 0.0,
+            "pOnCondition": (fs.get("fOnCondition", 0.0) / f_condition) if f_condition else 0.0,
+            "pOnNotCondition": (fs.get("fOnNotCondition", 0.0) / n_not_condition)
+                               if n_not_condition else 0.0,
+        }
+    return response
+
+
+def _unwrap_v2_envelope(response: dict, api_version: ApiVersion, kind: str) -> dict:
+    """Strip v2's `{"kind": …, "data": {…}}` envelope.
+
+    `_evaluate` and `_estimate` are engine-dispatched on v2 and wrap
+    their payload; v1 returns it flat. Asserts the envelope is the kind
+    we asked for — a `kind` we didn't expect means the query did
+    something other than what the caller thinks.
+    """
+    if api_version == "v1":
+        return response
+    if "kind" not in response:
+        return response
+    if response["kind"] != kind:
+        raise AitoError(
+            f"Expected a '{kind}' response from Aito v2, got '{response['kind']}': "
+            f"{str(response)[:300]}"
+        )
+    return response["data"]
 
 
 class AitoClient:
     """Synchronous client for the Aito REST API."""
 
     def __init__(self, config: Config) -> None:
-        self._base_url = config.aito_api_url
+        creds = config.creds_for(None)
+        self._base_url = creds.api_url
+        self._api_version: ApiVersion = config.api_version
         self._headers = {
-            "x-api-key": config.aito_api_key,
+            "x-api-key": creds.api_key,
             "content-type": "application/json",
         }
         # When set, missing-table errors return an empty canonical
@@ -66,11 +178,13 @@ class AitoClient:
 
     @classmethod
     def from_creds(cls, api_url: str, api_key: str,
-                   tolerate_missing: bool = False) -> "AitoClient":
+                   tolerate_missing: bool = False,
+                   api_version: ApiVersion = DEFAULT_API_VERSION) -> "AitoClient":
         """Build a client from raw credentials. Used by the multi-tenant
         resolver so we don't need a synthetic Config per tenant."""
         instance = cls.__new__(cls)
         instance._base_url = api_url.rstrip("/")
+        instance._api_version = api_version
         instance._headers = {
             "x-api-key": api_key,
             "content-type": "application/json",
@@ -79,8 +193,13 @@ class AitoClient:
         instance._client = httpx.Client(headers=instance._headers, timeout=30.0)
         return instance
 
+    @property
+    def api_version(self) -> ApiVersion:
+        """Which Aito REST surface this client talks to."""
+        return self._api_version
+
     def _url(self, path: str) -> str:
-        return f"{self._base_url}/api/v1{path}"
+        return f"{self._base_url}/api/{self._api_version}{path}"
 
     def _request(self, method: str, path: str, json: dict | None = None) -> Any:
         """Make an HTTP request to Aito and return the parsed JSON response.
@@ -161,19 +280,25 @@ class AitoClient:
                 predict_field="account_code",
             )
 
-        Returns Aito response with hits like:
-            {"$p": 0.94, "feature": "6110", "$why": {...}}
+        Returns hits like:
+            {"$p": 0.94, "$value": "6110", "$why": {...}}
 
-        Note: Aito returns the predicted value in "feature", not in a
-        key named after the field.
+        Note: Aito returns the predicted value under a fixed key, not
+        under one named after the field. v1 calls that key `feature`
+        and v2 calls it `$value`; this method always hands back
+        `$value` (see the module docstring).
         """
+        # The predicted-value select token is the one piece of the query
+        # body that differs between versions — v2 rejects `feature` with
+        # `no such field 'feature'`.
+        value_token = "$value" if self._api_version == "v2" else "feature"
         query = {
             "from": table,
             "where": where,
             "predict": predict_field,
             "select": [
                 "$p",
-                "feature",
+                value_token,
                 {
                     "$why": {
                         "highlight": {
@@ -188,11 +313,12 @@ class AitoClient:
             "limit": limit,
         }
         try:
-            return self._request("POST", "/_predict", json=query)
+            response = self._request("POST", "/_predict", json=query)
         except AitoError as exc:
             if self._tolerate_missing and _is_missing_table_error(exc, table):
                 return self._empty("predict")
             raise
+        return _canonical_predicted_values(response, self._api_version)
 
     def evaluate(self, table: str, where: dict, predict_field: str) -> dict:
         """Run an _evaluate query to score how likely a field value is.
@@ -217,11 +343,12 @@ class AitoClient:
             },
         }
         try:
-            return self._request("POST", "/_evaluate", json=query)
+            response = self._request("POST", "/_evaluate", json=query)
         except AitoError as exc:
             if self._tolerate_missing and _is_missing_table_error(exc, table):
                 return self._empty("evaluate")
             raise
+        return _unwrap_v2_envelope(response, self._api_version, "evaluation")
 
     def evaluate_with_cases(
         self,
@@ -273,11 +400,20 @@ class AitoClient:
             "select": ["accuracy", "baseAccuracy", "cases"],
         }
         try:
-            return self._request("POST", "/_evaluate", json=query)
+            response = self._request("POST", "/_evaluate", json=query)
         except AitoError as exc:
             if self._tolerate_missing and _is_missing_table_error(exc, table):
                 return {"accuracy": None, "baseAccuracy": None, "cases": []}
             raise
+        result = _unwrap_v2_envelope(response, self._api_version, "evaluation")
+        # Each case carries its own predicted value under the same key
+        # that a predict hit does — normalise it the same way.
+        for case in result.get("cases", []):
+            for slot in ("top", "correct"):
+                hit = case.get(slot)
+                if isinstance(hit, dict) and "feature" in hit:
+                    hit["$value"] = hit.pop("feature")
+        return result
 
     def recommend(
         self,
@@ -339,23 +475,27 @@ class AitoClient:
 
         Returns hits with statistics:
             {
-              "related": {"supplier": {"$has": "Neste Oyj"}},
+              "related": {"supplier": "Neste Oyj"},
               "lift": 2.4,
               "fs": {"f": 33, "fOnCondition": 18, ...},
-              "ps": {"p": 0.14, "pOnCondition": 0.95, ...}
+              "ps": {"p": 0.14, "pOnCondition": 0.95}
             }
         """
         query = {
             "from": table,
             "where": where,
-            "relate": relate_field,
+            # v1 takes a bare field name; v2 takes a list of fields and
+            # rejects the string form ("field 'relate' must be of type
+            # 'Null|<object>'"). One field either way here.
+            "relate": [relate_field] if self._api_version == "v2" else relate_field,
         }
         try:
-            return self._request("POST", "/_relate", json=query)
+            response = self._request("POST", "/_relate", json=query)
         except AitoError as exc:
             if self._tolerate_missing and _is_missing_table_error(exc, table):
                 return self._empty("relate")
             raise
+        return _canonical_relate_hits(response, self._api_version)
 
     def search(self, table: str, where: dict, limit: int = 10) -> dict:
         """Run a _search query to retrieve matching rows."""

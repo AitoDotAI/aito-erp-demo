@@ -122,6 +122,13 @@ def _proposition_to_string(prop: Any) -> str:
     The proposition is a structured form like
         {"$and": [{"supplier": {"$has": "Telia"}}, {"category": {"$is": "telecom"}}]}
     We render it as 'supplier has Telia AND category is telecom'.
+
+    v2 introduces `$group` — a set of correlated signals that vote as
+    one theme rather than as independent evidence. Rendering it as
+    `AND` would overstate what the engine did, so it gets its own
+    joiner. It has no v1 equivalent, and before it was handled here a
+    v2 `$why` fell through to `str(prop)` and put a raw Python dict in
+    the explanation tooltip.
     """
     if prop is None:
         return ""
@@ -133,6 +140,9 @@ def _proposition_to_string(prop: Any) -> str:
         if "$or" in prop and isinstance(prop["$or"], list):
             parts = [_proposition_to_string(p) for p in prop["$or"]]
             return " OR ".join(p for p in parts if p)
+        if "$group" in prop and isinstance(prop["$group"], list):
+            parts = [_proposition_to_string(p) for p in prop["$group"]]
+            return " + ".join(p for p in parts if p)
         if "$not" in prop:
             inner = _proposition_to_string(prop["$not"])
             return f"NOT ({inner})" if inner else ""
@@ -145,6 +155,7 @@ def _proposition_to_string(prop: Any) -> str:
                     op_human = {
                         "$has": "has",
                         "$is": "is",
+                        "$match": "matches",
                         "$gt": ">",
                         "$lt": "<",
                         "$gte": "≥",
@@ -170,7 +181,7 @@ def extract_alternatives(hits: list[dict], skip_top: bool = True, limit: int = 3
             continue
         p = hit.get("$p", 0.0)
         alts.append({
-            "value": str(hit.get("feature", "")),
+            "value": str(hit.get("$value", "")),
             "confidence": round(p, 4),
             "why": process_factors(hit.get("$why"), p),
         })

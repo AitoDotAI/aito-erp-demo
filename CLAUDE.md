@@ -158,6 +158,17 @@ These never relax.
   setups still work. Run `./do generate-personas` then
   `./do load-data --tenant=all`.
 
+- **Aito API v1 / v2**: `AITO_API_VERSION` picks the REST surface.
+  v1 (rep1 tables) is the production default and serves the live demo
+  from each tenant DB's `master` env. v2 (rep2 collections) runs
+  against a separate `v2` env per tenant, loaded by `./do
+  load-data-v2`. `AitoClient` normalises the handful of shapes that
+  differ so the service modules speak one dialect — v2's — and the v1
+  branches are deletable in one pass when v1 goes away. Every view
+  passes on both (`./do v2-check`). The full break list, the
+  behavioural deltas, and what's still open live in
+  `docs/v2-migration.md`. Read that before touching a query shape.
+
 ### Data flow
 
 ```
@@ -181,6 +192,11 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 ./do test             # Run pytest
 ./do setup            # Sync Python + npm dependencies
 ./do check            # Pre-merge gate (test + fmt)
+
+./do env-init-v2      # Branch a `v2` env from master on each tenant DB
+./do load-data-v2     # Load fixtures into the v2 envs as collections
+./do v2-check         # Run every view's query shape against v2
+./do dev-v2           # Run the demo against /api/v2
 ```
 
 ---

@@ -40,6 +40,17 @@ Commands:
                   (publishes the dev state to the live demo).
   env-drop        Delete each tenant's dev env (use before re-init
                   to start from a clean copy of master).
+
+  --- Aito API v2 (rep2 collections, own env, master untouched) ---
+  env-init-v2     Branch a 'v2' env from master on each tenant DB.
+  env-drop-v2     Delete each tenant's v2 env.
+  load-data-v2    Load the fixtures into the v2 envs as collections
+                  (accepts --tenant=<id|all>).
+  v2-check        Run every view's query shape against v2 and report
+                  which pass, which break, and how.
+  dev-v2          Start both servers against /api/v2.
+  backend-dev-v2  Backend only, against /api/v2.
+
   test            Run the unit test suite
   booktest        Run project-portfolio quality tests (offline + live)
   fmt             Format code
@@ -190,7 +201,7 @@ from src import cache as cache_mod
 cfg = load_config()
 for t in TENANT_IDS:
     creds = cfg.creds_for(t)
-    c = AitoClient.from_creds(creds.api_url, creds.api_key)
+    c = AitoClient.from_creds(creds.api_url, creds.api_key, api_version=cfg.api_version)
     cache_mod.init_persistent_cache(c, tenant=t)
 cache_mod.clear_all()
 print('Done. Restart ./do dev to recompute predictions.')
@@ -260,6 +271,66 @@ _env_drop_one() {
 cmd_env_init()    { _for_each_tenant _env_init_one; }
 cmd_env_promote() { _for_each_tenant _env_promote_one; }
 cmd_env_drop()    { _for_each_tenant _env_drop_one; }
+
+# ── Aito API v2 ─────────────────────────────────────────────────────
+#
+# v2 runs the rep2 engine over `collection` tables; the live demo's
+# tables are rep1. So v2 gets its own environment per tenant DB — a
+# `v2` branch holding collection-shaped copies of the same fixtures —
+# and its own credential pair in .env (AITO_<TENANT>_V2_API_*).
+# master keeps serving the public demo on v1 throughout.
+#
+#   1. `./do env-init-v2`   — branch `v2` from master on each tenant DB.
+#   2. Add the AITO_<TENANT>_V2_API_URL/_KEY pairs to .env
+#      (URL = the v1 DB URL with `/env/v2` appended).
+#   3. `./do load-data-v2`  — load the fixtures as collections.
+#   4. `./do v2-check`      — run every view's query shape against v2.
+#   5. `./do dev-v2`        — run the demo against v2.
+#
+# Nothing here can reach master: the loader refuses a URL with no
+# `/env/` segment, because on v2 a dropped path segment silently
+# rewrites production.
+
+_env_init_v2_one() {
+  local prefix="$1" db_url="$2" key="$3"
+  echo "[$prefix] branch v2 from env.master  ($db_url)"
+  curl -sS -X POST "$db_url/api/v2/_envs" \
+    -H "x-api-key: $key" -H "content-type: application/json" \
+    -d '{"name":"v2","basedOn":"master"}' \
+    | python3 -m json.tool 2>/dev/null || true
+}
+
+_env_drop_v2_one() {
+  local prefix="$1" db_url="$2" key="$3"
+  echo "[$prefix] drop v2  ($db_url)"
+  curl -sS -X DELETE "$db_url/api/v2/_envs/v2" \
+    -H "x-api-key: $key" \
+    | python3 -m json.tool 2>/dev/null || true
+}
+
+cmd_env_init_v2() { _for_each_tenant _env_init_v2_one; }
+cmd_env_drop_v2() { _for_each_tenant _env_drop_v2_one; }
+
+cmd_load_data_v2() {
+  cd "$SCRIPT_DIR"
+  uv run python -m src.data_loader --api-version=v2 "$@"
+}
+
+cmd_v2_check() {
+  cd "$SCRIPT_DIR"
+  uv run python -m src.v2_conformance "$@"
+}
+
+cmd_dev_v2() {
+  echo "Starting Predictive ERP against Aito API v2"
+  AITO_API_VERSION=v2 cmd_dev
+}
+
+cmd_backend_dev_v2() {
+  echo "Starting Predictive ERP API (v2) on http://localhost:${PORT_BACKEND}"
+  cd "$SCRIPT_DIR"
+  AITO_API_VERSION=v2 uv run uvicorn src.app:app --reload --port "$PORT_BACKEND"
+}
 
 cmd_test() {
   cd "$SCRIPT_DIR"
@@ -536,6 +607,12 @@ case "${1:-help}" in
   env-init)        cmd_env_init ;;
   env-promote)     cmd_env_promote ;;
   env-drop)        cmd_env_drop ;;
+  env-init-v2)     cmd_env_init_v2 ;;
+  env-drop-v2)     cmd_env_drop_v2 ;;
+  load-data-v2)    shift; cmd_load_data_v2 "$@" ;;
+  v2-check)        shift; cmd_v2_check "$@" ;;
+  dev-v2)          cmd_dev_v2 ;;
+  backend-dev-v2)  cmd_backend_dev_v2 ;;
   test)            cmd_test ;;
   booktest)        shift; cmd_booktest "$@" ;;
   fmt)             cmd_fmt ;;

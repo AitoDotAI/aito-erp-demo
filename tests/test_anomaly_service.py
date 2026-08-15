@@ -11,8 +11,8 @@ def _client_returning_low_p_for_actual(actual_value, p=0.02):
     client = MagicMock()
     client.predict.return_value = {
         "hits": [
-            {"$p": 0.85, "feature": "common_value", "$why": {}},
-            {"$p": p, "feature": actual_value, "$why": {}},
+            {"$p": 0.85, "$value": "common_value", "$why": {}},
+            {"$p": p, "$value": actual_value, "$why": {}},
         ]
     }
     return client
