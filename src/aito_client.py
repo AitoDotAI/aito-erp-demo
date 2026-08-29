@@ -1,21 +1,33 @@
 """HTTP client for Aito's predictive database API.
 
-Thin wrapper — each method maps directly to an Aito REST endpoint.
-No abstraction beyond authentication, error handling, and the v1↔v2
-response normalisation described below. An outside developer reading
-this file should see exactly what HTTP calls are made and what response
-shapes come back.
+Thin wrapper — each method maps to one Aito operation. No abstraction
+beyond authentication, error handling, and the v1↔v2 response
+normalisation described below. An outside developer reading this file
+should see exactly what calls are made and what shapes come back.
 
 Aito API docs: https://aito.ai/docs/api/  ·  v2: https://aito.ai/docs/v2/
 
-Two API versions
-────────────────
+Two API versions, two transports
+────────────────────────────────
 `api_version` selects the REST surface: `v1` (the production default)
 or `v2` (the rep2 engine, running against a tenant's `v2` environment).
-The endpoints and query bodies are near-identical; a handful of response
-shapes are not. Rather than teach eleven service modules two dialects,
-this client normalises **both** versions onto one canonical shape, and
-that shape is v2's — the destination, not the legacy:
+
+**v1 is hand-rolled `httpx` here. v2 goes through the published SDK**
+(`aitoai`'s `aito.client.v2.AitoClientV2`), which is the supported client
+path and is where the v2 wire details now live — the enforced named
+endpoints, the structured error codes, the `warnings` channel, and the
+fact that `_evaluate`'s payload is enveloped for a collection but flat
+for a legacy table. `self._v2` is the switch: `None` means v1, and every
+method below reads it.
+
+The v1 branches remain because the demo still ships on v1 by default.
+When it flips, they go, and this file becomes a thin adapter over the SDK
+— the services above it never see the difference either way.
+
+The endpoints and query bodies are near-identical between versions; a
+handful of response shapes are not. Rather than teach eleven service
+modules two dialects, this client normalises **both** versions onto one
+canonical shape, and that shape is v2's — the destination, not the legacy:
 
   | Concept          | v1 wire shape                     | v2 wire shape        | canonical |
   |------------------|-----------------------------------|----------------------|-----------|
@@ -35,6 +47,7 @@ import time
 from typing import Any
 
 import httpx
+from aito.client.v2 import AitoClientV2, AitoV2Error
 
 from src.config import ApiVersion, Config, DEFAULT_API_VERSION
 from src import timing
@@ -53,6 +66,28 @@ class AitoError(Exception):
         super().__init__(message)
 
 
+class _TimedAitoClientV2(AitoClientV2):
+    """`AitoClientV2` that reports each call to the per-request timing context.
+
+    The SDK has no timing hook, and it hands back parsed JSON rather than the
+    response object, so the `x-aitoai-response-time` header the v1 path prefers
+    is not reachable through it. That costs nothing here: v2 does not send that
+    header anyway (docs/v2-migration.md §8), so this path was already measuring
+    wall-clock. `request()` is the one seam every SDK call funnels through,
+    which makes overriding it enough to keep the latency pill working.
+    """
+
+    def request(self, method: str, path: str, query: Any = None,
+                timeout: float | None = None) -> Any:
+        start = time.perf_counter()
+        try:
+            return super().request(method, path, query, timeout=timeout)
+        finally:
+            # Recorded even when the call raised: a request that took 30 s and
+            # then failed is exactly the one worth seeing in the timings.
+            timing.record_call(path, (time.perf_counter() - start) * 1000)
+
+
 def _is_missing_table_error(exc: "AitoError", table: str) -> bool:
     """Detect Aito's "no such table" response, on either API version.
 
@@ -62,16 +97,14 @@ def _is_missing_table_error(exc: "AitoError", table: str) -> bool:
     the whole page break; treating it as "empty result" keeps the
     page renderable so visitors see structure, not a stack trace.
 
-    v1 answers `400 failed to open '<table>'`; v2 answers a typed
-    `{"code": "not_found", "message": "<table> not found"}`. Both are
-    matched against the table name so an unrelated 400/404 still
-    raises.
+    v1 answers `400 failed to open '<table>'`. The message is matched
+    against the table name so an unrelated 400 still raises. (v2 has its
+    own path: the SDK raises a typed error and `_v2_result` reads its
+    `is_not_found`.)
     """
     if not isinstance(exc, AitoError):
         return False
-    if exc.status_code == 400 and f"failed to open '{table}'" in str(exc):
-        return True
-    return exc.status_code == 404 and f"{table} not found" in str(exc)
+    return exc.status_code == 400 and f"failed to open '{table}'" in str(exc)
 
 
 def _canonical_predicted_values(response: dict, api_version: ApiVersion) -> dict:
@@ -134,26 +167,6 @@ def _canonical_relate_hits(response: dict, api_version: ApiVersion) -> dict:
     return response
 
 
-def _unwrap_v2_envelope(response: dict, api_version: ApiVersion, kind: str) -> dict:
-    """Strip v2's `{"kind": …, "data": {…}}` envelope.
-
-    `_evaluate` and `_estimate` are engine-dispatched on v2 and wrap
-    their payload; v1 returns it flat. Asserts the envelope is the kind
-    we asked for — a `kind` we didn't expect means the query did
-    something other than what the caller thinks.
-    """
-    if api_version == "v1":
-        return response
-    if "kind" not in response:
-        return response
-    if response["kind"] != kind:
-        raise AitoError(
-            f"Expected a '{kind}' response from Aito v2, got '{response['kind']}': "
-            f"{str(response)[:300]}"
-        )
-    return response["data"]
-
-
 class AitoClient:
     """Synchronous client for the Aito REST API."""
 
@@ -175,6 +188,7 @@ class AitoClient:
         # instance dominates the per-call wall-clock (~280 ms total
         # vs ~110 ms steady-state with pooling).
         self._client = httpx.Client(headers=self._headers, timeout=30.0)
+        self._v2 = self._make_v2()
 
     @classmethod
     def from_creds(cls, api_url: str, api_key: str,
@@ -191,7 +205,55 @@ class AitoClient:
         }
         instance._tolerate_missing = tolerate_missing
         instance._client = httpx.Client(headers=instance._headers, timeout=30.0)
+        instance._v2 = instance._make_v2()
         return instance
+
+    def _make_v2(self) -> "_TimedAitoClientV2 | None":
+        """The SDK client backing the v2 path, or None when talking v1.
+
+        `None` is the version switch: every method below reads `self._v2` to
+        decide, so the v1 branches stay exactly as they were and there is one
+        place that knows which surface is live.
+
+        The v2 credential's `api_url` already carries its `/env/<name>` segment,
+        so the SDK is pointed at it whole rather than told the env separately.
+        `check_credentials=False` keeps construction free of a network call --
+        the multi-tenant resolver builds one of these per tenant per request.
+        """
+        if self._api_version != "v2":
+            return None
+        return _TimedAitoClientV2(
+            self._base_url,
+            self._headers["x-api-key"],
+            timeout=30.0,
+            check_credentials=False,
+            # A warning means the server answered a broader query than we sent.
+            # Worth a log line; not worth blanking a panel in a demo.
+            on_warning="log",
+        )
+
+    def _v2_result(self, kind: str, table: str, call, extract=lambda resp: resp.json):
+        """Run one SDK call and hand back the shape the services expect.
+
+        Two things the SDK does not do for us, both handled once here rather
+        than at fifty-eight call sites:
+
+        * `AitoV2Error` is not our `AitoError`, and twenty-two modules catch
+          ours. Untranslated, every existing `except AitoError` would stop
+          catching Aito failures the moment the demo moved to v2 -- a silent
+          loss of error handling, which is worse than a loud break.
+        * `is_not_found` says *something* was missing, not *what*. The table
+          name is still matched so `tolerate_missing` cannot swallow an
+          unrelated 404 -- the same guard the v1 path has always had.
+        """
+        try:
+            return extract(call())
+        except AitoV2Error as exc:
+            if (self._tolerate_missing and exc.is_not_found
+                    and f"{table} not found" in str(exc)):
+                return self._empty(kind)
+            raise AitoError(str(exc), status_code=exc.status_code,
+                            body=exc.body) from exc
 
     @property
     def api_version(self) -> ApiVersion:
@@ -251,6 +313,12 @@ class AitoClient:
 
     def get_schema(self) -> dict:
         """Fetch the database schema. Returns table definitions."""
+        if self._v2 is not None:
+            try:
+                return self._v2.get_schema()
+            except AitoV2Error as exc:
+                raise AitoError(str(exc), status_code=exc.status_code,
+                                body=exc.body) from exc
         return self._request("GET", "/schema")
 
     def check_connectivity(self) -> bool:
@@ -266,6 +334,8 @@ class AitoClient:
         tolerate_missing is on and the table doesn't exist."""
         if kind == "evaluate":
             return {"accuracy": None, "baseAccuracy": None, "n": 0}
+        if kind == "evaluate_cases":
+            return {"accuracy": None, "baseAccuracy": None, "cases": []}
         if kind == "recommend":
             return {"hits": []}
         return {"hits": [], "offset": 0, "total": 0}
@@ -288,28 +358,21 @@ class AitoClient:
         and v2 calls it `$value`; this method always hands back
         `$value` (see the module docstring).
         """
-        # The predicted-value select token is the one piece of the query
-        # body that differs between versions — v2 rejects `feature` with
-        # `no such field 'feature'`.
-        value_token = "$value" if self._api_version == "v2" else "feature"
+        # Sentinel highlight tags — the frontend splits on them and renders
+        # without dangerouslySetInnerHTML.
+        why_select = {"$why": {"highlight": {"posPreTag": "«", "posPostTag": "»"}}}
+
+        if self._v2 is not None:
+            return self._v2_result("predict", table, lambda: self._v2.predict(
+                from_table=table, where=where, predict=predict_field,
+                select=["$p", "$value", why_select], limit=limit))
+
+        # v1 names the predicted-value token `feature`; v2 rejects it.
         query = {
             "from": table,
             "where": where,
             "predict": predict_field,
-            "select": [
-                "$p",
-                value_token,
-                {
-                    "$why": {
-                        "highlight": {
-                            # Sentinel tags — frontend splits and renders
-                            # without dangerouslySetInnerHTML.
-                            "posPreTag": "«",
-                            "posPostTag": "»",
-                        }
-                    }
-                },
-            ],
+            "select": ["$p", "feature", why_select],
             "limit": limit,
         }
         try:
@@ -342,13 +405,21 @@ class AitoClient:
                 "predict": predict_field,
             },
         }
+        if self._v2 is not None:
+            # `.data` is the SDK's unwrapped payload. It is doing the work
+            # `_unwrap_v2_envelope` used to do below — and doing it more
+            # carefully, because the envelope is only present when the target
+            # is a v2 collection (see docs/v2-migration.md §4).
+            return self._v2_result("evaluate", table,
+                                   lambda: self._v2.evaluate(query),
+                                   extract=lambda resp: resp.data)
         try:
             response = self._request("POST", "/_evaluate", json=query)
         except AitoError as exc:
             if self._tolerate_missing and _is_missing_table_error(exc, table):
                 return self._empty("evaluate")
             raise
-        return _unwrap_v2_envelope(response, self._api_version, "evaluation")
+        return response
 
     def evaluate_with_cases(
         self,
@@ -399,13 +470,18 @@ class AitoClient:
             },
             "select": ["accuracy", "baseAccuracy", "cases"],
         }
-        try:
-            response = self._request("POST", "/_evaluate", json=query)
-        except AitoError as exc:
-            if self._tolerate_missing and _is_missing_table_error(exc, table):
-                return {"accuracy": None, "baseAccuracy": None, "cases": []}
-            raise
-        result = _unwrap_v2_envelope(response, self._api_version, "evaluation")
+        if self._v2 is not None:
+            result = self._v2_result("evaluate_cases", table,
+                                     lambda: self._v2.evaluate(query),
+                                     extract=lambda resp: resp.data)
+        else:
+            try:
+                response = self._request("POST", "/_evaluate", json=query)
+            except AitoError as exc:
+                if self._tolerate_missing and _is_missing_table_error(exc, table):
+                    return self._empty("evaluate_cases")
+                raise
+            result = response
         # Each case carries its own predicted value under the same key
         # that a predict hit does — normalise it the same way.
         for case in result.get("cases", []):
@@ -447,6 +523,11 @@ class AitoClient:
             )
             # hit fields: $p + every column of products.* including sku
         """
+        if self._v2 is not None:
+            return self._v2_result("recommend", table, lambda: self._v2.recommend(
+                from_table=table, where=where, recommend=recommend_field,
+                goal=goal, select=select, limit=limit))
+
         query: dict = {
             "from": table,
             "where": where,
@@ -481,13 +562,17 @@ class AitoClient:
               "ps": {"p": 0.14, "pOnCondition": 0.95}
             }
         """
+        if self._v2 is not None:
+            # The SDK wraps a bare field name into the list v2 requires.
+            response = self._v2_result("relate", table, lambda: self._v2.relate(
+                from_table=table, where=where, relate=relate_field))
+            return _canonical_relate_hits(response, self._api_version)
+
         query = {
             "from": table,
             "where": where,
-            # v1 takes a bare field name; v2 takes a list of fields and
-            # rejects the string form ("field 'relate' must be of type
-            # 'Null|<object>'"). One field either way here.
-            "relate": [relate_field] if self._api_version == "v2" else relate_field,
+            # v1 takes a bare field name; v2 takes a list of fields.
+            "relate": relate_field,
         }
         try:
             response = self._request("POST", "/_relate", json=query)
@@ -504,6 +589,9 @@ class AitoClient:
             "where": where,
             "limit": limit,
         }
+        if self._v2 is not None:
+            return self._v2_result("search", table, lambda: self._v2.search(
+                from_table=table, where=where, limit=limit))
         try:
             return self._request("POST", "/_search", json=query)
         except AitoError as exc:
