@@ -7,6 +7,17 @@ differently from v1.
 
 Reference: <https://aito.ai/docs/v2/>
 
+**Most of what follows was already known.** The agent demo migrated first
+and filed aito-core #1061–#1068; this demo hit the same contract-level
+issues independently. Where a finding below has an issue, it is named.
+Two appear unfiled: the `$why` `$group` renderer break (#7) and
+`PUT /schema` no longer replacing (#5).
+
+**Verified against core `3de8f4f7` (built 2026-08-27).** An earlier pass
+measured `7d5c48a9` (2026-08-15); the deployment changed underneath it,
+so every item below was re-run. Findings #1–#6 reproduce identically on
+both builds.
+
 ---
 
 ## The shape of the migration
@@ -71,7 +82,7 @@ candidate to file upstream as a core gap; the ones marked **absorbed**
 are handled in `src/aito_client.py` so the eleven service modules see
 one shape.
 
-### 1. `select: "feature"` is rejected — the value key is `$value`
+### 1. `select: "feature"` is rejected — the value key is `$value` — core #1063
 
 *absorbed*
 
@@ -109,7 +120,7 @@ v2: { "relate": ["supplier"] }   // the string form is a 400
 "expected an array of field names, got a string" would land it in one
 read.
 
-### 3. `_relate` drops the `ps` block
+### 3. `_relate` drops the `ps` block — core #1064, #1065; todo td-20260816050623202559
 
 *absorbed, with a visible numeric difference*
 
@@ -145,7 +156,7 @@ prevent.
 integer count (`330.0`). The demo has been rendering v1's fractional
 order counts as-is. v2's number is the correct one.
 
-### 4. `_evaluate` and `_estimate` wrap their payload
+### 4. `_evaluate` and `_estimate` wrap their payload — todo td-20260829111229412011
 
 *absorbed*
 
@@ -174,7 +185,7 @@ behaviour on v2's part — the accidental-replace it prevents is worse —
 but it's a load-script break for anyone porting, and the v2 alternative
 (`_plan` / `_apply`) isn't referenced from the error.
 
-### 6. The missing-table error is differently typed
+### 6. The missing-table error is differently typed — todo td-20260829111304061579
 
 *absorbed*
 
@@ -214,15 +225,44 @@ different things and the panel is teaching the reader what Aito did.
 `$why` output on v2 where v1 emitted `$and`. Anyone with a `$why`
 renderer will hit this.
 
-### 8. Things that did *not* break
+### 8. v2 omits `x-aitoai-response-time` — todo td-20260829121140677301
+
+*not absorbed — visible in the UI*
+
+`AitoClient._request` prefers Aito's own server-side timing header over
+the httpx wall-clock, precisely so the demo's latency pill shows what a
+query *costs* rather than what the network added. v2 does not send the
+header (v1 does), so on v2 every pill silently falls back to wall-clock
+— the same number plus a round-trip to Helsinki. The demo still works;
+it just overstates Aito's latency, on the page whose job is to make
+latency look good.
+
+### 9. Cold-start exceeds the client timeout
+
+The first sweep after core redeployed had three views time out at the
+client's 30 s limit (`_predict` on `purchases`, `_relate`); the same
+sweep run again was 14/14 with no change. A cold rep2 env pays a
+per-collection warm-up that the demo's timeout does not budget for.
+Matches the accounting demo's finding (todo td-20260829124802850866:
+cold v2 views taking 16 s–276 s). `./do load-data-v2` already calls
+`optimize`; warming appears to be separate and per-process.
+
+### 10. Things that did *not* break
 
 Worth recording, because it's most of the surface:
 
 - Column schema vocabulary is unchanged — same type names, `nullable`,
   `link`. Only the table `type` differs (`table` → `collection`).
-- `where` accepts a bare string against a `Text` column; `$match` is
-  not required (it produces a slightly different probability, being an
-  explicit token match).
+- `where` accepts a bare string against a `Text` column, and on core
+  `3de8f4f7` bare-string and `$match` return **identical**
+  distributions (`Site-Helsinki` 0.6782 / `Logistics` 0.1066 /
+  `Production` 0.0788 either way). Core #1062 reports these diverging
+  silently on v2 — that no longer reproduces here, and the fix looks
+  like todo td-20260816110336994753 (route `$match`/bare through the
+  member-prior path). What remains is the v1→v2 difference: v1 gives
+  0.6271 / 0.2776 / 0.0229 for the same evidence, which is the
+  calibration shift behind the accuracy delta below, not a
+  bare-vs-`$match` bug. Worth confirming on #1062.
 - `$why` works, including the parameterised
   `{"$why": {"highlight": {"posPreTag": …}}}` form the frontend's
   sentinel-tag rendering depends on (ADR 0003).

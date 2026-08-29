@@ -175,9 +175,16 @@ def load_config(*, use_dotenv: bool = True,
         if url and key:
             per_tenant[tenant_id] = AitoCreds(api_url=url, api_key=key)
 
-    # If we have at least one per-tenant pair but no global default,
-    # adopt the first per-tenant pair as the default.
-    if not default_url and per_tenant:
+    # If we have at least one per-tenant pair but no usable global
+    # default, adopt the first per-tenant pair as the default.
+    #
+    # "Usable" means BOTH halves are set. A half-set pair — an
+    # `AITO_API_URL` exported in the ambient shell with no matching
+    # `AITO_API_KEY`, say — used to defeat this fallback and fail the
+    # whole config, because the URL alone was enough to skip it and
+    # not enough to authenticate. Three perfectly good per-tenant
+    # pairs would sit there unused while the app refused to start.
+    if not (default_url and default_key) and per_tenant:
         first = next(iter(per_tenant.values()))
         default_url, default_key = first.api_url, first.api_key
 

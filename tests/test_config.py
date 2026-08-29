@@ -105,3 +105,27 @@ def test_v2_missing_one_tenant_raises_for_that_tenant(monkeypatch):
     assert config.creds_for("metsa").api_key == "metsa-key"
     with pytest.raises(ValueError, match="no v2 credentials for tenant 'studio'"):
         config.creds_for("studio")
+
+
+def test_half_set_default_pair_falls_back_to_per_tenant(monkeypatch):
+    """A URL with no key must not defeat the per-tenant fallback.
+
+    An `AITO_API_URL` exported in the ambient shell with no matching
+    key used to fail the whole config even with three complete
+    per-tenant pairs configured.
+    """
+    _clear_aito_env(monkeypatch)
+    monkeypatch.setenv("AITO_API_URL", "https://api.aito.ai")   # no _API_KEY
+    for tenant in TENANT_IDS:
+        monkeypatch.setenv(f"AITO_{tenant.upper()}_API_URL", f"https://{tenant}.aito.app")
+        monkeypatch.setenv(f"AITO_{tenant.upper()}_API_KEY", f"{tenant}-key")
+    config = load_config(use_dotenv=False)
+    assert config.aito_api_url == "https://metsa.aito.app"
+    assert config.creds_for("studio").api_key == "studio-key"
+
+
+def test_half_set_default_pair_with_no_per_tenant_still_raises(monkeypatch):
+    _clear_aito_env(monkeypatch)
+    monkeypatch.setenv("AITO_API_URL", "https://api.aito.ai")
+    with pytest.raises(ValueError, match="AITO_API_URL"):
+        load_config(use_dotenv=False)
