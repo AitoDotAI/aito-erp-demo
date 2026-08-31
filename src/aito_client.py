@@ -34,7 +34,7 @@ canonical shape, and that shape is v2's — the destination, not the legacy:
   | predicted value  | `hit["feature"]`                  | `hit["$value"]`      | `$value`  |
   | relate target    | `relate: "supplier"`              | `relate: ["supplier"]` | n/a (request) |
   | relate hit value | `related.supplier.$has`           | `related.supplier`   | `$has` unwrapped |
-  | relate probs     | `ps: {p, pOnCondition, …}`        | *absent*             | derived from `fs` |
+  | relate probs     | `ps: {p, pOnCondition, …}` smoothed | `ps` empirical     | as sent   |
   | evaluate body    | flat `{accuracy, …}`              | `{kind, data: {…}}`  | flat      |
 
 Each translation is explicit and one-directional (v1 → canonical, or
@@ -133,13 +133,14 @@ def _canonical_relate_hits(response: dict, api_version: ApiVersion) -> dict:
       matched it (`{"supplier": {"$has": "Neste Oyj"}}`); v2 returns the
       value directly (`{"supplier": "Neste Oyj"}`). We unwrap v1 so
       callers read one shape.
-    * `ps` — v1 returns smoothed probabilities alongside the raw
-      frequencies; v2 returns frequencies only. We recompute the three
-      the demo reads (`p`, `pOnCondition`, `pOnNotCondition`) from `fs`
-      so a v2 response can't silently render as 0.0. These are the plain
-      empirical ratios, so they differ slightly from v1's smoothed
-      values — a visible, documented difference rather than a hidden
-      one. Filed as a core gap; see docs/v2-migration.md.
+    * `ps` — core `38a234a6` returns it on v2 too, so the loop below
+      leaves it alone (`if "ps" in hit`). Builds before that returned
+      `fs` only, and the demo reads `ps.pOnCondition` for a headline
+      percentage — a missing key renders as `0.0`, a plausible number
+      that is silently wrong. The derivation stays as the fallback that
+      makes that failure impossible rather than quiet. It computes the
+      same plain empirical ratios v2 now sends (v1's are smoothed and
+      differ slightly). See docs/v2-migration.md §3.
     """
     if api_version == "v1":
         for hit in response.get("hits", []):

@@ -251,3 +251,20 @@ def test_check_connectivity_failure(httpx_mock):
     httpx_mock.add_response(status_code=401, text="unauthorized")
     client = _make_client()
     assert client.check_connectivity() is False
+
+
+def test_relate_v2_keeps_the_servers_own_ps():
+    """Core `38a234a6` sends `ps` on v2; the derivation must not overwrite it.
+
+    The server's block carries `pCondition`, which the client's fallback
+    does not compute — recomputing over it would silently drop a key.
+    """
+    client, _ = _v2_client(_FakeResponse(200, {"offset": 0, "total": 1, "hits": [
+        {"related": {"supplier": "Neste Oyj"}, "lift": 2.0,
+         "fs": {"f": 10.0, "fOnCondition": 4.0, "fOnNotCondition": 6.0,
+                "fCondition": 20.0, "n": 100.0},
+         "ps": {"p": 0.1, "pOnCondition": 0.2, "pOnNotCondition": 0.075,
+                "pCondition": 0.2}},
+    ]}))
+    hits = client.relate("purchases", {"delivery_late": True}, "supplier")["hits"]
+    assert hits[0]["ps"]["pCondition"] == 0.2
