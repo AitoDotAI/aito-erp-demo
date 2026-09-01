@@ -106,6 +106,23 @@ const OBJECTION_LABEL: Record<string, string> = {
   budget_frozen: "No budget this year",
 };
 
+/** The top drivers behind a number, as one line.
+ *
+ *  These used to live behind a `?` that opened a popover on top of the
+ *  candidate dropdown — a dialog inside a dialog, for two facts that
+ *  fit on a line. Inline is fewer clicks and less chrome. */
+function driversLine(why: WhyExplanation | Record<string, never>): string {
+  const lifts = (why as WhyExplanation)?.lifts ?? [];
+  return lifts
+    .slice(0, 2)
+    .map((l) => {
+      const field = l.highlights?.[0]?.field ?? "";
+      const arrow = l.lift >= 1 ? "×" : "×";
+      return `${field || "context"} ${arrow}${l.lift.toFixed(2)}`;
+    })
+    .join(" · ");
+}
+
 function pct(p: number | null | undefined): string {
   if (p == null) return "—";
   return `${Math.round(p * 100)}%`;
@@ -662,20 +679,20 @@ export default function PlannerPage() {
                           <th>Assignee</th>
                           <th
                             style={{ width: "14%", textAlign: "right" }}
-                            title="P(person | role, site, stack, sector) — how
-                                   often they are the one who does work like
-                                   this. Not a rating of how well they do it."
-                          >
-                            Usual pick
-                          </th>
-                          <th
-                            style={{ width: "14%", textAlign: "right" }}
-                            title="P(went well) for this person in this kind of
-                                   seat — _recommend with goal
-                                   {went_well: true}. A different question from
-                                   who usually gets the seat."
+                            title="P(this person's work in this seat went well)
+                                   — _predict went_well with the person in the
+                                   where. Not how often they get picked."
                           >
                             Did well
+                          </th>
+                          <th
+                            style={{ width: "10%", textAlign: "right" }}
+                            title="How many assignments of this kind this person
+                                   has. A count, not a share — a share sums to 1
+                                   across the shortlist and moves when the
+                                   shortlist changes."
+                          >
+                            Done
                           </th>
                           <th style={{ width: "20%", textAlign: "right" }}>
                             Free in window
@@ -767,11 +784,11 @@ export default function PlannerPage() {
                                   {openSeat === key && (
                                     <div className="pl-menu">
                                       <div className="pl-menu-head">
-                                        <strong>How often this person is the
-                                        one who does work like this</strong> —
-                                        <em>_predict person</em> given role,
-                                        site, stack and sector. It is not a
-                                        rating of how well they do it
+                                        <strong>How their work in this seat has
+                                        gone</strong> — <em>_predict went_well</em>
+                                        with the person in the where. Ordered by
+                                        who usually gets the seat; judge on
+                                        "did well" and whether they are free
                                       {slot.skills || slot.seniority ||
                                        plan.local_only
                                         ? ", filtered on person.skills / " +
@@ -800,26 +817,18 @@ export default function PlannerPage() {
                                           <div className="pl-opt-top">
                                             <span className="pl-opt-name">
                                               {c.person}
-                                            </span>
-                                            {(c.why as WhyExplanation)?.lifts && (
-                                              <span
-                                                onClick={(e) => e.stopPropagation()}
-                                              >
-                                                <WhyPopover
-                                                  value={c.person}
-                                                  confidence={c.fit}
-                                                  why={c.why as WhyExplanation}
-                                                />
+                                              <span className="pl-opt-title">
+                                                {c.title}
                                               </span>
-                                            )}
-                                            <span className="pl-opt-fit">
-                                              {pct(c.fit)} usual
                                             </span>
                                             {c.quality_p != null && (
                                               <span className={riskClass(c.quality_p)}>
                                                 {pct(c.quality_p)} did well
                                               </span>
                                             )}
+                                            <span className="pl-opt-fit">
+                                              {c.history_count} done
+                                            </span>
                                             <span className={availClass(c)}>
                                               {c.available
                                                 ? `${c.free_pct}% free`
@@ -842,10 +851,15 @@ export default function PlannerPage() {
                                             <div
                                               className="pl-fit-bar"
                                               style={{
-                                                width: `${(c.fit / best) * 100}%`,
+                                                width: `${(c.quality_p ?? 0) * 100}%`,
                                               }}
                                             />
                                           </div>
+                                          {driversLine(c.quality_why) && (
+                                            <div className="pl-opt-why">
+                                              why: {driversLine(c.quality_why)}
+                                            </div>
+                                          )}
                                           <div className="pl-chips">
                                             {c.matches.map((m) => (
                                               <span
@@ -871,12 +885,15 @@ export default function PlannerPage() {
                                   )}
                                 </td>
                                 <td style={{ textAlign: "right" }}>
-                                  {pct(chosen?.fit ?? null)}
-                                </td>
-                                <td style={{ textAlign: "right" }}>
                                   <span className={riskClass(chosen?.quality_p ?? null)}>
                                     {pct(chosen?.quality_p ?? null)}
                                   </span>
+                                </td>
+                                <td
+                                  style={{ textAlign: "right" }}
+                                  className="pl-count"
+                                >
+                                  {chosen?.history_count ?? 0}
                                 </td>
                                 <td style={{ textAlign: "right" }}>
                                   {chosen && (

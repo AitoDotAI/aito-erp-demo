@@ -725,6 +725,8 @@ export interface PlannerCandidate {
   contention: number;
   contention_pct: number;
   quality_p: number | null;
+  quality_why: WhyExplanation | Record<string, never>;
+  history_count: number;
   why: WhyExplanation | Record<string, never>;
 }
 

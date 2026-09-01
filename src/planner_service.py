@@ -41,6 +41,7 @@ most likely to object to. Sometimes the answer is `timing`, not
 `price`, which is the case where discounting would not have helped.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from statistics import median
 
@@ -95,11 +96,17 @@ class Candidate:
     absence_kind: str = ""
     contention: int = 0
     contention_pct: int = 0
-    # P(went_well = true) for this person in this seat, from
-    # `_recommend ... goal={went_well: true}`. A different question from
-    # `fit`: that one is who USUALLY does this, this one is who did well
-    # when they did.
+    # P(went_well = true) for THIS person in THIS seat —
+    # `_predict went_well` with the person in the where. The question a
+    # delivery lead is actually asking, and the only number here that
+    # ranks people by how it went rather than by how often they were
+    # picked.
     quality_p: float | None = None
+    quality_why: dict = field(default_factory=dict)
+    # How many assignments of this kind they have. A COUNT, because a
+    # normalised share is not a fact about a person: `fit` sums to 1
+    # across the shortlist, so it moves when the shortlist changes.
+    history_count: int = 0
     why: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -125,6 +132,8 @@ class Candidate:
             "contention": self.contention,
             "contention_pct": self.contention_pct,
             "quality_p": self.quality_p,
+            "quality_why": self.quality_why,
+            "history_count": self.history_count,
             "why": self.why,
         }
 
@@ -785,8 +794,17 @@ def plan_engagement(
         last = max(first, min(int(len(all_months) * hi) - 1,
                               len(all_months) - 1))
         seat_months = all_months[first:last + 1] or all_months
-        quality = _quality_ranking(client, where)
+        history = _history_counts(
+            client, {"project_type": project_type, "role": role})
         candidates = []
+        # The quality read is one Aito call per candidate, so fan the
+        # shortlist out rather than paying for it six times in series.
+        people_on_shortlist = [str(h.get("$value") or h.get("person"))
+                               for h in hits]
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            quality_results = dict(zip(people_on_shortlist, pool.map(
+                lambda who: _quality_for(client, who, role, project_type),
+                people_on_shortlist)))
         for hit in hits:
             person = str(hit.get("$value") or hit.get("person"))
             p = float(hit.get("$p", 0.0))
@@ -814,7 +832,9 @@ def plan_engagement(
                 absence_kind=standing.absence_kind,
                 contention=standing.contention,
                 contention_pct=standing.contention_pct,
-                quality_p=quality.get(person),
+                quality_p=quality_results.get(person, (None, {}))[0],
+                quality_why=quality_results.get(person, (None, {}))[1],
+                history_count=history.get(person, 0),
                 why=process_factors(hit.get("$why") or {}, p),
             )
             candidate.matches = _match_chips(
@@ -1066,33 +1086,41 @@ def _highlighted_fields(why: dict) -> set[str]:
     return fields
 
 
-def _quality_ranking(client: AitoClient, where: dict) -> dict[str, float]:
-    """`person → P(went_well)` for this kind of seat.
+def _history_counts(client: AitoClient, where: dict) -> dict[str, int]:
+    """`person → how many assignments of this kind they have`.
 
-    `_recommend` with a goal is the right operator here: for each
-    candidate person it returns the probability the GOAL holds given the
-    context, which is precisely "if we put this person in this seat, did
-    it go well historically". Predicting `person` would answer the other
-    question — who usually gets the seat — which the shortlist already
-    shows and which says nothing about how it went.
-
-    One call per role, not per candidate.
+    One `_search`, counted here. `$f` would do it server-side but it is
+    not available on v1 — it fails with `None.get`, the same unhandled
+    Option family as the `_estimate` nullable bug (aito-core #1253).
     """
     try:
-        response = client.recommend(
-            # Wide enough that the six candidates the shortlist shows
-            # are almost always inside it — a blank "did well" column
-            # next to a ranked name reads as "no history", when in fact
-            # it only means the goal ranking was truncated above them.
-            "assignments", where, "person", {"went_well": True}, limit=40)
+        rows = client.search("assignments", where, limit=1000).get("hits") or []
     except AitoError:
         return {}
-    ranking: dict[str, float] = {}
-    for hit in response.get("hits") or []:
-        person = hit.get("$value") or hit.get("person")
-        if person is not None:
-            ranking[str(person)] = float(hit.get("$p", 0.0))
-    return ranking
+    counts: dict[str, int] = {}
+    for row in rows:
+        person = row.get("person")
+        if person:
+            counts[person] = counts.get(person, 0) + 1
+    return counts
+
+
+def _quality_for(client: AitoClient, person: str, role: str,
+                 project_type: str) -> tuple[float | None, dict]:
+    """P(this person's work in this seat went well), with its drivers.
+
+    `_predict went_well` with the PERSON in the where. The earlier
+    version asked `_recommend ... goal={went_well: true}` once per role,
+    which was cheaper and nearly useless: it came back 0.73-0.83 across
+    every candidate while the underlying per-person rates run 10% to
+    87%. Goal-ranking smooths across the candidate set; asking about one
+    person at a time does not.
+
+    One call per candidate, so the shortlist is fanned out in parallel.
+    """
+    where = {"person": person, "role": role, "project_type": project_type}
+    hits = _hits(client, "assignments", where, "went_well", limit=2)
+    return _p_of(hits, True)
 
 
 def _levers(client: AitoClient, base_where: dict,

@@ -313,6 +313,28 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     prediction: a calendar is a fact, and dressing arithmetic up as
     inference is the sort of thing this demo must not teach.
 
+    **The candidate columns are "did well" and "done", not a share.**
+    `_predict person` returns a distribution over WHO GETS PICKED,
+    normalised across the shortlist — so it summed to 1, moved when the
+    shortlist moved, and came back 18-22% across five people while
+    saying nothing. It is no longer a headline. "Did well" is
+    `_predict went_well` with the PERSON in the where (34%-62% across
+    the same five, and the fixture's chaotic people land at the
+    bottom), and "done" is a plain count, because a count is a fact
+    about a person and a share is a fact about the list.
+
+    An earlier version asked `_recommend ... goal={went_well: true}`
+    once per role — cheaper, and nearly useless: 0.73-0.83 across every
+    candidate while the underlying per-person rates run 10% to 87%.
+    Goal-ranking smooths across the candidate set. Asking about one
+    person at a time does not, so the shortlist is fanned out.
+
+    **No dialog inside a dialog.** The drivers used to sit behind a `?`
+    that opened a popover on top of the candidate list. They are two
+    facts that fit on a line, so they are on the line. A `?` is worth
+    having only where there is a real factor tree behind it — the
+    delivery-risk rows — and nowhere else.
+
     **Two columns, two questions.** "Usual pick" is
     `P(person | role, site, stack, sector)` — who does this. "Did well"
     is `_recommend person goal={went_well: true}` — who did well when
