@@ -106,6 +106,7 @@ export default function PlannerPage() {
   const [duration, setDuration] = useState(150);
   const [teamSize, setTeamSize] = useState(8);
   const [priority, setPriority] = useState("high");
+  const [site, setSite] = useState("");
   const [competing, setCompeting] = useState(true);
   const [existing, setExisting] = useState(true);
 
@@ -132,6 +133,14 @@ export default function PlannerPage() {
     }
   }, [customers, customer]);
 
+  // Selecting a customer pre-fills the site their work usually runs at,
+  // the way a CRM would. Still editable — the point of the field is
+  // that it moves the staffing answer.
+  useEffect(() => {
+    const hinted = options?.site_by_customer?.[customer];
+    if (hinted) setSite(hinted);
+  }, [customer, options]);
+
   const submit = () => {
     setBusy(true);
     setError(null);
@@ -145,6 +154,7 @@ export default function PlannerPage() {
         duration_days: duration,
         team_size: teamSize,
         priority,
+        site,
         competing_bid: competing,
         existing_customer: existing,
       }),
@@ -161,10 +171,13 @@ export default function PlannerPage() {
       stats: [
         { label: "Fit", value: pct(c.fit) },
         { label: "Current load", value: `${c.current_load_pct}%` },
-        { label: "Role", value: role },
+        { label: "Site", value: c.site },
       ],
       description:
-        `<em>${c.person}</em> as <em>${role}</em> on ` +
+        `<em>${c.person}</em> — ${c.title}, ${c.seniority}, ` +
+        `${c.years_experience}y, based in ${c.site}. Skills on record: ` +
+        `<em>${c.skills}</em>. ` +
+        `Ranked as <em>${role}</em> on ` +
         `<em>${projectType}</em> work. Fit is P(person | project type, role) ` +
         `over the assignment history — how often this person is the one who ` +
         `actually does this job. Their current allocation is ` +
@@ -176,10 +189,14 @@ export default function PlannerPage() {
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"${projectType}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"role"</span>: <span class="q-v">"${role}"</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"role"</span>: <span class="q-v">"${role}"</span>,<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"site"</span>: <span class="q-v">"${site}"</span><br/>
 &nbsp;&nbsp;},<br/>
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"person"</span><br/>
-}`,
+}<br/>
+<br/>
+<span class="q-d">// person links to people — one call returns the</span><br/>
+<span class="q-d">// ranking AND the matched person's whole row</span>`,
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
@@ -265,6 +282,15 @@ export default function PlannerPage() {
                     max={20}
                     onChange={(e) => setTeamSize(Number(e.target.value))}
                   />
+                </label>
+                <label className="pl-field">
+                  <span>Site</span>
+                  <select value={site} onChange={(e) => setSite(e.target.value)}>
+                    <option value="">any site</option>
+                    {(options?.sites ?? []).map((sName) => (
+                      <option key={sName} value={sName}>{sName}</option>
+                    ))}
+                  </select>
                 </label>
                 <label className="pl-field">
                   <span>Priority</span>
@@ -383,8 +409,28 @@ export default function PlannerPage() {
                                   className="clickable"
                                   onClick={() => showCandidate(slot.role, c)}
                                 >
-                                  <td style={{ width: "34%" }}>{c.person}</td>
-                                  <td style={{ width: "34%" }}>
+                                  <td style={{ width: "52%" }}>
+                                    <div className="pl-person">{c.person}</div>
+                                    {/* The reason, in the person's own
+                                        attributes — returned by the same
+                                        call that ranked them, because
+                                        assignments.person links to people. */}
+                                    <div className="pl-chips">
+                                      {c.matches.map((m) => (
+                                        <span
+                                          className={
+                                            site && m === `based in ${site}`
+                                              ? "pl-chip pl-chip-hit"
+                                              : "pl-chip"
+                                          }
+                                          key={m}
+                                        >
+                                          {m}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td style={{ width: "20%" }}>
                                     <div className="pl-fit-track">
                                       <div
                                         className="pl-fit-bar"
@@ -395,12 +441,12 @@ export default function PlannerPage() {
                                     </div>
                                   </td>
                                   <td
-                                    style={{ width: "14%", textAlign: "right" }}
+                                    style={{ width: "12%", textAlign: "right" }}
                                   >
                                     {pct(c.fit)}
                                   </td>
                                   <td
-                                    style={{ width: "18%", textAlign: "right" }}
+                                    style={{ width: "16%", textAlign: "right" }}
                                   >
                                     <span className={loadClass(c.status)}>
                                       {c.current_load_pct}%

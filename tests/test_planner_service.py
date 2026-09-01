@@ -17,7 +17,7 @@ class _FakeClient:
         self._responses = responses
         self.calls = []
 
-    def predict(self, table, where, predict_field, limit=6):
+    def predict(self, table, where, predict_field, limit=6, select_extra=None):
         self.calls.append((table, where, predict_field))
         return self._responses.get((table, predict_field),
                                    {"hits": [], "offset": 0, "total": 0})

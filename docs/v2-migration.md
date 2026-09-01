@@ -136,6 +136,33 @@ compatibility affordance for v1 clients being ported, and the whole
 point of canonicalising here was that retiring v1 deletes code rather
 than touching eleven services.
 
+### 1b. v1 rejects `select: ["feature"]` for a LINK target
+
+*found while building the planner; the shim is now gone entirely*
+
+The mirror image of #1, and the reason that finding is now moot in
+both directions. `feature` is v1's name for the predicted value, but
+only when the target is a plain column. Predict a **link** column and
+v1 fails the whole query:
+
+```
+400 field 'feature' not found
+  {"from":"assignments", "predict":"person",
+   "select":["$p","feature", …]}       ← person links to people.person
+```
+
+`$value` is accepted on v1 for String, Boolean **and** link targets —
+verified on all three. So the client now selects `$value` on both API
+versions and the v1 `feature` shim is deleted, which removes the
+single largest piece of v1/v2 divergence in `aito_client.py`. The
+canonicaliser survives only for v2's `_match`, which returns both keys
+as aliases.
+
+*Upstream note:* worth documenting that `feature` is not a general
+alias for the predicted value. A client that only ever predicts plain
+columns will use it happily for months and then break the first time
+someone predicts across a link.
+
 ### 2. `relate` takes a field list, not a field name
 
 *by design; the error message is fixed*

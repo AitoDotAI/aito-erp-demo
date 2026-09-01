@@ -25,6 +25,7 @@ Run with: `./do booktest` (or `pytest tests/test_project_booktest.py -v`).
 from __future__ import annotations
 
 import json
+from collections import Counter
 import os
 from pathlib import Path
 
@@ -32,11 +33,29 @@ import pytest
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-# Mirrors the generator's reliability profile. Keep in sync with
-# data/generate_personas.py — these are the people whose effect on
-# project outcomes is engineered into the fixtures.
-RELIABLE = {"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"}
-CHAOTIC = {"V. Jokinen", "T. Rinne"}
+# Read the reliability profile FROM the generator rather than
+# mirroring it. This used to be a hand-copied list of five names, and
+# it silently went stale the moment the bench grew: the generator was
+# boosting thirty-odd people while the test still measured five, so the
+# "low reliability" bucket was full of reliable people and the
+# engineered contrast vanished into the noise. A constant duplicated
+# across a boundary is a constant that will drift.
+def _rosters() -> tuple[set[str], set[str]]:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_personas", DATA_DIR / "generate_personas.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    reliable: set[str] = set()
+    chaotic: set[str] = set()
+    for persona in (module.METSA, module.AURORA, module.STUDIO):
+        reliable |= persona.project_reliable
+        chaotic |= persona.project_chaotic
+    return reliable, chaotic
+
+
+RELIABLE, CHAOTIC = _rosters()
 
 # `team_members` is the space-joined display field on `projects`. The
 # fixture-signal tests below split on whitespace so they work regardless
@@ -211,8 +230,15 @@ def test_fixture_assignments_link_to_projects(tenant_dir: Path):
     orphans = [a for a in assignments if a["project_id"] not in projects]
     assert not orphans, f"{len(orphans)} assignments reference missing projects"
 
-    leads = [a for a in assignments if a["role"] == "lead"]
-    assert len(leads) >= 30, "every project should have a lead assignment"
+    # Roles are DISCIPLINES now ("project manager", "frontend",
+    # "site manager"…), not seniority bands — that is what makes
+    # `_predict person` given a role a real match rather than a
+    # popularity contest. Every project still gets exactly one lead,
+    # whatever that persona calls it.
+    per_project = Counter(a["project_id"] for a in assignments)
+    assert min(per_project.values()) >= 1
+    roles = {a["role"] for a in assignments}
+    assert len(roles) >= 4, f"expected a discipline vocabulary, got {roles}"
 
 
 # ── Layer 2: live Aito backtests ────────────────────────────────────

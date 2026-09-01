@@ -31,7 +31,7 @@ canonical shape, and that shape is v2's — the destination, not the legacy:
 
   | Concept          | v1 wire shape                     | v2 wire shape        | canonical |
   |------------------|-----------------------------------|----------------------|-----------|
-  | predicted value  | `hit["feature"]`                  | `hit["$value"]`      | `$value`  |
+  | predicted value  | `$value` (also `feature`)         | `hit["$value"]`      | `$value`  |
   | relate target    | `relate: "supplier"`              | `relate: ["supplier"]` | n/a (request) |
   | relate hit value | `related.supplier.$has`           | `related.supplier`   | `$has` unwrapped |
   | relate probs     | `ps: {p, pOnCondition, …}` smoothed | `ps` empirical     | as sent   |
@@ -108,19 +108,21 @@ def _is_missing_table_error(exc: "AitoError", table: str) -> bool:
 
 
 def _canonical_predicted_values(response: dict, api_version: ApiVersion) -> dict:
-    """Rename v1's `feature` hit key to v2's `$value`.
+    """Fold a legacy `feature` hit key into the canonical `$value`.
 
-    Mutates and returns the response. A v2 response already speaks the
-    canonical vocabulary and is handed straight back. A v1 hit that
-    carries neither key is left alone rather than patched with a
-    placeholder — a shape we don't recognise should surface as a
-    KeyError at the call site, not as an empty prediction.
+    `predict` now selects `$value` on both API versions, so a predict
+    response never carries `feature` at all. This still runs because
+    v2's `_match` returns both keys as back-compat aliases of the same
+    value — and because a hit that carries neither is left alone rather
+    than patched with a placeholder: a shape we don't recognise should
+    surface as a KeyError at the call site, not as an empty prediction.
     """
-    if api_version == "v2":
-        return response
     for hit in response.get("hits", []):
         if "feature" in hit:
-            hit["$value"] = hit.pop("feature")
+            legacy = hit.pop("feature")
+            # v2's `_match` returns BOTH keys as aliases of one value.
+            # Never let the legacy one overwrite the canonical one.
+            hit.setdefault("$value", legacy)
     return response
 
 
@@ -341,8 +343,19 @@ class AitoClient:
             return {"hits": []}
         return {"hits": [], "offset": 0, "total": 0}
 
-    def predict(self, table: str, where: dict, predict_field: str, limit: int = 10) -> dict:
+    def predict(self, table: str, where: dict, predict_field: str,
+                limit: int = 10,
+                select_extra: list[str] | None = None) -> dict:
         """Run a _predict query.
+
+        `select_extra` adds field names to the projection. It exists for
+        LINK targets: when `predict_field` links to another table, Aito
+        will return the matched row's columns — but only if you ask for
+        them. With no `select` at all it returns them by default; the
+        moment this client names a `select` (which it must, for `$why`),
+        that default is replaced. So a caller predicting `person` passes
+        `["title", "skills", "site"]` and gets the ranking and the
+        matched person's profile from one call instead of two.
 
         Example:
             client.predict(
@@ -366,14 +379,21 @@ class AitoClient:
         if self._v2 is not None:
             return self._v2_result("predict", table, lambda: self._v2.predict(
                 from_table=table, where=where, predict=predict_field,
-                select=["$p", "$value", why_select], limit=limit))
+                select=["$p", "$value", why_select, *(select_extra or [])],
+                limit=limit))
 
-        # v1 names the predicted-value token `feature`; v2 rejects it.
+        # `$value` on BOTH versions. v1 also answers to `feature`, which
+        # is what this used to send — but only for a plain column. Ask
+        # for `feature` when the predicted field is a LINK and v1 fails
+        # the whole query with `field 'feature' not found`, because the
+        # predicted value there is a linked row rather than a column of
+        # this table. `$value` is accepted for String, Boolean and link
+        # targets alike, so there is one spelling and no shim.
         query = {
             "from": table,
             "where": where,
             "predict": predict_field,
-            "select": ["$p", "feature", why_select],
+            "select": ["$p", "$value", why_select, *(select_extra or [])],
             "limit": limit,
         }
         try:

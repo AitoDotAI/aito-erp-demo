@@ -793,6 +793,7 @@ def planner_plan(body: dict, request: Request):
         duration_days=int(body["duration_days"]),
         team_size=int(body["team_size"]),
         priority=str(body.get("priority", "medium")),
+        site=str(body.get("site", "")),
         competing_bid=bool(body.get("competing_bid", False)),
         existing_customer=bool(body.get("existing_customer", True)),
     ).to_dict()

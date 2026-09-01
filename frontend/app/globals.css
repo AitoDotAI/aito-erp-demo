@@ -3857,3 +3857,25 @@ body {
   padding: 4px 18px 14px;
   line-height: 1.5;
 }
+
+.pl-person { font-size: 12px; color: var(--ink); font-weight: 600; }
+
+/* The match reasons: facts off the person's row, not a score. Kept as
+   discrete chips so a delivery lead can disagree with one of them. */
+.pl-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+.pl-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--cream);
+  border: 1px solid var(--border);
+  color: var(--mid);
+  white-space: nowrap;
+}
+
+.pl-chip-hit {
+  background: var(--green-light);
+  border-color: var(--green);
+  color: var(--green);
+}

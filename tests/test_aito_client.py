@@ -94,7 +94,10 @@ def test_predict_query_shape(httpx_mock):
     assert body["from"] == "purchases"
     assert body["predict"] == "cost_center"
     assert body["where"] == {"supplier": "Telia"}
-    assert "feature" in body["select"]
+    # `$value` on v1 too: `feature` is rejected outright when the
+    # predicted field is a link column (see aito_client.predict).
+    assert "$value" in body["select"]
+    assert "feature" not in body["select"]
 
 
 def test_predict_normalises_v1_feature_to_value(httpx_mock):

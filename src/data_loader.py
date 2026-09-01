@@ -110,6 +110,7 @@ SCHEMAS = {
             "duration_days": {"type": "Int", "nullable": False},
             "priority": {"type": "String", "nullable": False},
             "status": {"type": "String", "nullable": False},
+            "site": {"type": "String", "nullable": False},
             "start_month": {"type": "String", "nullable": False},
             # Outcomes are nullable: only completed projects have them.
             "on_time": {"type": "Boolean", "nullable": True},
@@ -117,18 +118,40 @@ SCHEMAS = {
             "success": {"type": "Boolean", "nullable": True},
         },
     },
+    # The bench, with the metadata that decides a staffing call. Lives
+    # in its own table (rather than as more columns on `assignments`)
+    # because it describes a PERSON, not a booking — and because
+    # `assignments.person` links here, one `_predict person` returns
+    # the whole profile alongside the ranking.
+    "people": {
+        "type": "table",
+        "columns": {
+            "person": {"type": "String", "nullable": False},
+            "discipline": {"type": "String", "nullable": False},
+            "title": {"type": "String", "nullable": False},
+            # Text, not String: skills are a bag of terms, and matching
+            # "React" against "React TypeScript JavaScript" is the whole
+            # point. A String here would only ever match the exact list.
+            "skills": {"type": "Text", "nullable": False},
+            "certifications": {"type": "Text", "nullable": True},
+            "site": {"type": "String", "nullable": False},
+            "seniority": {"type": "String", "nullable": False},
+            "years_experience": {"type": "Int", "nullable": False},
+        },
+    },
     "assignments": {
         "type": "table",
         "columns": {
             "assignment_id": {"type": "String", "nullable": False},
             "project_id": {"type": "String", "nullable": False, "link": "projects.project_id"},
-            "person": {"type": "String", "nullable": False},
+            "person": {"type": "String", "nullable": False, "link": "people.person"},
             "role": {"type": "String", "nullable": False},
             "allocation_pct": {"type": "Int", "nullable": False},
             # Denormalised mirror of projects.{project_type, success} so
             # `_predict` and `_relate` on this table can filter by them
             # directly without needing a cross-table join.
             "project_type": {"type": "String", "nullable": False},
+            "site": {"type": "String", "nullable": False},
             "project_success": {"type": "Boolean", "nullable": True},
         },
     },

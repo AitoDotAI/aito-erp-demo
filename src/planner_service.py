@@ -66,9 +66,20 @@ OVERLOAD_PCT = 110
 @dataclass
 class Candidate:
     person: str
-    fit: float                 # P(person | project_type, role)
+    fit: float                 # P(person | project_type, role, site)
     current_load_pct: int
     status: str                # from the utilization view's own vocabulary
+    # The person's own profile, returned by the SAME `_predict` call:
+    # `assignments.person` links to `people.person`, so Aito hands back
+    # every column of the linked row on each hit. No second lookup.
+    title: str = ""
+    discipline: str = ""
+    skills: str = ""
+    certifications: str = ""
+    site: str = ""
+    seniority: str = ""
+    years_experience: int = 0
+    matches: list[str] = field(default_factory=list)
     why: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -77,6 +88,14 @@ class Candidate:
             "fit": self.fit,
             "current_load_pct": self.current_load_pct,
             "status": self.status,
+            "title": self.title,
+            "discipline": self.discipline,
+            "skills": self.skills,
+            "certifications": self.certifications,
+            "site": self.site,
+            "seniority": self.seniority,
+            "years_experience": self.years_experience,
+            "matches": self.matches,
             "why": self.why,
         }
 
@@ -171,6 +190,7 @@ class EngagementPlan:
     duration_days: int
     team_size: int
     priority: str
+    site: str
     roles: list[RoleSlot]
     delivery: DeliveryRisk
     price: PriceCheck | None
@@ -185,6 +205,7 @@ class EngagementPlan:
             "duration_days": self.duration_days,
             "team_size": self.team_size,
             "priority": self.priority,
+            "site": self.site,
             "roles": [r.to_dict() for r in self.roles],
             "delivery": self.delivery.to_dict(),
             "price": self.price.to_dict() if self.price else None,
@@ -203,23 +224,43 @@ def planner_options(client: AitoClient) -> dict:
     try:
         response = client.search("projects", {}, limit=500)
     except AitoError:
-        return {"project_types": [], "customers_by_type": {}}
+        return {"project_types": [], "customers_by_type": {},
+                "sites": [], "site_by_customer": {}}
 
     hits = response.get("hits") or []
     customers: dict[str, set[str]] = {}
+    sites: set[str] = set()
+    # Which site a customer's work usually runs at, so selecting the
+    # customer pre-fills the site the way it would in a real CRM.
+    site_by_customer: dict[str, str] = {}
     for hit in hits:
         ptype = hit.get("project_type")
         customer = hit.get("customer")
+        site = hit.get("site")
         if ptype and customer:
             customers.setdefault(ptype, set()).add(customer)
+        if site:
+            sites.add(site)
+            if customer:
+                site_by_customer.setdefault(customer, site)
     return {
         "project_types": sorted(customers),
         "customers_by_type": {k: sorted(v) for k, v in customers.items()},
+        "sites": sorted(sites),
+        "site_by_customer": site_by_customer,
     }
 
 
+# The linked `people` columns to pull back alongside the ranking. Named
+# explicitly because naming any `select` replaces Aito's default of
+# returning the whole linked row.
+PERSON_FIELDS = ["title", "discipline", "skills", "certifications",
+                 "site", "seniority", "years_experience"]
+
+
 def _hits(client: AitoClient, table: str, where: dict,
-          predict_field: str, limit: int = 6) -> list[dict]:
+          predict_field: str, limit: int = 6,
+          select_extra: list[str] | None = None) -> list[dict]:
     """`_predict`, tolerating a table this tenant doesn't carry.
 
     `quotes` is optional per persona (see data_loader.OPTIONAL_TABLES),
@@ -227,7 +268,8 @@ def _hits(client: AitoClient, table: str, where: dict,
     tenant that only has delivery data.
     """
     try:
-        response = client.predict(table, where, predict_field, limit=limit)
+        response = client.predict(table, where, predict_field, limit=limit,
+                                  select_extra=select_extra)
     except AitoError:
         return []
     return response.get("hits") or []
@@ -290,6 +332,7 @@ def plan_engagement(
     duration_days: int,
     team_size: int,
     priority: str = "medium",
+    site: str = "",
     competing_bid: bool = False,
     existing_customer: bool = True,
 ) -> EngagementPlan:
@@ -305,21 +348,37 @@ def plan_engagement(
     loads = _current_loads(client)
     roles: list[RoleSlot] = []
     for role, count, share in _role_slots(client, project_type, team_size):
-        hits = _hits(client, "assignments",
-                     {"project_type": project_type, "role": role},
-                     "person", limit=6)
+        # `assignments.person` is a link to `people.person`, so this one
+        # call returns the ranking AND every column of the matched
+        # person's row — title, skills, site, seniority. No second
+        # lookup, and the metadata that justifies the match arrives with
+        # the match itself.
+        where = {"project_type": project_type, "role": role}
+        if site:
+            where["site"] = site
+        hits = _hits(client, "assignments", where, "person", limit=6,
+                     select_extra=PERSON_FIELDS)
         candidates = []
         for hit in hits:
-            person = str(hit.get("$value"))
+            person = str(hit.get("$value") or hit.get("person"))
             p = float(hit.get("$p", 0.0))
             load, status = loads.get(person, (0, "available"))
-            candidates.append(Candidate(
+            candidate = Candidate(
                 person=person,
                 fit=p,
                 current_load_pct=load,
                 status=status,
+                title=str(hit.get("title") or ""),
+                discipline=str(hit.get("discipline") or ""),
+                skills=str(hit.get("skills") or ""),
+                certifications=str(hit.get("certifications") or ""),
+                site=str(hit.get("site") or ""),
+                seniority=str(hit.get("seniority") or ""),
+                years_experience=int(hit.get("years_experience") or 0),
                 why=process_factors(hit.get("$why") or {}, p),
-            ))
+            )
+            candidate.matches = _match_chips(candidate, role, site)
+            candidates.append(candidate)
         roles.append(RoleSlot(role=role, count=count, share=share,
                               candidates=candidates))
 
@@ -338,6 +397,8 @@ def plan_engagement(
         "duration_days": duration_days,
         "priority": priority,
     }
+    if site:
+        delivery_where["site"] = site
     success_p, success_why = _p_of(
         _hits(client, "projects", delivery_where, "success", limit=2), True)
     on_time_p, on_time_why = _p_of(
@@ -366,11 +427,39 @@ def plan_engagement(
         duration_days=duration_days,
         team_size=team_size,
         priority=priority,
+        site=site,
         roles=roles,
         delivery=delivery,
         price=price,
         sales=sales,
     )
+
+
+def _match_chips(candidate: Candidate, role: str, site: str) -> list[str]:
+    """The candidate's own attributes that answer this request.
+
+    These are read off the person's row, not inferred: the ranking is
+    Aito's, and these say what about the person the ranking is made of.
+    Kept to facts on the record so a delivery lead can argue with them
+    — "Frontend Developer", "based in Tampere", "React", not a score.
+    """
+    chips: list[str] = []
+    if candidate.title:
+        chips.append(candidate.title)
+    if candidate.discipline and candidate.discipline == role:
+        chips.append(f"does {role} work")
+    if site and candidate.site == site:
+        chips.append(f"based in {site}")
+    elif candidate.site:
+        chips.append(f"{candidate.site} — would travel")
+    # Two or three skills is a reason; the whole list is a CV dump.
+    for skill in candidate.skills.split()[:3]:
+        chips.append(skill)
+    if candidate.certifications:
+        chips.append(candidate.certifications.split(",")[0].strip())
+    if candidate.years_experience:
+        chips.append(f"{candidate.years_experience}y")
+    return chips
 
 
 def _current_loads(client: AitoClient) -> dict[str, tuple[int, str]]:

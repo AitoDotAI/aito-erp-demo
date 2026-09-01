@@ -241,12 +241,16 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     `_predict assignments.role|allocation_pct` filtered by the
     denormalised `project_type` column. Studio-only.
 14. **Engagement Planner** — a proposal (customer, scope, quote,
-    duration, team size) in; a staffed team, a price check, delivery
-    risk and a predicted customer objection out. Roles from
-    `_predict assignments.role`, people from `_predict person` per
-    role annotated with live load, delivery from `_predict success |
-    on_time`, and the sales read from `_predict quotes.won` +
-    `loss_reason`. Metsä + Studio.
+    duration, team size, site) in; a staffed team, a price check,
+    delivery risk and a predicted customer objection out. Roles from
+    `_predict assignments.role` — the role vocabulary is DISCIPLINES
+    (`frontend`, `ux design`, `site manager`), not seniority bands.
+    People from `_predict person` per role; `assignments.person` links
+    to `people`, so one call returns the ranking **and** the matched
+    person's title, skills, site and seniority, which is what the
+    match chips show. Delivery from `_predict success | on_time`, and
+    the sales read from `_predict quotes.won` + `loss_reason`.
+    Metsä + Studio.
 15. **Revenue Outlook** — the order book spread over the coming months
     by percentage-of-completion, then risk-adjusted by
     `_predict on_time` / `on_budget` per in-flight project. Answers
@@ -277,6 +281,22 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | planner_service | `_predict` ×N + `_search` | Role mix + people per role; delivery risk; `quotes.won` / `loss_reason` for the predicted objection |
 
 ---
+
+### Why `people` is its own table
+
+`assignments` records who worked on what. It cannot say *why* they were
+the right choice — that is their discipline, title, skills and site,
+which in a real company lives in an HR system the scheduler never
+queries. `people` holds it and `assignments.person` links to it, so a
+`_predict person` returns the ranking and the profile together and a
+staffing suggestion can be argued with in the terms a delivery lead
+uses ("React, based in Tampere") rather than a bare score.
+
+Note the projection gotcha: with **no** `select`, Aito returns the
+whole linked row by default. The moment you name a `select` — which
+this client must, for `$why` — that default is replaced, so linked
+columns have to be named explicitly. That is what
+`AitoClient.predict(select_extra=…)` is for.
 
 ### Why there is a `quotes` table
 

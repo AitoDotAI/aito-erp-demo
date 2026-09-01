@@ -698,6 +698,14 @@ export interface PlannerCandidate {
   fit: number;
   current_load_pct: number;
   status: string;
+  title: string;
+  discipline: string;
+  skills: string;
+  certifications: string;
+  site: string;
+  seniority: string;
+  years_experience: number;
+  matches: string[];
   why: WhyExplanation | Record<string, never>;
 }
 
@@ -746,6 +754,7 @@ export interface EngagementPlan {
   duration_days: number;
   team_size: number;
   priority: string;
+  site: string;
   roles: PlannerRoleSlot[];
   delivery: PlannerDeliveryRisk;
   price: PlannerPriceCheck | null;
@@ -755,4 +764,6 @@ export interface EngagementPlan {
 export interface PlannerOptions {
   project_types: string[];
   customers_by_type: Record<string, string[]>;
+  sites: string[];
+  site_by_customer: Record<string, string>;
 }

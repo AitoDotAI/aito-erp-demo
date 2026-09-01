@@ -152,6 +152,12 @@ class PersonaSpec:
     # Description vocabularies — used to build readable purchase descriptions.
     descriptions: dict[str, list[str]]
     # Product catalog (commerce-oriented persona only — others get a thin set)
+    # Who is on the bench and what they do. `disciplines` maps a
+    # discipline (which is also the assignment ROLE) to the title and
+    # skills a person of that discipline carries. `lead_discipline` is
+    # the one the project's named lead always gets.
+    disciplines: dict[str, dict] = field(default_factory=dict)
+    lead_discipline: str = "lead"
     # Quote pipeline — bids sent, won and lost. Defaults to none so a
     # persona that doesn't sell project work simply has no `quotes`
     # fixture and the table stays empty (see OPTIONAL_TABLES).
@@ -228,6 +234,30 @@ METSA = PersonaSpec(
         "rd":           ["Prototype hydraulic assembly and test rig",
                           "Materials trial for the seal kit redesign"],
     },
+    lead_discipline="site manager",
+    disciplines={
+        "site manager":      {"title": "Site Manager",
+                              "skills": "site management scheduling subcontractors safety permits",
+                              "certifications": "SFS 6002, occupational safety card"},
+        "mechanical":        {"title": "Mechanical Engineer",
+                              "skills": "hydraulics gearboxes bearings CAD alignment vibration analysis",
+                              "certifications": "hot work permit"},
+        "automation":        {"title": "Automation Engineer",
+                              "skills": "PLC SCADA Siemens S7 instrumentation commissioning",
+                              "certifications": "SFS 6002"},
+        "electrical":        {"title": "Electrical Engineer",
+                              "skills": "switchgear cabling motor drives earthing inspections",
+                              "certifications": "SFS 6002, electrical work licence"},
+        "hvac":              {"title": "HVAC Technician",
+                              "skills": "ventilation heat recovery refrigeration ductwork balancing",
+                              "certifications": "refrigerant handling"},
+        "civil":             {"title": "Civil Engineer",
+                              "skills": "foundations concrete steel frame structural surveying",
+                              "certifications": "occupational safety card"},
+        "quality":           {"title": "Quality Inspector",
+                              "skills": "auditing tolerances documentation ISO 9001 non-conformance",
+                              "certifications": "ISO 9001 lead auditor"},
+    },
     project_managers=["M. Hakala", "T. Virtanen", "K. Mäkinen", "J. Lehtinen"],
     project_leads={
         "maintenance":  ["P. Korhonen", "T. Virtanen", "S. Niemi"],
@@ -242,8 +272,9 @@ METSA = PersonaSpec(
         "O. Halonen", "I. Pulkkinen", "N. Forsberg", "J. Karjalainen",
         *MORE_PROJECT_PEOPLE[:46],
     ],
-    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
-    project_chaotic={"V. Jokinen", "T. Rinne"},
+    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila",
+                      *MORE_PROJECT_PEOPLE[:14]},
+    project_chaotic={"V. Jokinen", "T. Rinne", *MORE_PROJECT_PEOPLE[14:20]},
     project_customers={
         "maintenance":  ["Internal — Production", "Internal — Site Helsinki", "Wärtsilä Oy", "Caverion Suomi"],
         "construction": ["NCC Suomi", "Lemminkäinen", "City of Tampere"],
@@ -355,6 +386,24 @@ AURORA = PersonaSpec(
         "audit":        ["Store compliance audit across the Nordic range",
                           "Supplier onboarding review"],
     },
+    lead_discipline="store lead",
+    disciplines={
+        "store lead":   {"title": "Store Project Lead",
+                         "skills": "store operations rollout planning staffing merchandising",
+                         "certifications": "retail operations"},
+        "visual":       {"title": "Visual Merchandiser",
+                         "skills": "planograms display design signage lighting fixtures",
+                         "certifications": ""},
+        "ecommerce":    {"title": "Ecommerce Specialist",
+                         "skills": "Shopify product feeds SEO conversion analytics",
+                         "certifications": "Google Analytics"},
+        "supply":       {"title": "Supply Planner",
+                         "skills": "replenishment forecasting slotting supplier onboarding",
+                         "certifications": ""},
+        "marketing":    {"title": "Campaign Manager",
+                         "skills": "campaign planning CRM segmentation loyalty copywriting",
+                         "certifications": ""},
+    },
     project_managers=["M. Eronen", "A. Niemi", "R. Salonen"],
     project_leads={
         "store-fitout":   ["L. Aho", "P. Korhonen"],
@@ -368,8 +417,9 @@ AURORA = PersonaSpec(
         "O. Halonen", "N. Forsberg",
         *MORE_PROJECT_PEOPLE[:13],
     ],
-    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
-    project_chaotic={"V. Jokinen", "T. Rinne"},
+    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila",
+                      *MORE_PROJECT_PEOPLE[:4]},
+    project_chaotic={"V. Jokinen", "T. Rinne", *MORE_PROJECT_PEOPLE[4:6]},
     project_customers={
         "store-fitout":   ["Internal — Store Helsinki", "Internal — Store Tampere", "Internal — Store Oulu"],
         "ecom-launch":    ["Internal — E-com"],
@@ -486,6 +536,27 @@ STUDIO = PersonaSpec(
         "retainer":       ["Ongoing design retainer, two days a week",
                             "Embedded product team for two quarters"],
     },
+    lead_discipline="project manager",
+    disciplines={
+        "project manager": {"title": "Project Manager",
+                            "skills": "agile coaching stakeholder management roadmapping budgeting",
+                            "certifications": "Scrum Master, SAFe"},
+        "frontend":        {"title": "Frontend Developer",
+                            "skills": "React TypeScript JavaScript CSS accessibility Next.js",
+                            "certifications": ""},
+        "backend":         {"title": "Backend Developer",
+                            "skills": "Python Node PostgreSQL API design integrations AWS",
+                            "certifications": "AWS Solutions Architect"},
+        "ux design":       {"title": "UX Designer",
+                            "skills": "UI design Figma prototyping user research design systems",
+                            "certifications": ""},
+        "data":            {"title": "Data Engineer",
+                            "skills": "SQL dbt pipelines analytics warehousing Python",
+                            "certifications": ""},
+        "qa":              {"title": "QA Engineer",
+                            "skills": "test automation Playwright regression accessibility audits",
+                            "certifications": "ISTQB"},
+    },
     project_managers=["A. Lahti", "J. Mäkelä", "K. Saarinen", "L. Lounela"],
     project_leads={
         "design":         ["A. Lindgren", "K. Saari", "S. Niemi"],
@@ -501,8 +572,9 @@ STUDIO = PersonaSpec(
         "L. Lounela",
         *MORE_PROJECT_PEOPLE[:27],
     ],
-    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
-    project_chaotic={"V. Jokinen", "T. Rinne"},
+    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila",
+                      *MORE_PROJECT_PEOPLE[:8]},
+    project_chaotic={"V. Jokinen", "T. Rinne", *MORE_PROJECT_PEOPLE[8:12]},
     project_customers={
         "design":         ["Wolt Enterprises", "Reaktor", "Nordea Brand", "Marimekko"],
         "implementation": ["Telia Finland", "Posti Group", "Fortum", "S-Group"],
@@ -800,11 +872,19 @@ def _project_success_p(
     return max(0.05, min(0.97, p))
 
 
-def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict], list[dict]]:
+def generate_projects_and_assignments(
+    persona: PersonaSpec, people: list[dict],
+) -> tuple[list[dict], list[dict]]:
     projects: list[dict] = []
     assignments: list[dict] = []
     types = list(persona.project_types.keys())
     weights = [persona.project_types[t]["weight"] for t in types]
+    by_name = {p["person"]: p for p in people}
+    by_discipline: dict[str, list[str]] = {}
+    for p in people:
+        by_discipline.setdefault(p["discipline"], []).append(p["person"])
+    ordinary_disciplines = [d for d in persona.disciplines
+                            if d != persona.lead_discipline]
 
     def make_one(idx: int, completed: bool) -> None:
         ptype = random.choices(types, weights=weights, k=1)[0]
@@ -812,12 +892,37 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
         manager = random.choice(persona.project_managers)
         lead = random.choice(persona.project_leads[ptype])
         team_size = random.randint(*spec["team"])
-        pool = [p for p in persona.project_team_pool if p != lead]
-        members = random.sample(pool, k=min(team_size, len(pool)))
+        customer_for_site = random.choice(persona.project_customers[ptype])
+        site = site_for(customer_for_site) or random.choices(
+            SITES, weights=SITE_WEIGHTS, k=1)[0]
+
+        # Staff by DISCIPLINE, not at random: pick which roles this job
+        # needs, then fill each from the people who do that work,
+        # preferring the ones already at the site. This is the
+        # correlation the planner has to rediscover — if members were
+        # sampled uniformly, `role` would predict nothing about `person`
+        # and the match would be an accident of frequency.
+        member_roles = [random.choice(ordinary_disciplines)
+                        for _ in range(team_size)]
+        members = []
+        for role_needed in member_roles:
+            bench = [n for n in by_discipline.get(role_needed, [])
+                     if n != lead and n not in members]
+            if not bench:
+                bench = [n for n in persona.project_team_pool
+                         if n != lead and n not in members]
+            if not bench:
+                break
+            local = [n for n in bench if by_name.get(n, {}).get("site") == site]
+            # Site is a strong preference, not a rule — real projects
+            # pull in a remote specialist when nobody local fits.
+            pick_from = local if (local and random.random() < 0.75) else bench
+            members.append(random.choice(pick_from))
+        member_roles = member_roles[:len(members)]
         budget = round(random.uniform(*spec["budget"]), -2)
         duration = random.randint(*spec["duration"])
         priority = random.choices(["low", "medium", "high"], weights=[25, 50, 25], k=1)[0]
-        customer = random.choice(persona.project_customers[ptype])
+        customer = customer_for_site
 
         # Schedule the project relative to TODAY_MONTH, by status.
         # A completed project must have finished before now; an
@@ -878,13 +983,20 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
             "duration_days": duration,
             "priority": priority,
             "status": status,
+            "site": site,
             "start_month": start_month,
             "on_time": on_time,
             "on_budget": on_budget,
             "success": success,
         })
+        roles = [persona.lead_discipline] + member_roles
         for i, person in enumerate(all_people):
-            role = "lead" if i == 0 else ("senior" if person in persona.project_reliable else "engineer")
+            # The role a person is booked into is their discipline —
+            # which is exactly what makes `_predict person` given
+            # `{project_type, role, site}` a real match rather than a
+            # popularity contest.
+            role = roles[i] if i < len(roles) else by_name.get(
+                person, {}).get("discipline", persona.lead_discipline)
             allocation = random.choice([60, 80, 100]) if i == 0 else random.choice([20, 25, 40, 50, 75, 100])
             # `project_type` is denormalised onto the assignment so
             # `_predict` queries can filter by it without needing a
@@ -897,6 +1009,7 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
                 "role": role,
                 "allocation_pct": allocation,
                 "project_type": ptype,
+                "site": site,
                 "project_success": success,  # nullable mirror of projects.success
             })
 
@@ -920,6 +1033,87 @@ LOSS_REASONS = ["price", "timing", "scope_fit", "incumbent", "budget_frozen"]
 # bucketing them lets `_relate` and `_predict` treat "we quoted 30%
 # over" as one thing rather than as a thousand distinct Decimals.
 PRICE_BANDS = ["under", "at_market", "over", "well_over"]
+
+
+# Where each persona's people and projects sit. Site is a real staffing
+# constraint — a Tampere job is usually staffed from Tampere — and it is
+# the kind of fact that lives in an HR table and never reaches the
+# scheduling spreadsheet.
+SITES = ["Helsinki", "Tampere", "Oulu", "Turku"]
+SITE_WEIGHTS = [45, 25, 18, 12]
+
+# Customers whose name says where the work is. Everything else is
+# assigned a site at random from the weights above.
+SITE_HINTS = {
+    "Tampere": "Tampere",
+    "Oulu": "Oulu",
+    "Turku": "Turku",
+    "Helsinki": "Helsinki",
+}
+
+
+def site_for(text: str) -> str | None:
+    for needle, site in SITE_HINTS.items():
+        if needle.lower() in text.lower():
+            return site
+    return None
+
+
+def generate_people(persona: PersonaSpec) -> list[dict]:
+    """The bench, with the metadata that actually decides a staffing call.
+
+    `assignments` records who worked on what. It does not record *why*
+    they were the right person — that is their discipline, their title,
+    their skills and where they are based, and in a real company that
+    lives in an HR system the scheduler never queries. Putting it in its
+    own table and linking `assignments.person` to it is what lets a
+    match be explained in the terms a delivery lead actually uses:
+    "React and TypeScript, based in Tampere", not "worked on 41 of
+    these before".
+
+    Each person gets one discipline, which fixes their title and skill
+    set. `generate_projects_and_assignments` then staffs a role from
+    the people whose discipline matches it, so the correlation Aito
+    has to rediscover is really in the data rather than asserted here.
+    """
+    people: list[dict] = []
+    disciplines = persona.disciplines
+    names = persona.project_team_pool
+    lead_discipline = persona.lead_discipline
+
+    # Leads named in `project_leads` are the persona's managers, so they
+    # get the lead discipline regardless of where they fall in the pool.
+    leads = {name for names_ in persona.project_leads.values() for name in names_}
+
+    ordinary = [d for d in disciplines if d != lead_discipline]
+    for index, person in enumerate(names):
+        if person in leads:
+            discipline = lead_discipline
+        else:
+            # Round-robin rather than random, so every discipline is
+            # staffed even on the smaller benches.
+            discipline = ordinary[index % len(ordinary)]
+        spec = disciplines[discipline]
+
+        seniority = random.choices(
+            ["junior", "mid", "senior"], weights=[25, 45, 30], k=1)[0]
+        if person in persona.project_reliable:
+            seniority = "senior"
+        years = {"junior": (1, 3), "mid": (3, 8), "senior": (8, 20)}[seniority]
+
+        people.append({
+            "person": person,
+            "discipline": discipline,
+            "title": spec["title"],
+            # Text, so `$match` and tokenised evidence work on it — the
+            # skill list is the one field a human reads first.
+            "skills": spec["skills"],
+            "certifications": spec.get("certifications", ""),
+            "site": random.choices(SITES, weights=SITE_WEIGHTS, k=1)[0],
+            "seniority": seniority,
+            "years_experience": random.randint(*years),
+        })
+    return people
 
 
 def generate_quotes(persona: PersonaSpec, projects: list[dict]) -> list[dict]:
@@ -1530,7 +1724,8 @@ def write_persona(persona: PersonaSpec) -> None:
     products = generate_products(persona)
     orders = generate_orders(persona, products)
     prices = generate_price_history(persona, products)
-    projects, assignments = generate_projects_and_assignments(persona)
+    people = generate_people(persona)
+    projects, assignments = generate_projects_and_assignments(persona, people)
     impressions = generate_impressions(persona, products)
     # Tasks are currently only generated for Metsä — the construction
     # / maintenance phase model the project-plan view depends on doesn't
@@ -1542,6 +1737,7 @@ def write_persona(persona: PersonaSpec) -> None:
     with open(out / "products.json",      "w") as f: json.dump(products,     f, indent=2, ensure_ascii=False)
     with open(out / "orders.json",        "w") as f: json.dump(orders,       f, indent=2, ensure_ascii=False)
     with open(out / "price_history.json", "w") as f: json.dump(prices,       f, indent=2, ensure_ascii=False)
+    with open(out / "people.json",        "w") as f: json.dump(people,       f, indent=2, ensure_ascii=False)
     with open(out / "projects.json",      "w") as f: json.dump(projects,     f, indent=2, ensure_ascii=False)
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
     if impressions:
@@ -1563,6 +1759,7 @@ def write_persona(persona: PersonaSpec) -> None:
     if completed:
         print(f"    success rate: {len(succ)}/{len(completed)} = "
               f"{len(succ)/len(completed):.0%}")
+    print(f"  people:         {len(people)}")
     print(f"  assignments:    {len(assignments)}")
     if quotes:
         won = sum(1 for q in quotes if q["won"])
