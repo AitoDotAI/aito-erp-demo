@@ -404,6 +404,35 @@ class AitoClient:
             raise
         return _canonical_predicted_values(response, self._api_version)
 
+    def estimate(self, table: str, where: dict, estimate_field: str) -> dict:
+        """Run an `_estimate` query — a numeric value from neighbours.
+
+        Returns `{"estimate": <number>, "why": {...}}`. The `why` is a
+        `weightedAverage` whose components are `neighborContext` entries
+        — the comparable rows and how much each counted — so an estimate
+        can be shown next to the projects it came from rather than as a
+        number from nowhere.
+
+        Example:
+            client.estimate(
+                table="projects",
+                where={"project_type": "implementation",
+                       "scope_clarity": "unclear"},
+                estimate_field="actual_cost_eur",
+            )
+        """
+        query = {"from": table, "where": where, "estimate": estimate_field}
+        if self._v2 is not None:
+            return self._v2_result("estimate", table,
+                                   lambda: self._v2.estimate(query),
+                                   extract=lambda resp: resp.data)
+        try:
+            return self._request("POST", "/_estimate", json=query)
+        except AitoError as exc:
+            if self._tolerate_missing and _is_missing_table_error(exc, table):
+                return {}
+            raise
+
     def evaluate(self, table: str, where: dict, predict_field: str) -> dict:
         """Run an _evaluate query to score how likely a field value is.
 

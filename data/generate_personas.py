@@ -524,18 +524,25 @@ STUDIO = PersonaSpec(
     n_orders=900,
     n_price_history=700,
     # Project-heavy persona — billable client engagements.
+    #
+    # `team` EXCLUDES the lead, so the crew on the ground is one larger.
+    # Sized for the Finnish consultancy landscape rather than for a
+    # systems integrator: five people is a moderately large engagement
+    # here, not a starting point. The previous implementation band
+    # (4-9, so 5-10 on the ground, median 7) read as a different
+    # industry.
     n_completed_projects=340,
     n_active_projects=14,
     project_types={
-        "design":         {"budget": (8000, 80000),  "duration": (15, 90),  "team": (2, 5),  "weight": 16,
+        "design":         {"budget": (8000, 80000),  "duration": (15, 90),  "team": (1, 3),  "weight": 16,
                           "roles": {'ux design': 55, 'frontend': 20, 'qa': 15, 'data': 10}},
-        "implementation": {"budget": (30000, 200000),"duration": (45, 180), "team": (4, 9),  "weight": 34,
+        "implementation": {"budget": (25000, 160000),"duration": (45, 180), "team": (2, 5),  "weight": 34,
                           "roles": {'backend': 26, 'frontend': 20, 'architect': 15, 'qa': 15, 'devops': 12, 'data': 7, 'ux design': 5}},
-        "strategy":       {"budget": (15000, 90000), "duration": (20, 60),  "team": (2, 4),  "weight": 20,
+        "strategy":       {"budget": (15000, 90000), "duration": (20, 60),  "team": (1, 3),  "weight": 20,
                           "roles": {'architect': 35, 'ux design': 30, 'data': 20, 'backend': 15}},
-        "discovery":      {"budget": (4000, 20000),  "duration": (5, 25),   "team": (1, 3),  "weight": 18,
+        "discovery":      {"budget": (4000, 20000),  "duration": (5, 25),   "team": (1, 2),  "weight": 18,
                           "roles": {'ux design': 40, 'architect': 30, 'data': 18, 'backend': 12}},
-        "retainer":       {"budget": (12000, 60000), "duration": (90, 365), "team": (2, 5),  "weight": 14,
+        "retainer":       {"budget": (12000, 60000), "duration": (90, 365), "team": (1, 3),  "weight": 14,
                           "roles": {'backend': 28, 'frontend': 24, 'devops': 20, 'qa': 16, 'ux design': 12}},
     },
     n_quotes=610,
@@ -600,11 +607,15 @@ STUDIO = PersonaSpec(
     project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
     project_chaotic={"V. Jokinen", "T. Rinne"},
     project_customers={
-        "design":         ["Wolt Enterprises", "Reaktor", "Nordea Brand", "Marimekko"],
+        "design":         ["Wolt Enterprises", "Reaktor", "Nordea Brand", "Marimekko",
+                            "Framery", "Varusteleka", "Swappie"],
         "implementation": ["Telia Finland", "Posti Group", "Fortum", "S-Group"],
-        "strategy":       ["Sanoma Media", "Stora Enso", "Internal — Strategy"],
-        "discovery":      ["Sanoma Media", "Wärtsilä", "Internal — R&D"],
-        "retainer":       ["Telia Finland", "Marimekko", "Wolt Enterprises"],
+        "strategy":       ["Sanoma Media", "Stora Enso", "Internal — Strategy",
+                            "Framery", "Solar Foods"],
+        "discovery":      ["Sanoma Media", "Wärtsilä", "Internal — R&D",
+                            "Solar Foods", "Meru Health", "Kyrö Distillery"],
+        "retainer":       ["Telia Finland", "Marimekko", "Wolt Enterprises",
+                            "Swappie", "Meru Health"],
     },
     manager_fit={
         ("A. Lahti",    "design"):         1.30,
@@ -914,9 +925,10 @@ def _project_success_p(
 
 def generate_projects_and_assignments(
     persona: PersonaSpec, people: list[dict],
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     projects: list[dict] = []
     assignments: list[dict] = []
+    deliveries: list[dict] = []
     types = list(persona.project_types.keys())
     weights = [persona.project_types[t]["weight"] for t in types]
     by_name = {p["person"]: p for p in people}
@@ -985,7 +997,7 @@ def generate_projects_and_assignments(
         contract = random.choices(CONTRACT_TYPES, weights=CONTRACT_WEIGHTS, k=1)[0]
         clarity = random.choices(SCOPE_CLARITY, weights=CLARITY_WEIGHTS, k=1)[0]
         novelty = random.choices(NOVELTY, weights=NOVELTY_WEIGHTS, k=1)[0]
-        customer_size = random.choices(CUSTOMER_SIZE, weights=SIZE_WEIGHTS, k=1)[0]
+        customer_size = customer_size_of(customer_for_site)
         technology = random.choice(TECHNOLOGIES.get(ptype, ["general"]))
         domain = _domain_for(customer_for_site, random)
         span = month_span(duration)
@@ -1035,11 +1047,48 @@ def generate_projects_and_assignments(
             financial_ok = random.random() < probs["financial_ok"]
             team_happy = random.random() < probs["team_happy"]
             on_time = random.random() < probs["on_time"]
+
+            # WHAT IT ACTUALLY COST, which is the only thing worth
+            # estimating from. `budget_eur` and `duration_days` are what
+            # was SOLD; estimating a new proposal off them is estimating
+            # from other people's optimism, and it bakes the same
+            # overrun into the next quote. The overrun is driven by the
+            # same factors as everything else, so an unclear scope on a
+            # fixed price does not merely score badly — it costs more.
+            cost_overrun = 1.0
+            if clarity == "unclear":
+                cost_overrun *= random.uniform(1.15, 1.6)
+            elif clarity == "evolving":
+                cost_overrun *= random.uniform(1.0, 1.25)
+            if novelty == "new_stack":
+                cost_overrun *= random.uniform(1.1, 1.45)
+            if seniority == "junior_heavy":
+                cost_overrun *= random.uniform(1.05, 1.3)
+            elif seniority == "senior_heavy":
+                cost_overrun *= random.uniform(0.9, 1.02)
+            cost_overrun *= random.uniform(0.92, 1.08)
+            actual_cost_eur = round(budget * max(0.75, cost_overrun), -2)
+
+            time_overrun = 1.0
+            if clarity != "clear":
+                time_overrun *= random.uniform(1.0, 1.25)
+            if novelty == "new_stack":
+                time_overrun *= random.uniform(1.0, 1.2)
+            time_overrun *= random.uniform(0.92, 1.06)
+            actual_duration_days = max(1, round(duration * time_overrun))
+
+            # Derived from the actuals rather than drawn separately, so
+            # "on budget" and "cost 40% more than we sold it for" can
+            # never disagree in the same row.
+            # A few points of tolerance: nobody calls a 3% overrun
+            # a budget failure.
+            on_budget = actual_cost_eur <= budget * 1.06
+            on_time = actual_duration_days <= duration * 1.10
             # A late project tries the client's patience on top of
-            # whatever else is going on.
+            # whatever else is going on — computed after the actuals,
+            # because lateness is now a fact about them.
             customer_happy = random.random() < (
                 probs["customer_happy"] * (1.0 if on_time else 0.72))
-            on_budget = random.random() < probs["financial_ok"] * 0.95
             outcome_ok = random.random() < probs["outcome_ok"]
             # Follow-on work comes from a happy client and a thing that
             # worked — and small customers rarely have a second project.
@@ -1052,10 +1101,38 @@ def generate_projects_and_assignments(
             success = on_time = on_budget = None
             financial_ok = team_happy = customer_happy = None
             outcome_ok = doors_opened = None
+            actual_cost_eur = actual_duration_days = None
             seniority = _team_seniority(by_name, all_people)
             status = random.choices(["active", "at_risk", "delayed"], weights=[60, 25, 15], k=1)[0]
 
         pid = f"PRJ-{1000 + idx}"
+        if completed:
+            # A delivery record, which exists only once work is done.
+            # Its own table rather than nullable columns on `projects`
+            # for two reasons: it is what an ERP actually does (the
+            # costing record is not the sales record), and `_estimate`
+            # cannot read a nullable numeric column at all — it fails
+            # with `None (of class scala.None$)` even when the `where`
+            # excludes every null. Non-nullable columns in a table of
+            # finished work sidestep that and model it better.
+            deliveries.append({
+                "delivery_id": f"DLV-{pid}",
+                "project_id": pid,
+                "project_type": ptype,
+                "customer": customer,
+                "technology": technology,
+                "domain": domain,
+                "contract_type": contract,
+                "scope_clarity": clarity,
+                "novelty": novelty,
+                "customer_size": customer_size,
+                "team_seniority": seniority,
+                "team_size": team_size,
+                "quoted_eur": budget,
+                "actual_cost_eur": actual_cost_eur,
+                "quoted_days": duration,
+                "actual_duration_days": actual_duration_days,
+            })
         projects.append({
             "project_id": pid,
             "name": f"{ptype.capitalize()} — {customer.split('—')[-1].strip()} #{idx}",
@@ -1082,6 +1159,9 @@ def generate_projects_and_assignments(
             "start_month": start_month,
             "on_time": on_time,
             "on_budget": on_budget,
+            # Sold vs delivered. Estimation reads the actuals.
+            "actual_cost_eur": actual_cost_eur,
+            "actual_duration_days": actual_duration_days,
             # Futurice 3+3 — the core three first.
             "financial_ok": financial_ok,
             "team_happy": team_happy,
@@ -1136,7 +1216,7 @@ def generate_projects_and_assignments(
     for i in range(persona.n_active_projects):
         make_one(persona.n_completed_projects + i, completed=False)
     random.shuffle(projects)
-    return projects, assignments
+    return projects, assignments, deliveries
 
 
 # ── Driver ──────────────────────────────────────────────────────────
@@ -1308,7 +1388,39 @@ NOVELTY = ["proven", "some_new", "new_stack"]
 NOVELTY_WEIGHTS = [50, 32, 18]
 
 CUSTOMER_SIZE = ["small", "mid", "enterprise"]
-SIZE_WEIGHTS = [25, 45, 30]
+
+# Size is a property of the CUSTOMER, not of the project. Drawing it
+# per project made Fortum a small client on one job and an enterprise
+# on the next, which is both wrong and unlearnable — `_predict` would
+# see the same account carrying every size. Semi-real too: these are
+# roughly where these companies sit in the Finnish landscape, because a
+# demo that calls Fortum a small customer loses the room.
+CUSTOMER_SIZES = {
+    # Enterprise
+    "Fortum": "enterprise", "Telia Finland": "enterprise",
+    "Telia Finland Oyj": "enterprise", "Posti Group": "enterprise",
+    "S-Group": "enterprise", "Stora Enso": "enterprise",
+    "Nordea Brand": "enterprise", "Wärtsilä": "enterprise",
+    "Wärtsilä Oy": "enterprise", "Elisa": "enterprise",
+    "Neste Oyj": "enterprise", "ABB Service": "enterprise",
+    "Siemens Finland": "enterprise", "Caverion Suomi": "enterprise",
+    "NCC Suomi": "enterprise",
+    # Mid
+    "Sanoma Media": "mid", "Marimekko": "mid", "Reaktor": "mid",
+    "Wolt Enterprises": "mid", "City of Tampere": "mid",
+    "Lemminkäinen": "mid", "Iittala": "mid", "Fiskars": "mid",
+    # Small — a consultancy's long tail, and where the pattern lives
+    "Framery": "small", "Varusteleka": "small", "Solar Foods": "small",
+    "Swappie": "small", "Kyrö Distillery": "small",
+    "Meru Health": "small",
+}
+
+
+def customer_size_of(customer: str) -> str:
+    """A client's size. Internal work counts as the parent company."""
+    if customer.lower().startswith("internal"):
+        return "enterprise"
+    return CUSTOMER_SIZES.get(customer, "mid")
 
 
 def _team_seniority(people_by_name: dict, team: list[str]) -> str:
@@ -2187,7 +2299,8 @@ def write_persona(persona: PersonaSpec) -> None:
     orders = generate_orders(persona, products)
     prices = generate_price_history(persona, products)
     people = generate_people(persona)
-    projects, assignments = generate_projects_and_assignments(persona, people)
+    projects, assignments, deliveries = generate_projects_and_assignments(
+        persona, people)
     impressions = generate_impressions(persona, products)
     # Tasks are currently only generated for Metsä — the construction
     # / maintenance phase model the project-plan view depends on doesn't
@@ -2206,6 +2319,7 @@ def write_persona(persona: PersonaSpec) -> None:
     with open(out / "proposals.json",     "w") as f: json.dump(proposals,    f, indent=2, ensure_ascii=False)
     with open(out / "projects.json",      "w") as f: json.dump(projects,     f, indent=2, ensure_ascii=False)
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
+    with open(out / "deliveries.json",    "w") as f: json.dump(deliveries,   f, indent=2, ensure_ascii=False)
     if impressions:
         with open(out / "impressions.json", "w") as f: json.dump(impressions, f, indent=2, ensure_ascii=False)
     if tasks:
@@ -2230,6 +2344,7 @@ def write_persona(persona: PersonaSpec) -> None:
     print(f"  proposals:      {len(proposals)} rows "
           f"({len({r['proposal_id'] for r in proposals})} open bids)")
     print(f"  assignments:    {len(assignments)}")
+    print(f"  deliveries:     {len(deliveries)}")
     if quotes:
         won = sum(1 for q in quotes if q["won"])
         print(f"  quotes:         {len(quotes)} (won {won} = {won/len(quotes):.0%})")

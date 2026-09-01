@@ -769,6 +769,29 @@ def projects_portfolio(request: Request):
     return result
 
 
+@app.post("/api/planner/estimate")
+def planner_estimate(body: dict, request: Request):
+    """What work of this shape actually cost, took and needed.
+
+    Separate from /plan because it answers a question that comes
+    BEFORE the plan: you describe the job, this says how big it is.
+    """
+    from src.planner_service import estimate_effort
+    _, aito = client_from_request(request)
+    if not body.get("project_type"):
+        return {"error": "project_type is required"}
+    return estimate_effort(
+        aito,
+        project_type=str(body["project_type"]),
+        scope_clarity=str(body.get("scope_clarity", "")),
+        contract_type=str(body.get("contract_type", "")),
+        novelty=str(body.get("novelty", "")),
+        customer_size=str(body.get("customer_size", "")),
+        technology=str(body.get("technology", "")),
+        domain=str(body.get("domain", "")),
+    ).to_dict()
+
+
 @app.post("/api/planner/plan")
 def planner_plan(body: dict, request: Request):
     """Staff, price and sales-risk a proposed engagement.
@@ -779,8 +802,9 @@ def planner_plan(body: dict, request: Request):
     """
     from src.planner_service import plan_engagement
     _, aito = client_from_request(request)
-    required = ("customer", "project_type", "quoted_eur",
-                "duration_days", "team_size")
+    # `team_size` is deliberately not required — 0 or absent means
+    # "plan it for me", and the planner predicts it.
+    required = ("customer", "project_type", "quoted_eur", "duration_days")
     missing = [f for f in required if body.get(f) in (None, "")]
     if missing:
         return {"error": f"missing required field(s): {', '.join(missing)}"}
@@ -791,7 +815,7 @@ def planner_plan(body: dict, request: Request):
         project_type=str(body["project_type"]),
         quoted_eur=float(body["quoted_eur"]),
         duration_days=int(body["duration_days"]),
-        team_size=int(body["team_size"]),
+        team_size=int(body.get("team_size") or 0),
         priority=str(body.get("priority", "medium")),
         site=str(body.get("site", "")),
         technology=str(body.get("technology", "")),
@@ -821,7 +845,7 @@ def planner_options(request: Request):
     cached = cache.get(cache_key)
     if cached:
         return cached
-    result = options(aito)
+    result = options(aito, tenant)
     cache.set(cache_key, result)
     return result
 

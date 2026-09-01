@@ -377,6 +377,34 @@ the access pattern that gets evicted, so the first click of every
 session pays cold-start. The env indirection is a deployment
 mechanism, not a place to live.
 
+### 9b. `_estimate` cannot read a nullable numeric column
+
+*found building the effort estimator; not v2-specific — v1 does it too*
+
+`_estimate` on a nullable `Decimal` fails with an unhandled Option:
+
+```
+400  "error": "None (of class scala.None$)"
+     {"from":"projects","where":{"project_type":"implementation"},
+      "estimate":"actual_cost_eur"}        ← Decimal, nullable: true
+```
+
+Adding `status: "complete"` to the `where` so that **no null reaches
+the candidate set** does not help; the identical query against the
+non-nullable `budget_eur` on the same table answers normally. So it is
+the column's declared nullability, not the data.
+
+Two things make it worth filing. The message is a Scala type name
+rather than anything a client can act on — `predict` and `relate` on
+the same nullable columns work fine, so a caller has no reason to
+suspect the column. And nullable numerics are the natural shape for
+exactly this: an actual cost exists only once work is finished.
+
+Worked around by moving actuals into a `deliveries` table whose columns
+are all non-nullable — which is better modelling anyway (the costing
+record is not the sales record), but the workaround should not be
+necessary.
+
 ### 10. Things that did *not* break
 
 Worth recording, because it's most of the surface:

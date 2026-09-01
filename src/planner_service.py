@@ -252,6 +252,28 @@ class SalesRisk:
 
 
 @dataclass
+class Estimate:
+    """What comparable work actually cost, took, and needed."""
+    cost_eur: float | None
+    duration_days: int | None
+    team_size: int | None
+    comparable_count: int            # exact matches for the whole shape
+    neighbour_count: int             # deliveries the estimate is made of
+    quoted_vs_actual: float | None   # historical actual / quoted ratio
+
+    def to_dict(self) -> dict:
+        return {
+            "cost_eur": round(self.cost_eur, 2) if self.cost_eur else None,
+            "duration_days": self.duration_days,
+            "team_size": self.team_size,
+            "comparable_count": self.comparable_count,
+            "neighbour_count": self.neighbour_count,
+            "quoted_vs_actual": (round(self.quoted_vs_actual, 3)
+                                 if self.quoted_vs_actual else None),
+        }
+
+
+@dataclass
 class TeamShape:
     """What comparable work was staffed with, before anyone is named."""
     suggested_size: int | None
@@ -359,7 +381,93 @@ class EngagementPlan:
         }
 
 
-def planner_options(client: AitoClient) -> dict:
+# Proposals worth opening the screen on. A planner that starts empty
+# asks a visitor to invent a project before it can show them anything,
+# and the interesting cases — the fixed-price-on-an-unclear-scope one,
+# the new-stack one where the team is delighted and the margin is not —
+# are exactly the ones nobody types by accident.
+#
+# Each is a full proposal, so loading one and pressing Plan it is the
+# whole demo path.
+PLANNER_EXAMPLES: dict[str, list[dict]] = {
+    "studio": [
+        {
+            "name": "The one that eats the margin",
+            "note": "fixed price on a scope nobody has pinned down",
+            "customer": "City of Tampere", "project_type": "implementation",
+            "scope": "Citizen portal rebuild, scope still moving",
+            "quoted_eur": 165000, "duration_days": 150,
+            "contract_type": "fixed_price", "scope_clarity": "unclear",
+            "novelty": "some_new", "customer_size": "mid",
+            "team_seniority": "mixed",
+        },
+        {
+            "name": "Happy team, unhappy CFO",
+            "note": "a stack nobody has shipped before",
+            "customer": "Fortum", "project_type": "implementation",
+            "scope": "Event-driven data platform on a new stack",
+            "quoted_eur": 140000, "duration_days": 120,
+            "contract_type": "fixed_price", "scope_clarity": "evolving",
+            "novelty": "new_stack", "customer_size": "enterprise",
+            "team_seniority": "mixed",
+        },
+        {
+            "name": "The healthy one",
+            "note": "time & materials, clear scope, senior crew",
+            "customer": "Telia Finland", "project_type": "implementation",
+            "scope": "Customer portal rebuild",
+            "quoted_eur": 120000, "duration_days": 120,
+            "contract_type": "time_and_materials", "scope_clarity": "clear",
+            "novelty": "proven", "customer_size": "enterprise",
+            "team_seniority": "senior_heavy",
+        },
+        {
+            "name": "Small client, small job",
+            "note": "where the follow-on work does not come from",
+            "customer": "Framery", "project_type": "design",
+            "scope": "Brand identity refresh",
+            "quoted_eur": 38000, "duration_days": 45,
+            "contract_type": "fixed_price", "scope_clarity": "clear",
+            "novelty": "proven", "customer_size": "small",
+            "team_seniority": "mixed",
+        },
+    ],
+    "metsa": [
+        {
+            "name": "Fixed price on a survey nobody finished",
+            "note": "the classic construction overrun",
+            "customer": "City of Tampere", "project_type": "construction",
+            "scope": "Assembly hall foundation and frame",
+            "quoted_eur": 240000, "duration_days": 180,
+            "contract_type": "fixed_price", "scope_clarity": "unclear",
+            "novelty": "proven", "customer_size": "mid",
+            "team_seniority": "mixed",
+        },
+        {
+            "name": "Routine maintenance contract",
+            "note": "the work that pays the bills",
+            "customer": "Wärtsilä Oy", "project_type": "maintenance",
+            "scope": "Annual service contract, two shifts",
+            "quoted_eur": 38000, "duration_days": 60,
+            "contract_type": "capped", "scope_clarity": "clear",
+            "novelty": "proven", "customer_size": "enterprise",
+            "team_seniority": "senior_heavy",
+        },
+        {
+            "name": "New telematics, new everything",
+            "note": "unfamiliar kit across three sites",
+            "customer": "Internal — Production", "project_type": "rollout",
+            "scope": "Fleet telematics rollout across three sites",
+            "quoted_eur": 95000, "duration_days": 120,
+            "contract_type": "fixed_price", "scope_clarity": "evolving",
+            "novelty": "new_stack", "customer_size": "enterprise",
+            "team_seniority": "junior_heavy",
+        },
+    ],
+}
+
+
+def planner_options(client: AitoClient, tenant: str = "") -> dict:
     """The project types and customers this tenant has history for.
 
     The form offers these rather than free text: a customer Aito has
@@ -372,7 +480,7 @@ def planner_options(client: AitoClient) -> dict:
     except AitoError:
         return {"project_types": [], "customers_by_type": {},
                 "sites": [], "site_by_customer": {},
-                "roles": [], "seniorities": [],
+                "roles": [], "seniorities": [], "examples": [],
                 "technologies_by_type": {}, "domain_by_customer": {},
                 "drivers": {},
                 "domains": []}
@@ -441,6 +549,7 @@ def planner_options(client: AitoClient) -> dict:
         "seniorities": sorted(seniorities),
         "technologies_by_type": {k: sorted(v) for k, v in technologies.items()},
         "drivers": drivers,
+        "examples": PLANNER_EXAMPLES.get(tenant, []),
         "domain_by_customer": domains_by_customer,
         "domains": sorted(set(domains_by_customer.values())),
     }
@@ -565,7 +674,11 @@ def plan_engagement(
     project_type: str,
     quoted_eur: float,
     duration_days: int,
-    team_size: int,
+    # 0 means "you tell me" — the size is part of what is being
+    # planned, not something a delivery lead should have to know before
+    # asking. `_predict projects.team_size` answers it from comparable
+    # work and the rest of the plan follows from the answer.
+    team_size: int = 0,
     priority: str = "medium",
     site: str = "",
     start_month: str = "",
@@ -589,6 +702,8 @@ def plan_engagement(
     # sales prediction — Aito reads "we quoted well over" far more
     # reliably than it reads a raw Decimal.
     shape = _suggest_team_size(client, project_type, duration_days, priority)
+    if not team_size:
+        team_size = shape.suggested_size or 4
     price = _price_check(client, project_type, team_size, quoted_eur)
     band = price.band if price else "at_market"
 
@@ -1045,6 +1160,85 @@ def _current_loads(client: AitoClient) -> dict[str, tuple[int, str]]:
         return {}
     return {row.person: (row.current_allocation_pct, row.status)
             for row in overview.rows}
+
+
+def estimate_effort(client: AitoClient, *, project_type: str,
+                    scope_clarity: str = "", contract_type: str = "",
+                    novelty: str = "", customer_size: str = "",
+                    technology: str = "", domain: str = "") -> Estimate:
+    """What work of this shape actually cost, took and needed.
+
+    Estimated from **actuals**, never from what was quoted. A quote is
+    what someone hoped it would cost before they started; estimating
+    the next one from a pile of those reproduces the same optimism and
+    calls it evidence. `actual_cost_eur` and `actual_duration_days` are
+    the only honest inputs, and the gap between them and `budget_eur`
+    is itself worth reporting — this organisation historically delivers
+    at 1.17× what it sold.
+
+    `_estimate` rather than an average: its `why` is a weighted average
+    over neighbouring rows, so the number arrives with the comparable
+    projects that produced it.
+    """
+    # `deliveries`, not `projects`: finished work only, and every
+    # numeric column non-nullable so `_estimate` can read it.
+    where: dict = {"project_type": project_type}
+    for key, value in (("scope_clarity", scope_clarity),
+                       ("contract_type", contract_type),
+                       ("novelty", novelty),
+                       ("customer_size", customer_size),
+                       ("technology", technology),
+                       ("domain", domain)):
+        if value:
+            where[key] = value
+
+    neighbours = 0
+
+    def number(field_name: str) -> float | None:
+        """The estimate, and how many past deliveries went into it.
+
+        `_estimate` is neighbour-weighted, so it answers even when
+        nothing matches the whole shape exactly — which is a feature,
+        but it means an exact-match count of 0 sitting beside a
+        confident number reads as nonsense. The `why` is a weighted
+        average whose components ARE the comparable deliveries, so
+        counting them says what the estimate is actually made of.
+        """
+        nonlocal neighbours
+        try:
+            response = client.estimate("deliveries", where, field_name)
+        except AitoError:
+            return None
+        why = response.get("why") or {}
+        neighbours = max(neighbours, len(why.get("components") or []))
+        value = response.get("estimate")
+        return float(value) if isinstance(value, (int, float)) else None
+
+    cost = number("actual_cost_eur")
+    duration = number("actual_duration_days")
+    quoted = number("quoted_eur")
+
+    team_hits = _hits(client, "deliveries", where, "team_size", limit=3)
+    team = None
+    if team_hits:
+        try:
+            team = int(team_hits[0].get("$value"))
+        except (TypeError, ValueError):
+            team = None
+
+    try:
+        comparable = client.search("deliveries", where, limit=0).get("total", 0)
+    except AitoError:
+        comparable = 0
+
+    return Estimate(
+        cost_eur=cost,
+        duration_days=int(duration) if duration else None,
+        team_size=team,
+        comparable_count=comparable,
+        neighbour_count=neighbours,
+        quoted_vs_actual=(cost / quoted) if (cost and quoted) else None,
+    )
 
 
 def _price_check(client: AitoClient, project_type: str, team_size: int,

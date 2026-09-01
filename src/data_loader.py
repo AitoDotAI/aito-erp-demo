@@ -146,7 +146,43 @@ SCHEMAS = {
             "outcome_ok": {"type": "Boolean", "nullable": True},
             "doors_opened": {"type": "Boolean", "nullable": True},
             "on_budget": {"type": "Boolean", "nullable": True},
+            # What it actually cost and actually took. `budget_eur` and
+            # `duration_days` are what was SOLD — estimating a new
+            # proposal from those is estimating from other people's
+            # optimism, and it bakes the same overrun into the next
+            # quote. Nullable: only finished work has an actual.
+            "actual_cost_eur": {"type": "Decimal", "nullable": True},
+            "actual_duration_days": {"type": "Int", "nullable": True},
             "success": {"type": "Boolean", "nullable": True},
+        },
+    },
+    # What finished work actually cost and actually took. Its own table
+    # rather than nullable columns on `projects`, because the costing
+    # record is not the sales record — and because `_estimate` cannot
+    # read a nullable numeric column: it fails with
+    # `None (of class scala.None$)` even when the `where` excludes every
+    # null. Every column here is non-nullable by construction.
+    "deliveries": {
+        "type": "table",
+        "columns": {
+            "delivery_id": {"type": "String", "nullable": False},
+            "project_id": {"type": "String", "nullable": False, "link": "projects.project_id"},
+            "project_type": {"type": "String", "nullable": False},
+            "customer": {"type": "String", "nullable": False},
+            "technology": {"type": "String", "nullable": False},
+            "domain": {"type": "String", "nullable": False},
+            "contract_type": {"type": "String", "nullable": False},
+            "scope_clarity": {"type": "String", "nullable": False},
+            "novelty": {"type": "String", "nullable": False},
+            "customer_size": {"type": "String", "nullable": False},
+            "team_seniority": {"type": "String", "nullable": False},
+            "team_size": {"type": "Int", "nullable": False},
+            # Sold vs delivered, side by side. The gap is the number a
+            # partner most wants and least wants to look at.
+            "quoted_eur": {"type": "Decimal", "nullable": False},
+            "actual_cost_eur": {"type": "Decimal", "nullable": False},
+            "quoted_days": {"type": "Int", "nullable": False},
+            "actual_duration_days": {"type": "Int", "nullable": False},
         },
     },
     # The bench, with the metadata that decides a staffing call. Lives
@@ -333,7 +369,7 @@ SCHEMAS = {
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
 OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences",
-                   "proposals"}
+                   "proposals", "deliveries"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:
