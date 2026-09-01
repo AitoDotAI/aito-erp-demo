@@ -249,8 +249,18 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     to `people`, so one call returns the ranking **and** the matched
     person's title, skills, site and seniority, which is what the
     match chips show. Delivery from `_predict success | on_time`, and
-    the sales read from `_predict quotes.won` + `loss_reason`.
-    Metsä + Studio.
+    the sales read from `_predict quotes.won` + `loss_reason`. Team
+    size is itself predicted (`_predict projects.team_size`). Each seat
+    shows one assignee with a picker listing every candidate, score and
+    reason. Metsä + Studio.
+
+    **Where Aito stops.** Aito ranks candidates per role; it does not
+    allocate a team. "Who fits this role" is an inference; "who gets
+    which seat given everyone else's" is an assignment problem, and
+    pretending the second falls out of the first books one person into
+    three roles. `_fill_seats` is a deliberate, documented greedy pass
+    over Aito's ranking (no double-booking, skip the overloaded) and
+    every seat stays overridable.
 15. **Revenue Outlook** — the order book spread over the coming months
     by percentage-of-completion, then risk-adjusted by
     `_predict on_time` / `on_budget` per in-flight project. Answers

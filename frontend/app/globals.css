@@ -3879,3 +3879,103 @@ body {
   border-color: var(--green);
   color: var(--green);
 }
+
+/* ── Planner: the team, and the per-seat picker ────────────────── */
+.pl-role-cell { font-size: 12px; color: var(--ink); font-weight: 600; }
+.pl-role-sub { font-size: 10px; color: var(--mid); margin-top: 2px; }
+
+.pl-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.pl-pick:hover { border-color: var(--gold); }
+.pl-pick-sub { font-size: 10.5px; color: var(--mid); flex: 1; }
+.pl-caret { color: var(--mid); font-size: 10px; }
+
+/* The picker is the point of the screen: every candidate Aito ranked,
+   with the score and the reasons, not just the winning name. */
+.pl-menu {
+  position: absolute;
+  z-index: 40;
+  margin-top: 4px;
+  width: 420px;
+  max-height: 340px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.13);
+}
+
+.pl-menu-head {
+  font-size: 10.5px;
+  color: var(--mid);
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--border);
+  background: var(--cream);
+}
+
+.pl-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  padding: 8px 11px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+}
+
+.pl-opt:last-child { border-bottom: none; }
+.pl-opt:hover { background: #faf8f2; }
+.pl-opt-on { background: var(--gold-light); }
+
+.pl-opt-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.pl-opt-name { font-size: 12px; font-weight: 600; color: var(--ink); flex: 1; }
+
+.pl-opt-fit {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--gold-dark);
+}
+
+.pl-hint {
+  font-family: inherit;
+  font-size: 9.5px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--gold);
+  background: var(--gold-light);
+  color: var(--gold-dark);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* The picker is absolutely positioned against its cell. */
+.tbl td { position: relative; }
+
+/* The seat picker has to escape the card, which clips for its rounded
+   corners. Only this card opts out — the table inside has no rounded
+   edge of its own to protect. */
+.card-overflow { overflow: visible; }

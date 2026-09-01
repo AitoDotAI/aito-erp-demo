@@ -106,6 +106,9 @@ class RoleSlot:
     count: int                 # how many of this role the mix implies
     share: float               # P(role) in comparable history
     candidates: list[Candidate]
+    # One name per seat, picked from `candidates` — see `_fill_seats`.
+    # The dropdown in the UI offers the rest.
+    assignees: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -113,6 +116,7 @@ class RoleSlot:
             "count": self.count,
             "share": self.share,
             "candidates": [c.to_dict() for c in self.candidates],
+            "assignees": self.assignees,
         }
 
 
@@ -182,6 +186,16 @@ class SalesRisk:
 
 
 @dataclass
+class TeamShape:
+    """What comparable work was staffed with, before anyone is named."""
+    suggested_size: int | None
+    size_p: float | None
+
+    def to_dict(self) -> dict:
+        return {"suggested_size": self.suggested_size, "size_p": self.size_p}
+
+
+@dataclass
 class EngagementPlan:
     customer: str
     scope: str
@@ -191,6 +205,7 @@ class EngagementPlan:
     team_size: int
     priority: str
     site: str
+    shape: TeamShape
     roles: list[RoleSlot]
     delivery: DeliveryRisk
     price: PriceCheck | None
@@ -206,6 +221,7 @@ class EngagementPlan:
             "team_size": self.team_size,
             "priority": self.priority,
             "site": self.site,
+            "shape": self.shape.to_dict(),
             "roles": [r.to_dict() for r in self.roles],
             "delivery": self.delivery.to_dict(),
             "price": self.price.to_dict() if self.price else None,
@@ -341,6 +357,7 @@ def plan_engagement(
     # Done first because the price BAND it produces is an input to the
     # sales prediction — Aito reads "we quoted well over" far more
     # reliably than it reads a raw Decimal.
+    shape = _suggest_team_size(client, project_type, duration_days, priority)
     price = _price_check(client, project_type, team_size, quoted_eur)
     band = price.band if price else "at_market"
 
@@ -381,6 +398,7 @@ def plan_engagement(
             candidates.append(candidate)
         roles.append(RoleSlot(role=role, count=count, share=share,
                               candidates=candidates))
+    _fill_seats(roles)
 
     # ── Delivery risk ───────────────────────────────────────────
     # `budget_eur` is deliberately absent. It is a Decimal, and a
@@ -428,11 +446,70 @@ def plan_engagement(
         team_size=team_size,
         priority=priority,
         site=site,
+        shape=shape,
         roles=roles,
         delivery=delivery,
         price=price,
         sales=sales,
     )
+
+
+def _fill_seats(slots: list[RoleSlot]) -> None:
+    """Name one person per seat, across the whole team at once.
+
+    Aito ranks candidates per role. It does not allocate a team, and it
+    should not be asked to: "who fits this role" is an inference, "who
+    gets which seat given everyone else's seat" is an assignment
+    problem, and pretending the second falls out of the first is how you
+    end up with the same person booked into three roles.
+
+    So this is a plain greedy pass over Aito's ranking with two rules a
+    scheduler would apply by hand:
+
+      * nobody takes two seats on the same project;
+      * a candidate already over `OVERLOAD_PCT` is skipped while any
+        un-overloaded candidate remains, because the best fit at 375%
+        allocated is not an answer.
+
+    Both are visible in the UI — the dropdown still offers everyone, in
+    Aito's order, so overriding this is one click.
+    """
+    taken: set[str] = set()
+    for slot in slots:
+        for _ in range(slot.count):
+            free = [c for c in slot.candidates if c.person not in taken]
+            if not free:
+                slot.assignees.append("")
+                continue
+            available = [c for c in free
+                         if c.current_load_pct < OVERLOAD_PCT]
+            pick = (available or free)[0]
+            taken.add(pick.person)
+            slot.assignees.append(pick.person)
+
+
+def _suggest_team_size(client: AitoClient, project_type: str,
+                       duration_days: int, priority: str) -> TeamShape:
+    """How big comparable work was staffed — `_predict team_size`.
+
+    `team_size` is an Int column on `projects`, so it is predictable
+    exactly like any other field. Deliberately conditioned on shape
+    (type, duration, priority) and not on budget: an unseen Decimal
+    contributes nothing (see the delivery-risk note below).
+    """
+    hits = _hits(client, "projects",
+                 {"project_type": project_type,
+                  "duration_days": duration_days,
+                  "priority": priority},
+                 "team_size", limit=4)
+    if not hits:
+        return TeamShape(suggested_size=None, size_p=None)
+    top = hits[0]
+    try:
+        size = int(top.get("$value"))
+    except (TypeError, ValueError):
+        return TeamShape(suggested_size=None, size_p=None)
+    return TeamShape(suggested_size=size, size_p=float(top.get("$p", 0.0)))
 
 
 def _match_chips(candidate: Candidate, role: str, site: str) -> list[str]:

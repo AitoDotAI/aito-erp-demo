@@ -74,3 +74,56 @@ def test_p_of_matches_across_boolean_spellings():
     another; both are the same candidate."""
     p, _ = _p_of([{"$value": "True", "$p": 0.42}], True)
     assert p == 0.42
+
+
+def _cand(name, load, fit=0.3):
+    from src.planner_service import Candidate
+    status = "overloaded" if load > 110 else "available" if load < 60 else "balanced"
+    return Candidate(person=name, fit=fit, current_load_pct=load, status=status)
+
+
+def test_seats_are_filled_without_double_booking():
+    """One person, one seat. Aito ranks per role and knows nothing about
+    the other roles, so nothing stops the same name topping all of them."""
+    from src.planner_service import RoleSlot, _fill_seats
+
+    shared = [_cand("A", 0), _cand("B", 0), _cand("C", 0)]
+    slots = [
+        RoleSlot("frontend", 2, 0.5, list(shared)),
+        RoleSlot("backend", 1, 0.5, list(shared)),
+    ]
+    _fill_seats(slots)
+    picked = [p for s in slots for p in s.assignees]
+    assert picked == ["A", "B", "C"]
+    assert len(set(picked)) == 3
+
+
+def test_an_overloaded_best_fit_yields_to_an_available_one():
+    """The strongest match at 300% allocated is not a staffing answer —
+    but it is still offered in the picker, so this is a default, not a
+    veto."""
+    from src.planner_service import RoleSlot, _fill_seats
+
+    slots = [RoleSlot("frontend", 1, 0.5,
+                      [_cand("Busy", 300, fit=0.9), _cand("Free", 40, fit=0.1)])]
+    _fill_seats(slots)
+    assert slots[0].assignees == ["Free"]
+
+
+def test_everyone_overloaded_still_staffs_the_seat():
+    """When there is no un-overloaded option the seat is filled anyway.
+    Leaving it blank would hide the problem rather than show it."""
+    from src.planner_service import RoleSlot, _fill_seats
+
+    slots = [RoleSlot("frontend", 1, 0.5,
+                      [_cand("Busy", 300, fit=0.9), _cand("Busier", 400, fit=0.1)])]
+    _fill_seats(slots)
+    assert slots[0].assignees == ["Busy"]
+
+
+def test_a_seat_with_no_candidates_left_is_reported_empty():
+    from src.planner_service import RoleSlot, _fill_seats
+
+    slots = [RoleSlot("frontend", 3, 0.5, [_cand("A", 0)])]
+    _fill_seats(slots)
+    assert slots[0].assignees == ["A", "", ""]

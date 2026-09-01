@@ -714,6 +714,7 @@ export interface PlannerRoleSlot {
   count: number;
   share: number;
   candidates: PlannerCandidate[];
+  assignees: string[];
 }
 
 export interface PlannerDeliveryRisk {
@@ -755,6 +756,7 @@ export interface EngagementPlan {
   team_size: number;
   priority: string;
   site: string;
+  shape: { suggested_size: number | null; size_p: number | null };
   roles: PlannerRoleSlot[];
   delivery: PlannerDeliveryRisk;
   price: PlannerPriceCheck | null;

@@ -108,6 +108,10 @@ export default function PlannerPage() {
   const [priority, setPriority] = useState("high");
   const [site, setSite] = useState("");
   const [competing, setCompeting] = useState(true);
+  // Which seat's picker is open, and any manual reassignments. Aito
+  // proposes; the scheduler disposes, and the override is per seat.
+  const [openSeat, setOpenSeat] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [existing, setExisting] = useState(true);
 
   useEffect(() => {
@@ -159,7 +163,11 @@ export default function PlannerPage() {
         existing_customer: existing,
       }),
     })
-      .then(setPlan)
+      .then((p) => {
+        setPlan(p);
+        setOverrides({});
+        setOpenSeat(null);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setBusy(false));
   };
@@ -274,7 +282,20 @@ export default function PlannerPage() {
                   />
                 </label>
                 <label className="pl-field">
-                  <span>Team size</span>
+                  <span>
+                    Team size
+                    {plan?.shape.suggested_size ? (
+                      <button
+                        className="pl-hint"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setTeamSize(plan.shape.suggested_size ?? teamSize);
+                        }}
+                      >
+                        Aito says {plan.shape.suggested_size}
+                      </button>
+                    ) : null}
+                  </span>
                   <input
                     type="number"
                     value={teamSize}
@@ -382,83 +403,133 @@ export default function PlannerPage() {
                 </div>
 
                 <div className="proj-grid">
-                  <section className="card">
+                  <section className="card card-overflow">
                     <div className="card-head">
-                      <span className="card-title">
-                        Proposed team — role mix from comparable work
+                      <span className="card-title">The team</span>
+                      <span className="card-meta">
+                        {plan.team_size} seats · role mix from comparable work
                       </span>
-                      <span className="card-meta">{plan.team_size} people</span>
                     </div>
-                    {plan.roles.map((slot) => {
-                      const best = bestFit(slot.candidates);
-                      return (
-                        <div className="pl-role" key={slot.role}>
-                          <div className="pl-role-head">
-                            <span className="pl-role-name">
-                              {slot.count} × {slot.role}
-                            </span>
-                            <span className="pl-role-share">
-                              {pct(slot.share)} of comparable teams
-                            </span>
-                          </div>
-                          <table className="tbl">
-                            <tbody>
-                              {slot.candidates.map((c) => (
-                                <tr
-                                  key={c.person}
-                                  className="clickable"
-                                  onClick={() => showCandidate(slot.role, c)}
-                                >
-                                  <td style={{ width: "52%" }}>
-                                    <div className="pl-person">{c.person}</div>
-                                    {/* The reason, in the person's own
-                                        attributes — returned by the same
-                                        call that ranked them, because
-                                        assignments.person links to people. */}
-                                    <div className="pl-chips">
-                                      {c.matches.map((m) => (
-                                        <span
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          <th style={{ width: "26%" }}>Role</th>
+                          <th>Assignee</th>
+                          <th style={{ width: "16%", textAlign: "right" }}>
+                            Fit
+                          </th>
+                          <th style={{ width: "16%", textAlign: "right" }}>
+                            Load
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {plan.roles.flatMap((slot) =>
+                          slot.assignees.map((_, seat) => {
+                            const key = `${slot.role}#${seat}`;
+                            const chosenName = overrides[key] ?? slot.assignees[seat];
+                            const chosen = slot.candidates.find(
+                              (c) => c.person === chosenName,
+                            );
+                            const best = bestFit(slot.candidates);
+                            return (
+                              <tr key={key}>
+                                <td>
+                                  <div className="pl-role-cell">{slot.role}</div>
+                                  <div className="pl-role-sub">
+                                    {pct(slot.share)} of comparable teams
+                                  </div>
+                                </td>
+                                <td>
+                                  <button
+                                    className="pl-pick"
+                                    onClick={() =>
+                                      setOpenSeat(openSeat === key ? null : key)
+                                    }
+                                  >
+                                    <span>{chosenName || "unstaffed"}</span>
+                                    <span className="pl-pick-sub">
+                                      {chosen?.title ?? ""}
+                                    </span>
+                                    <span className="pl-caret">▾</span>
+                                  </button>
+                                  {openSeat === key && (
+                                    <div className="pl-menu">
+                                      <div className="pl-menu-head">
+                                        Ranked by <em>_predict person</em> given
+                                        role + site — click to reassign
+                                      </div>
+                                      {slot.candidates.map((c) => (
+                                        <button
+                                          key={c.person}
                                           className={
-                                            site && m === `based in ${site}`
-                                              ? "pl-chip pl-chip-hit"
-                                              : "pl-chip"
+                                            c.person === chosenName
+                                              ? "pl-opt pl-opt-on"
+                                              : "pl-opt"
                                           }
-                                          key={m}
+                                          onClick={() => {
+                                            setOverrides({
+                                              ...overrides,
+                                              [key]: c.person,
+                                            });
+                                            setOpenSeat(null);
+                                            showCandidate(slot.role, c);
+                                          }}
                                         >
-                                          {m}
-                                        </span>
+                                          <div className="pl-opt-top">
+                                            <span className="pl-opt-name">
+                                              {c.person}
+                                            </span>
+                                            <span className="pl-opt-fit">
+                                              {pct(c.fit)}
+                                            </span>
+                                            <span className={loadClass(c.status)}>
+                                              {c.current_load_pct}%
+                                            </span>
+                                          </div>
+                                          <div className="pl-fit-track">
+                                            <div
+                                              className="pl-fit-bar"
+                                              style={{
+                                                width: `${(c.fit / best) * 100}%`,
+                                              }}
+                                            />
+                                          </div>
+                                          <div className="pl-chips">
+                                            {c.matches.map((m) => (
+                                              <span
+                                                className={
+                                                  site && m === `based in ${site}`
+                                                    ? "pl-chip pl-chip-hit"
+                                                    : "pl-chip"
+                                                }
+                                                key={m}
+                                              >
+                                                {m}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </button>
                                       ))}
                                     </div>
-                                  </td>
-                                  <td style={{ width: "20%" }}>
-                                    <div className="pl-fit-track">
-                                      <div
-                                        className="pl-fit-bar"
-                                        style={{
-                                          width: `${(c.fit / best) * 100}%`,
-                                        }}
-                                      />
-                                    </div>
-                                  </td>
-                                  <td
-                                    style={{ width: "12%", textAlign: "right" }}
-                                  >
-                                    {pct(c.fit)}
-                                  </td>
-                                  <td
-                                    style={{ width: "16%", textAlign: "right" }}
-                                  >
-                                    <span className={loadClass(c.status)}>
-                                      {c.current_load_pct}%
+                                  )}
+                                </td>
+                                <td style={{ textAlign: "right" }}>
+                                  {pct(chosen?.fit ?? null)}
+                                </td>
+                                <td style={{ textAlign: "right" }}>
+                                  {chosen && (
+                                    <span className={loadClass(chosen.status)}>
+                                      {chosen.current_load_pct}%
                                     </span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    })}
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          }),
+                        )}
+                      </tbody>
+                    </table>
                   </section>
 
                   <section className="card">
