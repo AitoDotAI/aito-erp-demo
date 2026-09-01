@@ -140,21 +140,48 @@ class RoleSlot:
         }
 
 
+# Futurice's 3+3, in the order they are argued: the three that decide
+# whether the engagement was worth doing, then the three that qualify
+# it. Each is its own Boolean on `projects`, so each is its own
+# `_predict` with its own `$why` — a schedule risk and a morale risk
+# have different drivers and should not be one number.
+CORE_OUTCOMES = [
+    ("financial_ok", "Makes money"),
+    ("team_happy", "Team stays happy"),
+    ("customer_happy", "Customer stays happy"),
+]
+QUALIFYING_OUTCOMES = [
+    ("on_time", "Lands when we said"),
+    ("outcome_ok", "The thing works"),
+    ("doors_opened", "Opens a door"),
+]
+
+
+@dataclass
+class Outcome:
+    field: str
+    label: str
+    p: float | None
+    why: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {"field": self.field, "label": self.label,
+                "p": self.p, "why": self.why}
+
+
 @dataclass
 class DeliveryRisk:
     success_p: float | None
-    on_time_p: float | None
-    on_budget_p: float | None
+    core: list[Outcome]
+    qualifying: list[Outcome]
     success_why: dict = field(default_factory=dict)
-    on_time_why: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "success_p": self.success_p,
-            "on_time_p": self.on_time_p,
-            "on_budget_p": self.on_budget_p,
+            "core": [o.to_dict() for o in self.core],
+            "qualifying": [o.to_dict() for o in self.qualifying],
             "success_why": self.success_why,
-            "on_time_why": self.on_time_why,
         }
 
 
@@ -357,8 +384,34 @@ def _band_for(ratio: float) -> str:
     return PRICE_BANDS[-1][1]
 
 
+def _role_caps(client: AitoClient) -> dict[str, int]:
+    """The most of each role that ever appeared on ONE project.
+
+    `_predict role` returns a share of all assignments, and scaling a
+    share to a big team happily asks for two project managers on eight
+    people — which is not what the history says, it is what an
+    unbounded proportion says. A role that has never appeared twice on
+    one project is a singleton, and the data knows that without anyone
+    writing down which roles are "management".
+    """
+    try:
+        rows = client.search("assignments", {}, limit=4000).get("hits") or []
+    except AitoError:
+        return {}
+    per_project: dict[tuple[str, str], int] = {}
+    for row in rows:
+        key = (row.get("project_id"), row.get("role"))
+        if key[0] and key[1]:
+            per_project[key] = per_project.get(key, 0) + 1
+    caps: dict[str, int] = {}
+    for (_, role), count in per_project.items():
+        caps[role] = max(caps.get(role, 0), count)
+    return caps
+
+
 def _role_slots(client: AitoClient, project_type: str,
-                team_size: int) -> list[tuple[str, int, float]]:
+                team_size: int,
+                caps: dict[str, int] | None = None) -> list[tuple[str, int, float]]:
     """The historical role mix for this kind of work, scaled to the team.
 
     Largest-remainder allocation, so the counts sum to exactly
@@ -373,15 +426,29 @@ def _role_slots(client: AitoClient, project_type: str,
     if not mix:
         return []
 
+    caps = caps or {}
     total = sum(p for _, p in mix) or 1.0
     exact = [(role, p / total * team_size) for role, p in mix]
-    counts = {role: int(value) for role, value in exact}
+    counts = {role: min(int(value), caps.get(role, team_size))
+              for role, value in exact}
     shortfall = team_size - sum(counts.values())
-    for role, value in sorted(exact, key=lambda rv: -(rv[1] % 1)):
+    # Largest remainder, but never past what the history ever staffed.
+    # Rounds are repeated because capping one role hands its seat back
+    # to the others.
+    for _ in range(team_size + 1):
         if shortfall <= 0:
             break
-        counts[role] += 1
-        shortfall -= 1
+        placed = False
+        for role, value in sorted(exact, key=lambda rv: -(rv[1] % 1)):
+            if shortfall <= 0:
+                break
+            if counts[role] >= caps.get(role, team_size):
+                continue
+            counts[role] += 1
+            shortfall -= 1
+            placed = True
+        if not placed:
+            break
 
     shares = dict(mix)
     return [(role, counts[role], shares[role] / total)
@@ -433,7 +500,8 @@ def plan_engagement(
          for r in roles_override]
         if roles_override else
         [(role, count, share, "", "")
-         for role, count, share in _role_slots(client, project_type, team_size)])
+         for role, count, share in _role_slots(client, project_type, team_size,
+                                               _role_caps(client))])
     for role, count, share, role_skills, role_seniority in mix:
         # `assignments.person` is a link to `people.person`, so this one
         # call returns the ranking AND every column of the matched
@@ -470,7 +538,14 @@ def plan_engagement(
         if want_seniority:
             where["person.seniority"] = want_seniority
         if want_skills:
-            where["person.skills"] = {"$match": want_skills}
+            # `$match` is CONJUNCTIVE: every term has to be present.
+            # "Kubernetes Docker Redis GraphQL" as one match returns
+            # nobody, because no single person has all four — and an
+            # empty shortlist is a worse answer than a ranked one. Each
+            # term becomes its own clause under `$or`, so anyone with at
+            # least one qualifies and Aito ranks by how many they have.
+            terms = want_skills.split()
+            where["$or"] = [{"person.skills": {"$match": t}} for t in terms]
         hits = _hits(client, "assignments", where, "person", limit=6,
                      select_extra=PERSON_FIELDS)
         candidates = []
@@ -525,16 +600,21 @@ def plan_engagement(
         delivery_where["site"] = site
     success_p, success_why = _p_of(
         _hits(client, "projects", delivery_where, "success", limit=2), True)
-    on_time_p, on_time_why = _p_of(
-        _hits(client, "projects", delivery_where, "on_time", limit=2), True)
-    on_budget_p, _ = _p_of(
-        _hits(client, "projects", delivery_where, "on_budget", limit=2), True)
+
+    def outcomes(spec: list[tuple[str, str]]) -> list[Outcome]:
+        out = []
+        for field_name, label in spec:
+            p, why = _p_of(
+                _hits(client, "projects", delivery_where, field_name, limit=2),
+                True)
+            out.append(Outcome(field=field_name, label=label, p=p, why=why))
+        return out
+
     delivery = DeliveryRisk(
         success_p=success_p,
-        on_time_p=on_time_p,
-        on_budget_p=on_budget_p,
+        core=outcomes(CORE_OUTCOMES),
+        qualifying=outcomes(QUALIFYING_OUTCOMES),
         success_why=success_why,
-        on_time_why=on_time_why,
     )
 
     sales = _sales_risk(client, customer=customer, project_type=project_type,

@@ -254,6 +254,23 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     shows one assignee with a picker listing every candidate, score and
     reason. Metsä + Studio.
 
+    **Delivery risk is Futurice's 3+3, not time-and-budget.** The core
+    three — makes money, team stays happy, customer stays happy — are
+    what decide whether an engagement was worth doing; the qualifying
+    three are predictability, whether the thing worked, and whether it
+    opened a door. Six `_predict` calls, six `$why` trees, because a
+    schedule risk and a morale risk have different drivers. `success`
+    is a composite of the core three, so "on time and on budget while
+    burning the team and losing the account" scores as the failure it
+    is. Fits a Nordic consultancy far better than a margin-and-schedule
+    scorecard.
+
+    **Role counts are capped by history.** `_predict role` returns a
+    share, and scaling a share to a big team asks for two project
+    managers on eight people. `_role_caps` reads the most of each role
+    that ever appeared on ONE project, so a singleton stays a
+    singleton — without anyone hard-coding which roles are management.
+
     **Two kinds of clause, and the difference is the lesson.**
     `project_type` / `role` / `site` describe the JOB and are
     *evidence* — they let Aito rank on how such work was staffed

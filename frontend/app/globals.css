@@ -3555,13 +3555,16 @@ body {
 }
 @keyframes sf-fade { from { opacity: 0.4; } to { opacity: 1; } }
 
+/* Evidence that pushed the prediction DOWN. Struck through once, which
+   read as "this text was deleted" rather than "this factor argued
+   against it" — and on a term like a person's name or a project type
+   that is actively misleading. Red on a red wash carries the same
+   meaning without claiming the text is wrong. */
 .why-anti-highlight {
   background: var(--red-light);
   color: var(--red);
   padding: 0 2px;
   border-radius: 2px;
-  text-decoration: line-through;
-  text-decoration-color: rgba(192,57,43,0.4);
 }
 
 /* (Old bottom-left latency ticker dropped — the topbar LatencyBadge
@@ -4035,3 +4038,11 @@ body {
 .pl-role-req input { flex: 1; }
 .pl-role-req input:focus,
 .pl-role-req select:focus { outline: none; border-color: var(--gold); }
+
+.pl-group {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--mid);
+  padding: 10px 18px 2px;
+}

@@ -724,12 +724,18 @@ export interface PlannerRoleSlot {
   assignees: string[];
 }
 
+export interface PlannerOutcome {
+  field: string;
+  label: string;
+  p: number | null;
+  why: WhyExplanation | Record<string, never>;
+}
+
 export interface PlannerDeliveryRisk {
   success_p: number | null;
-  on_time_p: number | null;
-  on_budget_p: number | null;
+  core: PlannerOutcome[];
+  qualifying: PlannerOutcome[];
   success_why: WhyExplanation | Record<string, never>;
-  on_time_why: WhyExplanation | Record<string, never>;
 }
 
 export interface PlannerPriceCheck {

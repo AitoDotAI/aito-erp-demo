@@ -182,6 +182,26 @@ def test_a_role_requirement_does_not_leak_onto_other_roles():
         for table, where, field in client.calls
         if table == "assignments" and field == "person"
     }
-    assert person_calls["frontend"]["person.skills"] == {"$match": "Next.js"}
-    assert "person.skills" not in person_calls["qa"]
+    # One clause per term under `$or` — `$match` is conjunctive, so a
+    # multi-term requirement as a single match returns nobody.
+    assert person_calls["frontend"]["$or"] == [
+        {"person.skills": {"$match": "Next.js"}},
+    ]
+    assert "$or" not in person_calls["qa"]
     assert [r.skills for r in plan.roles] == ["Next.js", ""]
+
+
+def test_a_singleton_role_is_never_doubled_up():
+    """Two project managers on an eight-person team is what an unbounded
+    proportion asks for, not what the history says. A role that never
+    appeared twice on one project is capped at one, and the remaining
+    seats go to the roles that can take them."""
+    from src.planner_service import _role_slots
+
+    client = _role_client([("engineer", 0.60), ("project manager", 0.40)])
+    slots = _role_slots(client, "implementation", 8,
+                        caps={"project manager": 1, "engineer": 8})
+    counts = {role: count for role, count, _ in slots}
+    assert counts["project manager"] == 1
+    assert counts["engineer"] == 7
+    assert sum(counts.values()) == 8

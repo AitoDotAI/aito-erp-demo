@@ -237,25 +237,25 @@ METSA = PersonaSpec(
     lead_discipline="site manager",
     disciplines={
         "site manager":      {"title": "Site Manager",
-                              "skills": "site management scheduling subcontractors safety permits",
+                              "skills": "site management scheduling subcontractors safety permits cost control handover surveying logistics",
                               "certifications": "SFS 6002, occupational safety card"},
         "mechanical":        {"title": "Mechanical Engineer",
-                              "skills": "hydraulics gearboxes bearings CAD alignment vibration analysis",
+                              "skills": "hydraulics gearboxes bearings CAD alignment vibration analysis pneumatics welding lubrication thermography",
                               "certifications": "hot work permit"},
         "automation":        {"title": "Automation Engineer",
-                              "skills": "PLC SCADA Siemens S7 instrumentation commissioning",
+                              "skills": "PLC SCADA Siemens S7 instrumentation commissioning Beckhoff robotics fieldbus HMI safety PLC",
                               "certifications": "SFS 6002"},
         "electrical":        {"title": "Electrical Engineer",
-                              "skills": "switchgear cabling motor drives earthing inspections",
+                              "skills": "switchgear cabling motor drives earthing inspections thermal imaging UPS lighting design arc flash",
                               "certifications": "SFS 6002, electrical work licence"},
         "hvac":              {"title": "HVAC Technician",
-                              "skills": "ventilation heat recovery refrigeration ductwork balancing",
+                              "skills": "ventilation heat recovery refrigeration ductwork balancing building automation heat pumps commissioning",
                               "certifications": "refrigerant handling"},
         "civil":             {"title": "Civil Engineer",
-                              "skills": "foundations concrete steel frame structural surveying",
+                              "skills": "foundations concrete steel frame structural surveying drainage groundworks formwork rebar",
                               "certifications": "occupational safety card"},
         "quality":           {"title": "Quality Inspector",
-                              "skills": "auditing tolerances documentation ISO 9001 non-conformance",
+                              "skills": "auditing tolerances documentation ISO 9001 non-conformance metrology root cause analysis supplier audits",
                               "certifications": "ISO 9001 lead auditor"},
     },
     project_managers=["M. Hakala", "T. Virtanen", "K. Mäkinen", "J. Lehtinen"],
@@ -389,19 +389,19 @@ AURORA = PersonaSpec(
     lead_discipline="store lead",
     disciplines={
         "store lead":   {"title": "Store Project Lead",
-                         "skills": "store operations rollout planning staffing merchandising",
+                         "skills": "store operations rollout planning staffing merchandising scheduling training openings",
                          "certifications": "retail operations"},
         "visual":       {"title": "Visual Merchandiser",
-                         "skills": "planograms display design signage lighting fixtures",
+                         "skills": "planograms display design signage lighting fixtures window design seasonal campaigns",
                          "certifications": ""},
         "ecommerce":    {"title": "Ecommerce Specialist",
-                         "skills": "Shopify product feeds SEO conversion analytics",
+                         "skills": "Shopify product feeds SEO conversion analytics PIM marketplace integrations A/B testing",
                          "certifications": "Google Analytics"},
         "supply":       {"title": "Supply Planner",
-                         "skills": "replenishment forecasting slotting supplier onboarding",
+                         "skills": "replenishment forecasting slotting supplier onboarding demand planning logistics inventory",
                          "certifications": ""},
         "marketing":    {"title": "Campaign Manager",
-                         "skills": "campaign planning CRM segmentation loyalty copywriting",
+                         "skills": "campaign planning CRM segmentation loyalty copywriting email automation paid social",
                          "certifications": ""},
     },
     project_managers=["M. Eronen", "A. Niemi", "R. Salonen"],
@@ -539,22 +539,22 @@ STUDIO = PersonaSpec(
     lead_discipline="project manager",
     disciplines={
         "project manager": {"title": "Project Manager",
-                            "skills": "agile coaching stakeholder management roadmapping budgeting",
+                            "skills": "agile coaching stakeholder management roadmapping budgeting facilitation risk management vendor management OKRs discovery workshops",
                             "certifications": "Scrum Master, SAFe"},
         "frontend":        {"title": "Frontend Developer",
-                            "skills": "React TypeScript JavaScript CSS accessibility Next.js",
+                            "skills": "React TypeScript JavaScript CSS accessibility Next.js Vue design systems performance testing-library animation SSR",
                             "certifications": ""},
         "backend":         {"title": "Backend Developer",
-                            "skills": "Python Node PostgreSQL API design integrations AWS",
+                            "skills": "Python Node PostgreSQL API design integrations AWS Kafka Django FastAPI GraphQL Docker Kubernetes Redis",
                             "certifications": "AWS Solutions Architect"},
         "ux design":       {"title": "UX Designer",
-                            "skills": "UI design Figma prototyping user research design systems",
+                            "skills": "UI design Figma prototyping user research design systems accessibility service design workshops interaction design illustration",
                             "certifications": ""},
         "data":            {"title": "Data Engineer",
-                            "skills": "SQL dbt pipelines analytics warehousing Python",
+                            "skills": "SQL dbt pipelines analytics warehousing Python Airflow Snowflake BigQuery visualisation experimentation",
                             "certifications": ""},
         "qa":              {"title": "QA Engineer",
-                            "skills": "test automation Playwright regression accessibility audits",
+                            "skills": "test automation Playwright regression accessibility audits Cypress performance testing API testing exploratory testing CI",
                             "certifications": "ISTQB"},
     },
     project_managers=["A. Lahti", "J. Mäkelä", "K. Saarinen", "L. Lounela"],
@@ -863,8 +863,18 @@ def _project_success_p(
         p *= 0.85
     else:
         p *= 1.10
-    p *= 1.0 + 0.08 * sum(1 for m in members if m in persona.project_reliable)
-    p *= 1.0 - 0.18 * sum(1 for m in members if m in persona.project_chaotic)
+    # Same dilution argument as the chaotic drag below: the per-member
+    # boost is sized so the per-TEAM effect survives a bench four times
+    # the size it was tuned against.
+    p *= 1.0 + 0.16 * sum(1 for m in members if m in persona.project_reliable)
+    # 0.18 per chaotic member was tuned against a fifteen-person bench,
+    # where one such member was a third of a team. On a forty-person
+    # bench they are one of five or six, and the drag washed out to a
+    # single point across the portfolio — too weak for `_relate` to
+    # surface a person as a success factor, which is the whole point of
+    # the Project Portfolio panel. The per-member effect is stronger so
+    # that the PER-TEAM effect stays what it was.
+    p *= 1.0 - 0.30 * sum(1 for m in members if m in persona.project_chaotic)
     if budget / max(duration, 1) > 2500:
         p *= 0.80
     if priority == "high":
@@ -955,17 +965,44 @@ def generate_projects_and_assignments(
         )
 
         if completed:
-            success = random.random() < p_succ
-            on_time = success or (random.random() < 0.35)
-            on_budget = success or (random.random() < 0.30)
-            if not success and on_time and on_budget:
-                if random.random() < 0.5:
-                    on_time = False
-                else:
-                    on_budget = False
+            # Futurice's 3+3. The three that define whether the
+            # engagement was worth doing — money, the team, the client —
+            # and three that qualify it: did we say when, did the thing
+            # work, did it lead anywhere. A consultancy that scores only
+            # on time and budget can hit both while burning the team and
+            # losing the account, which is exactly the failure a
+            # schedule-and-margin scorecard cannot see.
+            #
+            # They are correlated but NOT collinear: each gets its own
+            # drivers, so `_predict` on one is not a restatement of the
+            # others and `_relate` can find different factors behind
+            # each.
+            financial_ok = random.random() < p_succ * 1.08
+            # Overloaded crews and chaotic teammates cost morale
+            # regardless of whether the numbers landed.
+            morale = p_succ * (0.88 if team_size > spec["team"][1] else 1.10)
+            team_happy = random.random() < morale
+            # Clients forgive an overrun far more readily than silence
+            # about it, so predictability drives client sentiment
+            # harder than budget does.
+            on_time = random.random() < p_succ * 1.05
+            customer_happy = random.random() < (
+                p_succ * (1.10 if on_time else 0.72))
+            on_budget = random.random() < p_succ * 0.98
+            outcome_ok = random.random() < p_succ * 1.04
+            # Follow-on work comes from a happy client and a thing that
+            # worked — not from margin.
+            doors_opened = (customer_happy and outcome_ok
+                            and random.random() < 0.55)
+            # The headline stays a single Boolean because several views
+            # rank on it, but it is now a composite of the core three
+            # rather than a coin flip of its own.
+            success = sum([financial_ok, team_happy, customer_happy]) >= 2
             status = "complete"
         else:
             success = on_time = on_budget = None
+            financial_ok = team_happy = customer_happy = None
+            outcome_ok = doors_opened = None
             status = random.choices(["active", "at_risk", "delayed"], weights=[60, 25, 15], k=1)[0]
 
         pid = f"PRJ-{1000 + idx}"
@@ -987,6 +1024,12 @@ def generate_projects_and_assignments(
             "start_month": start_month,
             "on_time": on_time,
             "on_budget": on_budget,
+            # Futurice 3+3 — the core three first.
+            "financial_ok": financial_ok,
+            "team_happy": team_happy,
+            "customer_happy": customer_happy,
+            "outcome_ok": outcome_ok,
+            "doors_opened": doors_opened,
             "success": success,
         })
         roles = [persona.lead_discipline] + member_roles
@@ -1066,6 +1109,20 @@ def site_for(text: str) -> str | None:
     return None
 
 
+def _sample_skills(pool: str) -> list[str]:
+    """A personal subset of a discipline's skill pool.
+
+    Kept in the pool's own order so a skill list reads like a CV rather
+    than a shuffled bag, and always includes the first few terms — the
+    ones that define the discipline — so a frontend developer never
+    comes back without React.
+    """
+    terms = pool.split()
+    core, rest = terms[:3], terms[3:]
+    extra = random.sample(rest, k=min(len(rest), random.randint(2, 5)))
+    return core + [t for t in terms if t in set(extra)]
+
+
 def generate_people(persona: PersonaSpec) -> list[dict]:
     """The bench, with the metadata that actually decides a staffing call.
 
@@ -1114,7 +1171,16 @@ def generate_people(persona: PersonaSpec) -> list[dict]:
             "title": spec["title"],
             # Text, so `$match` and tokenised evidence work on it — the
             # skill list is the one field a human reads first.
-            "skills": spec["skills"],
+            #
+            # SAMPLED per person, not copied from the discipline. Giving
+            # every backend developer the identical skill string made
+            # skills perfectly collinear with `discipline`, so they
+            # could not discriminate between two backend people and
+            # Aito correctly reported zero lift from them — the `$why`
+            # for a candidate could only ever say "role is backend".
+            # Individual skill sets are what make "why THIS backend
+            # developer" an answerable question.
+            "skills": " ".join(_sample_skills(spec["skills"])),
             "certifications": spec.get("certifications", ""),
             "site": random.choices(SITES, weights=SITE_WEIGHTS, k=1)[0],
             "seniority": seniority,

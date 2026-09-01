@@ -490,8 +490,7 @@ export default function PlannerPage() {
                       {pct(plan.delivery.success_p)}
                     </div>
                     <div className="kpi-sub">
-                      on time {pct(plan.delivery.on_time_p)} · on budget{" "}
-                      {pct(plan.delivery.on_budget_p)}
+                      money · team · customer
                     </div>
                   </div>
                 </div>
@@ -656,6 +655,17 @@ export default function PlannerPage() {
                                             <span className="pl-opt-name">
                                               {c.person}
                                             </span>
+                                            {(c.why as WhyExplanation)?.lifts && (
+                                              <span
+                                                onClick={(e) => e.stopPropagation()}
+                                              >
+                                                <WhyPopover
+                                                  value={c.person}
+                                                  confidence={c.fit}
+                                                  why={c.why as WhyExplanation}
+                                                />
+                                              </span>
+                                            )}
                                             <span className="pl-opt-fit">
                                               {pct(c.fit)}
                                             </span>
@@ -761,56 +771,39 @@ export default function PlannerPage() {
 
                     <div className="card-head" style={{ marginTop: 8 }}>
                       <span className="card-title">Delivery risk</span>
+                      <span className="card-meta">projects._predict ×6</span>
                     </div>
-                    <table className="tbl">
-                      <tbody>
-                        <tr>
-                          <td>Succeeds</td>
-                          <td style={{ textAlign: "right" }}>
-                            <span className={riskClass(plan.delivery.success_p)}>
-                              {pct(plan.delivery.success_p)}
-                            </span>
-                          </td>
-                          <td style={{ width: 30 }}>
-                            {(plan.delivery.success_why as WhyExplanation)
-                              ?.lifts && (
-                              <WhyPopover
-                                value="success"
-                                confidence={plan.delivery.success_p ?? 0}
-                                why={plan.delivery.success_why as WhyExplanation}
-                              />
-                            )}
-                          </td>
-                        </tr>
-                        <tr>
-                          <td>Lands on time</td>
-                          <td style={{ textAlign: "right" }}>
-                            <span className={riskClass(plan.delivery.on_time_p)}>
-                              {pct(plan.delivery.on_time_p)}
-                            </span>
-                          </td>
-                          <td>
-                            {(plan.delivery.on_time_why as WhyExplanation)
-                              ?.lifts && (
-                              <WhyPopover
-                                value="on time"
-                                confidence={plan.delivery.on_time_p ?? 0}
-                                why={plan.delivery.on_time_why as WhyExplanation}
-                              />
-                            )}
-                          </td>
-                        </tr>
-                        <tr>
-                          <td>Lands on budget</td>
-                          <td style={{ textAlign: "right" }}>
-                            <span className={riskClass(plan.delivery.on_budget_p)}>
-                              {pct(plan.delivery.on_budget_p)}
-                            </span>
-                          </td>
-                          <td></td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    {[
+                      { rows: plan.delivery.core, head: "Was it worth doing" },
+                      { rows: plan.delivery.qualifying, head: "And did it hold up" },
+                    ].map((group) => (
+                      <div key={group.head}>
+                        <div className="pl-group">{group.head}</div>
+                        <table className="tbl">
+                          <tbody>
+                            {group.rows.map((o) => (
+                              <tr key={o.field}>
+                                <td>{o.label}</td>
+                                <td style={{ textAlign: "right", width: "22%" }}>
+                                  <span className={riskClass(o.p)}>
+                                    {pct(o.p)}
+                                  </span>
+                                </td>
+                                <td style={{ width: 30 }}>
+                                  {(o.why as WhyExplanation)?.lifts && (
+                                    <WhyPopover
+                                      value={o.label}
+                                      confidence={o.p ?? 0}
+                                      why={o.why as WhyExplanation}
+                                    />
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
                   </section>
                 </div>
               </>

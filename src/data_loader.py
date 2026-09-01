@@ -113,7 +113,21 @@ SCHEMAS = {
             "site": {"type": "String", "nullable": False},
             "start_month": {"type": "String", "nullable": False},
             # Outcomes are nullable: only completed projects have them.
+            #
+            # Futurice's 3+3 scorecard, which fits a Nordic consultancy
+            # better than time-and-budget: the CORE three are money, the
+            # team, and the client; the qualifying three are
+            # predictability, whether the thing actually worked, and
+            # whether it opened a door. A project can be on time and on
+            # budget while burning the team and losing the account —
+            # `success` is a composite of the core three, so that
+            # outcome scores as the failure it is.
+            "financial_ok": {"type": "Boolean", "nullable": True},
+            "team_happy": {"type": "Boolean", "nullable": True},
+            "customer_happy": {"type": "Boolean", "nullable": True},
             "on_time": {"type": "Boolean", "nullable": True},
+            "outcome_ok": {"type": "Boolean", "nullable": True},
+            "doors_opened": {"type": "Boolean", "nullable": True},
             "on_budget": {"type": "Boolean", "nullable": True},
             "success": {"type": "Boolean", "nullable": True},
         },
