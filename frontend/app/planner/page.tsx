@@ -735,6 +735,16 @@ export default function PlannerPage() {
                                                   ? `${c.absence_kind} ${c.absent_months.join(", ")}`
                                                   : `${c.booked_pct}% booked`}
                                             </span>
+                                            {c.contention > 0 && (
+                                              <span
+                                                className="pl-contend"
+                                                title={`${c.contention} open bid(s) have pencilled this person in for ${c.contention_pct}% — not booked, but the first lead to press go wins.`}
+                                              >
+                                                {c.contention === 1
+                                                  ? "1 bid wants them"
+                                                  : `${c.contention} bids want them`}
+                                              </span>
+                                            )}
                                           </div>
                                           <div className="pl-fit-track">
                                             <div
@@ -866,6 +876,47 @@ export default function PlannerPage() {
                         </table>
                       </div>
                     ))}
+                    {plan.levers.length > 0 && (
+                      <>
+                        <div className="card-head" style={{ marginTop: 8 }}>
+                          <span className="card-title">What moves it</span>
+                          <span className="card-meta">
+                            same predict, altered context
+                          </span>
+                        </div>
+                        <div className="pl-levers">
+                          {plan.levers.map((lv) => (
+                            <div className="pl-lever" key={lv.label}>
+                              <div className="pl-lever-head" title={lv.detail}>
+                                {lv.label}
+                              </div>
+                              {lv.deltas.map((d) => (
+                                <div className="pl-lever-row" key={d.field}>
+                                  <span>{d.label}</span>
+                                  <span
+                                    className={
+                                      d.delta > 0.005
+                                        ? "pl-delta pl-delta-up"
+                                        : d.delta < -0.005
+                                          ? "pl-delta pl-delta-down"
+                                          : "pl-delta"
+                                    }
+                                  >
+                                    {d.delta >= 0 ? "+" : ""}
+                                    {Math.round(d.delta * 100)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="pl-note">
+                          Points of probability, against this proposal as it
+                          stands. Each is the same <em>_predict</em> asked
+                          about a project that differs in one field.
+                        </p>
+                      </>
+                    )}
                   </section>
                 </div>
               </>

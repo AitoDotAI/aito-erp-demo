@@ -722,6 +722,8 @@ export interface PlannerCandidate {
   available: boolean;
   absent_months: string[];
   absence_kind: string;
+  contention: number;
+  contention_pct: number;
   why: WhyExplanation | Record<string, never>;
 }
 
@@ -733,6 +735,20 @@ export interface PlannerRoleSlot {
   seniority: string;
   candidates: PlannerCandidate[];
   assignees: string[];
+}
+
+export interface PlannerLeverDelta {
+  field: string;
+  label: string;
+  before: number;
+  after: number;
+  delta: number;
+}
+
+export interface PlannerLever {
+  label: string;
+  detail: string;
+  deltas: PlannerLeverDelta[];
 }
 
 export interface PlannerOutcome {
@@ -788,6 +804,7 @@ export interface EngagementPlan {
   start_month: string;
   window_months: number;
   shape: { suggested_size: number | null; size_p: number | null };
+  levers: PlannerLever[];
   roles: PlannerRoleSlot[];
   delivery: PlannerDeliveryRisk;
   price: PlannerPriceCheck | null;

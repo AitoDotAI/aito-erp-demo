@@ -92,6 +92,8 @@ class Candidate:
     available: bool = True
     absent_months: list[str] = field(default_factory=list)
     absence_kind: str = ""
+    contention: int = 0
+    contention_pct: int = 0
     why: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -114,6 +116,8 @@ class Candidate:
             "available": self.available,
             "absent_months": self.absent_months,
             "absence_kind": self.absence_kind,
+            "contention": self.contention,
+            "contention_pct": self.contention_pct,
             "why": self.why,
         }
 
@@ -244,6 +248,37 @@ class TeamShape:
         return {"suggested_size": self.suggested_size, "size_p": self.size_p}
 
 
+# The changes a delivery lead can actually make to a proposal before
+# signing it. Deliberately not "hire someone" or "charge less" — these
+# are the three dials that exist inside the room where the plan is
+# argued about.
+LEVERS = [
+    ("Three weeks longer", {"duration_days": 21}),
+    ("One fewer person", {"team_size": -1}),
+    ("One more person", {"team_size": 1}),
+]
+
+# Which outcomes a lever is reported against. Not all six: a lever
+# panel that moves six numbers each is a wall, and these are the three
+# a lead trades between.
+LEVER_OUTCOMES = [
+    ("financial_ok", "Makes money"),
+    ("on_time", "Lands when we said"),
+    ("customer_happy", "Customer happy"),
+]
+
+
+@dataclass
+class LeverEffect:
+    label: str
+    detail: str
+    deltas: list[dict]          # {field, label, before, after, delta}
+
+    def to_dict(self) -> dict:
+        return {"label": self.label, "detail": self.detail,
+                "deltas": self.deltas}
+
+
 @dataclass
 class EngagementPlan:
     customer: str
@@ -262,6 +297,7 @@ class EngagementPlan:
     start_month: str
     window_months: int
     shape: TeamShape
+    levers: list[LeverEffect]
     roles: list[RoleSlot]
     delivery: DeliveryRisk
     price: PriceCheck | None
@@ -285,6 +321,7 @@ class EngagementPlan:
             "start_month": self.start_month,
             "window_months": self.window_months,
             "shape": self.shape.to_dict(),
+            "levers": [l.to_dict() for l in self.levers],
             "roles": [r.to_dict() for r in self.roles],
             "delivery": self.delivery.to_dict(),
             "price": self.price.to_dict() if self.price else None,
@@ -599,6 +636,8 @@ def plan_engagement(
                 available=standing.available,
                 absent_months=standing.absent_months,
                 absence_kind=standing.absence_kind,
+                contention=standing.contention,
+                contention_pct=standing.contention_pct,
                 why=process_factors(hit.get("$why") or {}, p),
             )
             candidate.matches = _match_chips(
@@ -643,12 +682,16 @@ def plan_engagement(
             out.append(Outcome(field=field_name, label=label, p=p, why=why))
         return out
 
+    core = outcomes(CORE_OUTCOMES)
+    qualifying = outcomes(QUALIFYING_OUTCOMES)
     delivery = DeliveryRisk(
         success_p=success_p,
-        core=outcomes(CORE_OUTCOMES),
-        qualifying=outcomes(QUALIFYING_OUTCOMES),
+        core=core,
+        qualifying=qualifying,
         success_why=success_why,
     )
+    baseline = {o.field: o.p for o in core + qualifying}
+    levers = _levers(client, delivery_where, baseline)
 
     sales = _sales_risk(client, customer=customer, project_type=project_type,
                         band=band, duration_days=duration_days,
@@ -673,6 +716,7 @@ def plan_engagement(
         start_month=start_month,
         window_months=window_len,
         shape=shape,
+        levers=levers,
         roles=roles,
         delivery=delivery,
         price=price,
@@ -711,6 +755,11 @@ def _fill_seats(slots: list[RoleSlot]) -> None:
             # `available` is now window-aware: free enough across the
             # project's own months, and not on leave during any of them.
             available = [c for c in free if c.available]
+            # Among available candidates, prefer the one fewest other
+            # open bids are counting on. Aito's order is preserved
+            # within a contention level, so this breaks ties rather
+            # than re-ranking.
+            available.sort(key=lambda c: c.contention)
             pick = (available or free)[0]
             taken.add(pick.person)
             slot.assignees.append(pick.person)
@@ -811,6 +860,51 @@ def _highlighted_fields(why: dict) -> set[str]:
             raw = str(hl.get("raw_field") or hl.get("field") or "")
             fields.add(raw.replace("$context.", ""))
     return fields
+
+
+def _levers(client: AitoClient, base_where: dict,
+            baseline: dict[str, float | None]) -> list[LeverEffect]:
+    """What each available change does to the outcomes.
+
+    Six probabilities describe a risk; none of them says what to do
+    about it. A lever re-runs the same `_predict` calls against an
+    altered context and reports the difference, which is the form a
+    delivery lead can act on: "three weeks buys eleven points of
+    on-time" is a decision, "on-time is 55%" is a fact.
+
+    Nothing here is a new query shape — it is the outcome predict from
+    above, asked again about a project that differs in one field.
+    """
+    effects: list[LeverEffect] = []
+    for label, change in LEVERS:
+        where = dict(base_where)
+        detail_bits = []
+        for key, delta in change.items():
+            current = where.get(key)
+            if not isinstance(current, (int, float)):
+                continue
+            where[key] = max(1, int(current) + delta)
+            detail_bits.append(f"{key} {current} → {where[key]}")
+        if not detail_bits:
+            continue
+
+        deltas = []
+        for field_name, out_label in LEVER_OUTCOMES:
+            before = baseline.get(field_name)
+            after, _ = _p_of(
+                _hits(client, "projects", where, field_name, limit=2), True)
+            if before is None or after is None:
+                continue
+            deltas.append({
+                "field": field_name, "label": out_label,
+                "before": round(before, 4), "after": round(after, 4),
+                "delta": round(after - before, 4),
+            })
+        if deltas:
+            effects.append(LeverEffect(label=label,
+                                       detail=", ".join(detail_bits),
+                                       deltas=deltas))
+    return effects
 
 
 def _current_loads(client: AitoClient) -> dict[str, tuple[int, str]]:

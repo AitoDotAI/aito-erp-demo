@@ -205,3 +205,39 @@ def test_a_singleton_role_is_never_doubled_up():
     assert counts["project manager"] == 1
     assert counts["engineer"] == 7
     assert sum(counts.values()) == 8
+
+
+def test_levers_report_a_difference_not_a_new_number():
+    """Each lever is the SAME outcome predict asked about a project that
+    differs in one field, and it reports the delta against the baseline
+    the plan already showed."""
+    from src.planner_service import LEVERS, _levers
+
+    class _Client(_FakeClient):
+        def predict(self, table, where, predict_field, limit=6, select_extra=None):
+            self.calls.append((table, dict(where), predict_field))
+            # Longer projects land on time more often; bigger ones less.
+            p = 0.5 + 0.001 * where["duration_days"] - 0.02 * where["team_size"]
+            return {"hits": [{"$value": True, "$p": p}], "offset": 0, "total": 1}
+
+    client = _Client({})
+    base = {"project_type": "implementation", "team_size": 6,
+            "duration_days": 120, "priority": "high"}
+    effects = _levers(client, base, {"financial_ok": 0.5, "on_time": 0.5,
+                                     "customer_happy": 0.5})
+    assert [e.label for e in effects] == [label for label, _ in LEVERS]
+
+    longer = next(e for e in effects if e.label == "Three weeks longer")
+    assert all(d["after"] > d["before"] for d in longer.deltas)
+    # The base plan itself is never re-queried under a lever's context.
+    assert all(w != base for _, w, _ in client.calls)
+
+
+def test_a_lever_that_cannot_apply_is_dropped_not_faked():
+    """A context missing the field a lever changes yields no effect, and
+    certainly not a zero-delta row implying it was tried."""
+    from src.planner_service import _levers
+
+    client = _FakeClient({})
+    effects = _levers(client, {"project_type": "design"}, {"on_time": 0.5})
+    assert effects == []

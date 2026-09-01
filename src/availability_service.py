@@ -56,6 +56,11 @@ class WindowAvailability:
     absent_months: list[str] = field(default_factory=list)
     absence_kind: str = ""
     by_month: dict[str, int] = field(default_factory=dict)
+    # Open bids whose pencilled team includes this person, overlapping
+    # the window. Not booked, so it does not reduce free capacity — but
+    # it is a claim, and the first lead to press go wins.
+    contention: int = 0
+    contention_pct: int = 0
 
     @property
     def available(self) -> bool:
@@ -77,6 +82,8 @@ class WindowAvailability:
             "absent_months": self.absent_months,
             "absence_kind": self.absence_kind,
             "available": self.available,
+            "contention": self.contention,
+            "contention_pct": self.contention_pct,
             "by_month": self.by_month,
         }
 
@@ -143,6 +150,22 @@ def availability_in_window(
             # has to reshuffle around it.
             if len(overlap) >= len(entry.absent_months) or not entry.absence_kind:
                 entry.absence_kind = row.get("kind", "")
+
+    # Provisional claims are counted SEPARATELY, never folded into
+    # booked load. Treating a 40%-likely bid as booked time makes
+    # everyone look busy and the planner useless; ignoring it makes
+    # three leads each plan the same person. Reporting it apart is the
+    # only honest option — the number is a warning, not a subtraction.
+    for row in _fetch(client, "proposals", limit=2000):
+        entry = per_person.get(row.get("person"))
+        if entry is None or not row.get("start_month"):
+            continue
+        claim_from = month_index(row["start_month"])
+        claim_to = month_index(row.get("end_month") or row["start_month"])
+        if claim_to < first or claim_from > last:
+            continue
+        entry.contention += 1
+        entry.contention_pct += int(row.get("allocation_pct") or 0)
 
     for entry in per_person.values():
         loads = list(entry.by_month.values()) or [0]

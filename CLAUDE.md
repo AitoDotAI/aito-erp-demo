@@ -313,6 +313,14 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     prediction: a calendar is a fact, and dressing arithmetic up as
     inference is the sort of thing this demo must not teach.
 
+    **Levers answer "so what".** Six probabilities describe a risk;
+    none says what to do about it. `_levers` re-runs the same outcome
+    `_predict` against a context that differs in one field — three
+    weeks longer, one fewer person, one more — and reports the delta.
+    "Three weeks buys 17 points of on-time and costs 26 of margin" is a
+    decision; "on-time is 51%" is a fact. No new query shape, just the
+    same question asked about a slightly different project.
+
     **Where Aito stops.** Aito ranks candidates per role; it does not
     allocate a team. "Who fits this role" is an inference; "who gets
     which seat given everyone else's" is an assignment problem, and
@@ -350,6 +358,20 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | planner_service | `_predict` ×N + `_search` | Role mix + people per role; delivery risk; `quotes.won` / `loss_reason` for the predicted objection |
 
 ---
+
+### Why `proposals` is its own table
+
+Booked work is not the whole claim on a person's time. Two or three
+open bids have the same architect pencilled in, and the first delivery
+lead to press go wins — which is why a plan reads as feasible right up
+until it isn't. `proposals` holds provisional teams for bids that have
+not closed.
+
+Counted **separately**, never folded into booked load: treating a
+40%-likely bid as booked time makes everyone look busy and the planner
+useless, while ignoring it lets three leads each plan the same person.
+It surfaces as "2 bids want them" and breaks ties in seat-filling —
+a warning, not a subtraction.
 
 ### Role mixes are per project type, and that is the point
 

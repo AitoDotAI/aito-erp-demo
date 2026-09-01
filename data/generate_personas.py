@@ -162,6 +162,8 @@ class PersonaSpec:
     # persona that doesn't sell project work simply has no `quotes`
     # fixture and the table stays empty (see OPTIONAL_TABLES).
     n_quotes: int = 0
+    # Bids in flight with a team pencilled onto them.
+    n_open_proposals: int = 8
     quote_scopes: dict[str, list[str]] = field(default_factory=dict)
     product_categories: dict[str, dict] = field(default_factory=dict)
     product_name_templates: dict[str, list[str]] = field(default_factory=dict)
@@ -1291,6 +1293,60 @@ ABSENCE_KINDS = [
 ]
 
 
+def generate_proposals(persona: PersonaSpec, people: list[dict],
+                       projects: list[dict]) -> list[dict]:
+    """Teams provisionally staffed onto bids that have not closed.
+
+    Booked work is not the whole claim on a person's time. Two or three
+    other proposals in flight want the same architect, and the first
+    delivery lead to press go wins — which is why a plan that reads as
+    perfectly feasible turns out not to be, and why a planner that
+    ignores this is a document rather than a tool.
+
+    One row per person per open bid, shaped like an assignment so the
+    availability arithmetic can treat them together and report them
+    apart.
+    """
+    proposals: list[dict] = []
+    by_discipline: dict[str, list[str]] = {}
+    for entry in people:
+        by_discipline.setdefault(entry["discipline"], []).append(entry["person"])
+
+    types = list(persona.project_types.keys())
+    weights = [persona.project_types[t]["weight"] for t in types]
+    now = _month_index(TODAY_MONTH)
+
+    for index in range(persona.n_open_proposals):
+        ptype = random.choices(types, weights=weights, k=1)[0]
+        spec = persona.project_types[ptype]
+        customer = random.choice(persona.project_customers[ptype])
+        team_size = random.randint(*spec["team"])
+        # Bids start soon, not now — that is what makes them contend
+        # with the window a planner is looking at.
+        start = now + random.randint(0, 3)
+        span = month_span(random.randint(*spec["duration"]))
+        role_mix = spec.get("roles") or {}
+        roles = [r for r in role_mix] or list(by_discipline)
+        weights_r = [role_mix.get(r, 1) for r in roles]
+
+        for seat in range(team_size):
+            role = random.choices(roles, weights=weights_r, k=1)[0]
+            bench = by_discipline.get(role) or [p["person"] for p in people]
+            proposals.append({
+                "proposal_id": f"PROP-{4000 + index}",
+                "customer": customer,
+                "project_type": ptype,
+                "person": random.choice(bench),
+                "role": role,
+                # Provisional, so lighter than a booked allocation.
+                "allocation_pct": random.choice([20, 40, 50, 60]),
+                "start_month": _month_from_index(start),
+                "end_month": _month_from_index(start + span - 1),
+                "probability": random.choice([20, 40, 60, 80]),
+            })
+    return proposals
+
+
 def generate_absences(persona: PersonaSpec, people: list[dict]) -> list[dict]:
     """Planned time out of the delivery pool.
 
@@ -1947,6 +2003,7 @@ def write_persona(persona: PersonaSpec) -> None:
     tasks = generate_metsa_tasks(persona, projects) if persona.tenant_id == "metsa" else []
     quotes = generate_quotes(persona, projects) if persona.n_quotes else []
     absences = generate_absences(persona, people)
+    proposals = generate_proposals(persona, people, projects)
 
     with open(out / "purchases.json",     "w") as f: json.dump(purchases,    f, indent=2, ensure_ascii=False)
     with open(out / "products.json",      "w") as f: json.dump(products,     f, indent=2, ensure_ascii=False)
@@ -1954,6 +2011,7 @@ def write_persona(persona: PersonaSpec) -> None:
     with open(out / "price_history.json", "w") as f: json.dump(prices,       f, indent=2, ensure_ascii=False)
     with open(out / "people.json",        "w") as f: json.dump(people,       f, indent=2, ensure_ascii=False)
     with open(out / "absences.json",      "w") as f: json.dump(absences,     f, indent=2, ensure_ascii=False)
+    with open(out / "proposals.json",     "w") as f: json.dump(proposals,    f, indent=2, ensure_ascii=False)
     with open(out / "projects.json",      "w") as f: json.dump(projects,     f, indent=2, ensure_ascii=False)
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
     if impressions:
@@ -1977,6 +2035,8 @@ def write_persona(persona: PersonaSpec) -> None:
               f"{len(succ)/len(completed):.0%}")
     print(f"  people:         {len(people)}")
     print(f"  absences:       {len(absences)}")
+    print(f"  proposals:      {len(proposals)} rows "
+          f"({len({r['proposal_id'] for r in proposals})} open bids)")
     print(f"  assignments:    {len(assignments)}")
     if quotes:
         won = sum(1 for q in quotes if q["won"])

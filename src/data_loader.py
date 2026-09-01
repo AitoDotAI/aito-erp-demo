@@ -182,6 +182,25 @@ SCHEMAS = {
             "project_success": {"type": "Boolean", "nullable": True},
         },
     },
+    # Teams pencilled onto bids that have not closed. Booked work is
+    # not the whole claim on someone's time: several open proposals
+    # want the same architect, and the first delivery lead to press go
+    # wins. Without this a plan reads as feasible right up until it
+    # isn't.
+    "proposals": {
+        "type": "table",
+        "columns": {
+            "proposal_id": {"type": "String", "nullable": False},
+            "customer": {"type": "String", "nullable": False},
+            "project_type": {"type": "String", "nullable": False},
+            "person": {"type": "String", "nullable": False, "link": "people.person"},
+            "role": {"type": "String", "nullable": False},
+            "allocation_pct": {"type": "Int", "nullable": False},
+            "start_month": {"type": "String", "nullable": False},
+            "end_month": {"type": "String", "nullable": False},
+            "probability": {"type": "Int", "nullable": False},
+        },
+    },
     # Planned time out of the delivery pool. Booked work says where
     # someone's hours went; it cannot say they are on parental leave
     # from November — and that is the fact that invalidates a staffing
@@ -295,7 +314,8 @@ SCHEMAS = {
 # silently skips these instead of erroring — the Aito table is created
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
-OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences"}
+OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences",
+                   "proposals"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:

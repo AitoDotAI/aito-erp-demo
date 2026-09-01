@@ -41,3 +41,18 @@ def test_available_needs_both_capacity_and_presence():
 
     booked = WindowAvailability("C", booked_pct=140, peak_pct=200, free_pct=0)
     assert booked.available is False
+
+
+def test_contention_never_reduces_free_capacity():
+    """A pencilled bid is a claim, not a booking.
+
+    Folding a 40%-likely proposal into booked load makes everyone look
+    busy and the planner useless; ignoring it entirely lets three leads
+    each plan the same architect. It is reported alongside, never
+    subtracted — the number is a warning.
+    """
+    standing = WindowAvailability("A", booked_pct=30, peak_pct=40, free_pct=70,
+                                  contention=2, contention_pct=90)
+    assert standing.free_pct == 70
+    assert standing.available is True
+    assert standing.contention == 2
