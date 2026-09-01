@@ -1010,6 +1010,13 @@ def generate_projects_and_assignments(
                 "allocation_pct": allocation,
                 "project_type": ptype,
                 "site": site,
+                # The window this booking occupies, denormalised off the
+                # project. Availability is a question about a DATE
+                # RANGE, and answering it by joining every assignment
+                # back to its project in Python is the kind of thing
+                # that makes a demo look slow for no reason.
+                "start_month": start_month,
+                "end_month": shift_month(start_month, span - 1),
                 "project_success": success,  # nullable mirror of projects.success
             })
 
@@ -1114,6 +1121,55 @@ def generate_people(persona: PersonaSpec) -> list[dict]:
             "years_experience": random.randint(*years),
         })
     return people
+
+
+# Why someone is unavailable when nothing is booked over them.
+ABSENCE_KINDS = [
+    ("annual leave", (1, 2), 40),
+    ("parental leave", (6, 10), 8),
+    ("training", (1, 1), 20),
+    ("sabbatical", (3, 6), 4),
+    ("secondment", (2, 5), 10),
+]
+
+
+def generate_absences(persona: PersonaSpec, people: list[dict]) -> list[dict]:
+    """Planned time out of the delivery pool.
+
+    Booked project work says where someone's hours already went.
+    It cannot say that they are on parental leave from November, and
+    that is exactly the fact that invalidates a staffing plan two weeks
+    after it is made. It is also not derivable from anything else in
+    this database — leave lives in an HR calendar — which is what makes
+    it worth having as its own table.
+
+    Weighted towards the near future on purpose: an absence in 2023
+    changes no decision anyone is making today, and a demo whose
+    availability filter never actually excludes anyone teaches nothing.
+    """
+    absences: list[dict] = []
+    now = _month_index(TODAY_MONTH)
+    for index, entry in enumerate(people):
+        # Most people have one or two, a few have none.
+        for _ in range(random.choices([0, 1, 2], weights=[30, 50, 20], k=1)[0]):
+            kinds = [k for k, _, _ in ABSENCE_KINDS]
+            weights = [w for _, _, w in ABSENCE_KINDS]
+            kind = random.choices(kinds, weights=weights, k=1)[0]
+            length_range = next(l for k, l, _ in ABSENCE_KINDS if k == kind)
+            length = random.randint(*length_range)
+            # −6 to +9 months around now, so roughly half are live or
+            # upcoming and the planner's window filter has something to
+            # bite on.
+            start = now + random.randint(-6, 9)
+            absences.append({
+                "absence_id": f"ABS-{3000 + len(absences)}",
+                "person": entry["person"],
+                "kind": kind,
+                "start_month": _month_from_index(start),
+                "end_month": _month_from_index(start + length - 1),
+                "months": length,
+            })
+    return absences
 
 
 def generate_quotes(persona: PersonaSpec, projects: list[dict]) -> list[dict]:
@@ -1732,12 +1788,14 @@ def write_persona(persona: PersonaSpec) -> None:
     # apply directly to retail (Aurora) or services (Studio) personas.
     tasks = generate_metsa_tasks(persona, projects) if persona.tenant_id == "metsa" else []
     quotes = generate_quotes(persona, projects) if persona.n_quotes else []
+    absences = generate_absences(persona, people)
 
     with open(out / "purchases.json",     "w") as f: json.dump(purchases,    f, indent=2, ensure_ascii=False)
     with open(out / "products.json",      "w") as f: json.dump(products,     f, indent=2, ensure_ascii=False)
     with open(out / "orders.json",        "w") as f: json.dump(orders,       f, indent=2, ensure_ascii=False)
     with open(out / "price_history.json", "w") as f: json.dump(prices,       f, indent=2, ensure_ascii=False)
     with open(out / "people.json",        "w") as f: json.dump(people,       f, indent=2, ensure_ascii=False)
+    with open(out / "absences.json",      "w") as f: json.dump(absences,     f, indent=2, ensure_ascii=False)
     with open(out / "projects.json",      "w") as f: json.dump(projects,     f, indent=2, ensure_ascii=False)
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
     if impressions:
@@ -1760,6 +1818,7 @@ def write_persona(persona: PersonaSpec) -> None:
         print(f"    success rate: {len(succ)}/{len(completed)} = "
               f"{len(succ)/len(completed):.0%}")
     print(f"  people:         {len(people)}")
+    print(f"  absences:       {len(absences)}")
     print(f"  assignments:    {len(assignments)}")
     if quotes:
         won = sum(1 for q in quotes if q["won"])

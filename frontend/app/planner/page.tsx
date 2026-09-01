@@ -82,6 +82,16 @@ function riskClass(p: number | null): string {
   return "fc-p fc-p-low";
 }
 
+/** Availability over the project's window — the axis that decides
+ *  whether a match is usable at all. Being on leave for part of the
+ *  build is a different answer from being 90% booked, so they read
+ *  differently. */
+function availClass(c: PlannerCandidate): string {
+  if (c.absent_months.length) return "pl-load pl-load-bad";
+  if (!c.available) return "pl-load pl-load-warn";
+  return "pl-load pl-load-ok";
+}
+
 /** Availability is a separate axis from fit — a perfect match at 300%
  *  allocated is not a staffing answer. */
 function loadClass(status: string): string {
@@ -107,6 +117,10 @@ export default function PlannerPage() {
   const [teamSize, setTeamSize] = useState(8);
   const [priority, setPriority] = useState("high");
   const [site, setSite] = useState("");
+  const [startMonth, setStartMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
   const [competing, setCompeting] = useState(true);
   // Which seat's picker is open, and any manual reassignments. Aito
   // proposes; the scheduler disposes, and the override is per seat.
@@ -159,6 +173,7 @@ export default function PlannerPage() {
         team_size: teamSize,
         priority,
         site,
+        start_month: startMonth,
         competing_bid: competing,
         existing_customer: existing,
       }),
@@ -305,6 +320,14 @@ export default function PlannerPage() {
                   />
                 </label>
                 <label className="pl-field">
+                  <span>Starts</span>
+                  <input
+                    type="month"
+                    value={startMonth}
+                    onChange={(e) => setStartMonth(e.target.value)}
+                  />
+                </label>
+                <label className="pl-field">
                   <span>Site</span>
                   <select value={site} onChange={(e) => setSite(e.target.value)}>
                     <option value="">any site</option>
@@ -407,7 +430,8 @@ export default function PlannerPage() {
                     <div className="card-head">
                       <span className="card-title">The team</span>
                       <span className="card-meta">
-                        {plan.team_size} seats · role mix from comparable work
+                        {plan.team_size} seats · free across{" "}
+                        {plan.window_months} months from {plan.start_month}
                       </span>
                     </div>
                     <table className="tbl">
@@ -418,8 +442,8 @@ export default function PlannerPage() {
                           <th style={{ width: "16%", textAlign: "right" }}>
                             Fit
                           </th>
-                          <th style={{ width: "16%", textAlign: "right" }}>
-                            Load
+                          <th style={{ width: "20%", textAlign: "right" }}>
+                            Free in window
                           </th>
                         </tr>
                       </thead>
@@ -457,7 +481,8 @@ export default function PlannerPage() {
                                     <div className="pl-menu">
                                       <div className="pl-menu-head">
                                         Ranked by <em>_predict person</em> given
-                                        role + site — click to reassign
+                                        role + site. Availability is over the
+                                        project's own window — click to reassign
                                       </div>
                                       {slot.candidates.map((c) => (
                                         <button
@@ -483,8 +508,12 @@ export default function PlannerPage() {
                                             <span className="pl-opt-fit">
                                               {pct(c.fit)}
                                             </span>
-                                            <span className={loadClass(c.status)}>
-                                              {c.current_load_pct}%
+                                            <span className={availClass(c)}>
+                                              {c.available
+                                                ? `${c.free_pct}% free`
+                                                : c.absent_months.length
+                                                  ? `${c.absence_kind} ${c.absent_months.join(", ")}`
+                                                  : `${c.booked_pct}% booked`}
                                             </span>
                                           </div>
                                           <div className="pl-fit-track">
@@ -519,8 +548,12 @@ export default function PlannerPage() {
                                 </td>
                                 <td style={{ textAlign: "right" }}>
                                   {chosen && (
-                                    <span className={loadClass(chosen.status)}>
-                                      {chosen.current_load_pct}%
+                                    <span className={availClass(chosen)}>
+                                      {chosen.available
+                                        ? `${chosen.free_pct}% free`
+                                        : chosen.absent_months.length
+                                          ? chosen.absence_kind
+                                          : `${chosen.booked_pct}% booked`}
                                     </span>
                                   )}
                                 </td>

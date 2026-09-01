@@ -76,10 +76,22 @@ def test_p_of_matches_across_boolean_spellings():
     assert p == 0.42
 
 
-def _cand(name, load, fit=0.3):
+def _cand(name, load, fit=0.3, absent=()):
+    """A candidate with a window standing.
+
+    `available` is what `_fill_seats` reads — it means "free across THIS
+    project's months", which is not the same as today's running total.
+    A person at 300% whose bookings end before the project starts is
+    available for it.
+    """
     from src.planner_service import Candidate
+
     status = "overloaded" if load > 110 else "available" if load < 60 else "balanced"
-    return Candidate(person=name, fit=fit, current_load_pct=load, status=status)
+    return Candidate(person=name, fit=fit, current_load_pct=load, status=status,
+                     booked_pct=load, free_pct=max(0, 100 - load),
+                     available=(load < 100 and not absent),
+                     absent_months=list(absent),
+                     absence_kind="annual leave" if absent else "")
 
 
 def test_seats_are_filled_without_double_booking():
@@ -98,10 +110,10 @@ def test_seats_are_filled_without_double_booking():
     assert len(set(picked)) == 3
 
 
-def test_an_overloaded_best_fit_yields_to_an_available_one():
-    """The strongest match at 300% allocated is not a staffing answer —
-    but it is still offered in the picker, so this is a default, not a
-    veto."""
+def test_a_best_fit_who_is_busy_in_the_window_yields():
+    """The strongest match, booked solid across the project's months, is
+    not a staffing answer — but they are still offered in the picker, so
+    this is a default, not a veto."""
     from src.planner_service import RoleSlot, _fill_seats
 
     slots = [RoleSlot("frontend", 1, 0.5,
@@ -110,7 +122,7 @@ def test_an_overloaded_best_fit_yields_to_an_available_one():
     assert slots[0].assignees == ["Free"]
 
 
-def test_everyone_overloaded_still_staffs_the_seat():
+def test_everyone_busy_still_staffs_the_seat():
     """When there is no un-overloaded option the seat is filled anyway.
     Leaving it blank would hide the problem rather than show it."""
     from src.planner_service import RoleSlot, _fill_seats
@@ -127,3 +139,17 @@ def test_a_seat_with_no_candidates_left_is_reported_empty():
     slots = [RoleSlot("frontend", 3, 0.5, [_cand("A", 0)])]
     _fill_seats(slots)
     assert slots[0].assignees == ["A", "", ""]
+
+
+def test_leave_in_the_window_disqualifies_even_with_capacity():
+    """Half a person for half a project is a conversation, not a
+    default — an absence overlapping the window steps aside for anyone
+    who is actually there."""
+    from src.planner_service import RoleSlot, _fill_seats
+
+    slots = [RoleSlot("frontend", 1, 0.5, [
+        _cand("OnLeave", 10, fit=0.9, absent=("2026-12",)),
+        _cand("Present", 60, fit=0.1),
+    ])]
+    _fill_seats(slots)
+    assert slots[0].assignees == ["Present"]

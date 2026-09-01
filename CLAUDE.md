@@ -254,6 +254,16 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     shows one assignee with a picker listing every candidate, score and
     reason. Metsä + Studio.
 
+    **Availability is a window, not a number.** `assignments` carries
+    the months each booking occupies, and `absences` carries planned
+    leave; `availability_service` combines them into per-person load
+    across the *project's own* months. Same proposal starting in
+    September and in March staffs differently — the best frontend fit
+    is on annual leave in December, so September's seat goes to someone
+    else and March's goes to him. This is plain aggregation, not
+    prediction: a calendar is a fact, and dressing arithmetic up as
+    inference is the sort of thing this demo must not teach.
+
     **Where Aito stops.** Aito ranks candidates per role; it does not
     allocate a team. "Who fits this role" is an inference; "who gets
     which seat given everyone else's" is an assignment problem, and
@@ -291,6 +301,15 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | planner_service | `_predict` ×N + `_search` | Role mix + people per role; delivery risk; `quotes.won` / `loss_reason` for the predicted objection |
 
 ---
+
+### Why `absences` is its own table
+
+Booked work says where someone's hours went. It cannot say they are on
+parental leave from November — an empty calendar and parental leave
+look identical from `assignments`, and only one of them means the
+person is available. That fact lives in an HR calendar, is derivable
+from nothing else here, and is what invalidates a staffing plan two
+weeks after it is made.
 
 ### Why `people` is its own table
 

@@ -152,7 +152,27 @@ SCHEMAS = {
             # directly without needing a cross-table join.
             "project_type": {"type": "String", "nullable": False},
             "site": {"type": "String", "nullable": False},
+            # The window this booking occupies — availability is a
+            # question about a date range, not a running total.
+            "start_month": {"type": "String", "nullable": False},
+            "end_month": {"type": "String", "nullable": False},
             "project_success": {"type": "Boolean", "nullable": True},
+        },
+    },
+    # Planned time out of the delivery pool. Booked work says where
+    # someone's hours went; it cannot say they are on parental leave
+    # from November — and that is the fact that invalidates a staffing
+    # plan two weeks after it is made. Not derivable from anything else
+    # here, which is why it is its own table.
+    "absences": {
+        "type": "table",
+        "columns": {
+            "absence_id": {"type": "String", "nullable": False},
+            "person": {"type": "String", "nullable": False, "link": "people.person"},
+            "kind": {"type": "String", "nullable": False},
+            "start_month": {"type": "String", "nullable": False},
+            "end_month": {"type": "String", "nullable": False},
+            "months": {"type": "Int", "nullable": False},
         },
     },
     # Bids that were sent to a customer, and what happened to them.
@@ -252,7 +272,7 @@ SCHEMAS = {
 # silently skips these instead of erroring — the Aito table is created
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
-OPTIONAL_TABLES = {"impressions", "tasks", "quotes"}
+OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:

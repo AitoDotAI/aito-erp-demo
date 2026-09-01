@@ -706,6 +706,11 @@ export interface PlannerCandidate {
   seniority: string;
   years_experience: number;
   matches: string[];
+  booked_pct: number;
+  free_pct: number;
+  available: boolean;
+  absent_months: string[];
+  absence_kind: string;
   why: WhyExplanation | Record<string, never>;
 }
 
@@ -756,6 +761,8 @@ export interface EngagementPlan {
   team_size: number;
   priority: string;
   site: string;
+  start_month: string;
+  window_months: number;
   shape: { suggested_size: number | null; size_p: number | null };
   roles: PlannerRoleSlot[];
   delivery: PlannerDeliveryRisk;

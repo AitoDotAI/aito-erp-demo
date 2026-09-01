@@ -45,6 +45,9 @@ from dataclasses import dataclass, field
 from statistics import median
 
 from src.aito_client import AitoClient, AitoError
+from src.availability_service import (WindowAvailability,
+                                      availability_in_window, month_label,
+                                      month_index)
 from src.utilization_service import get_overview as get_utilization
 from src.why_processor import process_factors
 
@@ -80,6 +83,14 @@ class Candidate:
     seniority: str = ""
     years_experience: int = 0
     matches: list[str] = field(default_factory=list)
+    # Standing over THIS project's window, not a running total. A
+    # person at 300% today whose bookings end before the project starts
+    # is available for it; the flat number said otherwise.
+    booked_pct: int = 0
+    free_pct: int = 100
+    available: bool = True
+    absent_months: list[str] = field(default_factory=list)
+    absence_kind: str = ""
     why: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -96,6 +107,11 @@ class Candidate:
             "seniority": self.seniority,
             "years_experience": self.years_experience,
             "matches": self.matches,
+            "booked_pct": self.booked_pct,
+            "free_pct": self.free_pct,
+            "available": self.available,
+            "absent_months": self.absent_months,
+            "absence_kind": self.absence_kind,
             "why": self.why,
         }
 
@@ -205,6 +221,8 @@ class EngagementPlan:
     team_size: int
     priority: str
     site: str
+    start_month: str
+    window_months: int
     shape: TeamShape
     roles: list[RoleSlot]
     delivery: DeliveryRisk
@@ -221,6 +239,8 @@ class EngagementPlan:
             "team_size": self.team_size,
             "priority": self.priority,
             "site": self.site,
+            "start_month": self.start_month,
+            "window_months": self.window_months,
             "shape": self.shape.to_dict(),
             "roles": [r.to_dict() for r in self.roles],
             "delivery": self.delivery.to_dict(),
@@ -349,6 +369,7 @@ def plan_engagement(
     team_size: int,
     priority: str = "medium",
     site: str = "",
+    start_month: str = "",
     competing_bid: bool = False,
     existing_customer: bool = True,
 ) -> EngagementPlan:
@@ -362,6 +383,11 @@ def plan_engagement(
     band = price.band if price else "at_market"
 
     # ── Staffing ────────────────────────────────────────────────
+    # The project's own window: the months a candidate has to be free
+    # across, not "now".
+    start_month = start_month or month_label(_this_month())
+    window_len = max(1, round(duration_days / 30.44))
+    window = availability_in_window(client, start_month, window_len)
     loads = _current_loads(client)
     roles: list[RoleSlot] = []
     for role, count, share in _role_slots(client, project_type, team_size):
@@ -380,6 +406,8 @@ def plan_engagement(
             person = str(hit.get("$value") or hit.get("person"))
             p = float(hit.get("$p", 0.0))
             load, status = loads.get(person, (0, "available"))
+            standing = window.get(person) or WindowAvailability(
+                person=person, booked_pct=0, peak_pct=0, free_pct=100)
             candidate = Candidate(
                 person=person,
                 fit=p,
@@ -392,6 +420,11 @@ def plan_engagement(
                 site=str(hit.get("site") or ""),
                 seniority=str(hit.get("seniority") or ""),
                 years_experience=int(hit.get("years_experience") or 0),
+                booked_pct=standing.booked_pct,
+                free_pct=standing.free_pct,
+                available=standing.available,
+                absent_months=standing.absent_months,
+                absence_kind=standing.absence_kind,
                 why=process_factors(hit.get("$why") or {}, p),
             )
             candidate.matches = _match_chips(candidate, role, site)
@@ -446,6 +479,8 @@ def plan_engagement(
         team_size=team_size,
         priority=priority,
         site=site,
+        start_month=start_month,
+        window_months=window_len,
         shape=shape,
         roles=roles,
         delivery=delivery,
@@ -467,9 +502,10 @@ def _fill_seats(slots: list[RoleSlot]) -> None:
     scheduler would apply by hand:
 
       * nobody takes two seats on the same project;
-      * a candidate already over `OVERLOAD_PCT` is skipped while any
-        un-overloaded candidate remains, because the best fit at 375%
-        allocated is not an answer.
+      * a candidate who is not free across the project's window is
+        skipped while any free candidate remains — booked over, or on
+        leave for part of it. The best fit is not an answer if they are
+        on parental leave for the build.
 
     Both are visible in the UI — the dropdown still offers everyone, in
     Aito's order, so overriding this is one click.
@@ -481,8 +517,9 @@ def _fill_seats(slots: list[RoleSlot]) -> None:
             if not free:
                 slot.assignees.append("")
                 continue
-            available = [c for c in free
-                         if c.current_load_pct < OVERLOAD_PCT]
+            # `available` is now window-aware: free enough across the
+            # project's own months, and not on leave during any of them.
+            available = [c for c in free if c.available]
             pick = (available or free)[0]
             taken.add(pick.person)
             slot.assignees.append(pick.person)
@@ -510,6 +547,13 @@ def _suggest_team_size(client: AitoClient, project_type: str,
     except (TypeError, ValueError):
         return TeamShape(suggested_size=None, size_p=None)
     return TeamShape(suggested_size=size, size_p=float(top.get("$p", 0.0)))
+
+
+def _this_month() -> int:
+    from datetime import date
+
+    today = date.today()
+    return month_index(f"{today.year}-{today.month:02d}")
 
 
 def _match_chips(candidate: Candidate, role: str, site: str) -> list[str]:
