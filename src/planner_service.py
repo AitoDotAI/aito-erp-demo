@@ -266,9 +266,16 @@ class TeamShape:
 # are the three dials that exist inside the room where the plan is
 # argued about.
 LEVERS = [
-    ("Three weeks longer", {"duration_days": 21}),
-    ("One fewer person", {"team_size": -1}),
-    ("One more person", {"team_size": 1}),
+    # The commercial ones first, because they move the most and they are
+    # the ones argued about before signing. `set` replaces a field,
+    # `add` shifts a number.
+    ("Nail the scope down", {"scope_clarity": ("set", "clear")}),
+    ("Time & materials", {"contract_type": ("set", "time_and_materials")}),
+    ("Cap it instead", {"contract_type": ("set", "capped")}),
+    ("Senior-heavy crew", {"team_seniority": ("set", "senior_heavy")}),
+    ("Proven stack", {"novelty": ("set", "proven")}),
+    ("Three weeks longer", {"duration_days": ("add", 21)}),
+    ("One more person", {"team_size": ("add", 1)}),
 ]
 
 # Which outcomes a lever is reported against. Not all six: a lever
@@ -304,6 +311,11 @@ class EngagementPlan:
     site: str
     technology: str
     domain: str
+    contract_type: str
+    scope_clarity: str
+    novelty: str
+    customer_size: str
+    team_seniority: str
     required_skills: str
     seniority: str
     local_only: bool
@@ -328,6 +340,11 @@ class EngagementPlan:
             "site": self.site,
             "technology": self.technology,
             "domain": self.domain,
+            "contract_type": self.contract_type,
+            "scope_clarity": self.scope_clarity,
+            "novelty": self.novelty,
+            "customer_size": self.customer_size,
+            "team_seniority": self.team_seniority,
             "required_skills": self.required_skills,
             "seniority": self.seniority,
             "local_only": self.local_only,
@@ -357,6 +374,7 @@ def planner_options(client: AitoClient) -> dict:
                 "sites": [], "site_by_customer": {},
                 "roles": [], "seniorities": [],
                 "technologies_by_type": {}, "domain_by_customer": {},
+                "drivers": {},
                 "domains": []}
 
     hits = response.get("hits") or []
@@ -378,14 +396,27 @@ def planner_options(client: AitoClient) -> dict:
     # The role vocabulary and the sites people are actually based at,
     # read off `people` — the form should offer what exists, not what a
     # constant in this file guesses.
+    # The driver vocabularies, read off the data so the form offers what
+    # the history actually contains.
+    driver_fields = ("contract_type", "scope_clarity", "novelty",
+                     "customer_size", "team_seniority")
+    drivers: dict[str, list[str]] = {f: [] for f in driver_fields}
+    seen: dict[str, set[str]] = {f: set() for f in driver_fields}
+
     technologies: dict[str, set[str]] = {}
     domains_by_customer: dict[str, str] = {}
     for hit in hits:
+        for field_name in driver_fields:
+            value = hit.get(field_name)
+            if value:
+                seen[field_name].add(str(value))
         if hit.get("project_type") and hit.get("technology"):
             technologies.setdefault(hit["project_type"], set()).add(
                 hit["technology"])
         if hit.get("customer") and hit.get("domain"):
             domains_by_customer.setdefault(hit["customer"], hit["domain"])
+
+    drivers = {f: sorted(v) for f, v in seen.items()}
 
     disciplines: set[str] = set()
     person_sites: set[str] = set()
@@ -409,6 +440,7 @@ def planner_options(client: AitoClient) -> dict:
         "roles": sorted(disciplines),
         "seniorities": sorted(seniorities),
         "technologies_by_type": {k: sorted(v) for k, v in technologies.items()},
+        "drivers": drivers,
         "domain_by_customer": domains_by_customer,
         "domains": sorted(set(domains_by_customer.values())),
     }
@@ -539,6 +571,11 @@ def plan_engagement(
     start_month: str = "",
     technology: str = "",
     domain: str = "",
+    contract_type: str = "",
+    scope_clarity: str = "",
+    novelty: str = "",
+    customer_size: str = "",
+    team_seniority: str = "",
     required_skills: str = "",
     seniority: str = "",
     local_only: bool = False,
@@ -697,6 +734,17 @@ def plan_engagement(
         delivery_where["technology"] = technology
     if domain:
         delivery_where["domain"] = domain
+    # The drivers a post-mortem actually turns up: fixed price on an
+    # unclear scope, a new stack, a junior crew, a small customer. Each
+    # moves the six outcomes DIFFERENTLY, which is what makes six
+    # numbers worth showing instead of one.
+    for key, value in (("contract_type", contract_type),
+                       ("scope_clarity", scope_clarity),
+                       ("novelty", novelty),
+                       ("customer_size", customer_size),
+                       ("team_seniority", team_seniority)):
+        if value:
+            delivery_where[key] = value
     success_p, success_why = _p_of(
         _hits(client, "projects", delivery_where, "success", limit=2), True)
 
@@ -737,6 +785,11 @@ def plan_engagement(
         site=site,
         technology=technology,
         domain=domain,
+        contract_type=contract_type,
+        scope_clarity=scope_clarity,
+        novelty=novelty,
+        customer_size=customer_size,
+        team_seniority=team_seniority,
         required_skills=required_skills,
         seniority=seniority,
         local_only=local_only,
@@ -944,11 +997,19 @@ def _levers(client: AitoClient, base_where: dict,
     for label, change in LEVERS:
         where = dict(base_where)
         detail_bits = []
-        for key, delta in change.items():
+        for key, (op, value) in change.items():
             current = where.get(key)
-            if not isinstance(current, (int, float)):
-                continue
-            where[key] = max(1, int(current) + delta)
+            if op == "add":
+                if not isinstance(current, (int, float)):
+                    continue
+                where[key] = max(1, int(current) + value)
+            else:
+                # A lever that changes nothing is not a lever. Skipping
+                # it beats reporting a row of zeroes that implies the
+                # option was tried and found not to matter.
+                if current == value or current is None:
+                    continue
+                where[key] = value
             detail_bits.append(f"{key} {current} → {where[key]}")
         if not detail_bits:
             continue

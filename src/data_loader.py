@@ -117,6 +117,17 @@ SCHEMAS = {
             # estimates go wrong.
             "technology": {"type": "String", "nullable": False},
             "domain": {"type": "String", "nullable": False},
+            # Commercial and shape drivers, from a real software-project
+            # post-mortem. They matter because their effects DIVERGE
+            # across the 3+3: a new stack makes the team happy and the
+            # margin bad; fixed price on an unclear scope destroys money
+            # without touching morale. A single success score averages
+            # exactly that away.
+            "contract_type": {"type": "String", "nullable": False},
+            "scope_clarity": {"type": "String", "nullable": False},
+            "novelty": {"type": "String", "nullable": False},
+            "customer_size": {"type": "String", "nullable": False},
+            "team_seniority": {"type": "String", "nullable": False},
             "start_month": {"type": "String", "nullable": False},
             # Outcomes are nullable: only completed projects have them.
             #

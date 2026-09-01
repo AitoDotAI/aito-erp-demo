@@ -982,6 +982,10 @@ def generate_projects_and_assignments(
         # produced "active" projects whose scheduled end was years in
         # the past, which makes any forward revenue view empty and any
         # capacity view meaningless.
+        contract = random.choices(CONTRACT_TYPES, weights=CONTRACT_WEIGHTS, k=1)[0]
+        clarity = random.choices(SCOPE_CLARITY, weights=CLARITY_WEIGHTS, k=1)[0]
+        novelty = random.choices(NOVELTY, weights=NOVELTY_WEIGHTS, k=1)[0]
+        customer_size = random.choices(CUSTOMER_SIZE, weights=SIZE_WEIGHTS, k=1)[0]
         technology = random.choice(TECHNOLOGIES.get(ptype, ["general"]))
         domain = _domain_for(customer_for_site, random)
         span = month_span(duration)
@@ -1017,44 +1021,38 @@ def generate_projects_and_assignments(
         )
 
         if completed:
-            # Futurice's 3+3. The three that define whether the
-            # engagement was worth doing — money, the team, the client —
-            # and three that qualify it: did we say when, did the thing
-            # work, did it lead anywhere. A consultancy that scores only
-            # on time and budget can hit both while burning the team and
-            # losing the account, which is exactly the failure a
-            # schedule-and-margin scorecard cannot see.
-            #
-            # They are correlated but NOT collinear: each gets its own
-            # drivers, so `_predict` on one is not a restatement of the
-            # others and `_relate` can find different factors behind
-            # each.
-            financial_ok = random.random() < p_succ
-            # Overloaded crews and chaotic teammates cost morale
-            # regardless of whether the numbers landed.
-            morale = p_succ * (0.85 if team_size > spec["team"][1] else 1.0)
-            team_happy = random.random() < morale
-            # Clients forgive an overrun far more readily than silence
-            # about it, so predictability drives client sentiment
-            # harder than budget does.
-            on_time = random.random() < p_succ
+            # Futurice's 3+3, each outcome driven by its OWN factors —
+            # see `_outcomes`. A single score would average "the team
+            # loved the new stack" against "the new stack cost us the
+            # margin" into nothing, and those are the two facts a
+            # delivery organisation most needs separated.
+            seniority = _team_seniority(by_name, all_people)
+            probs = _outcomes(
+                p_succ, contract=contract, clarity=clarity, novelty=novelty,
+                customer_size=customer_size, seniority=seniority,
+                oversized=team_size > spec["team"][1],
+            )
+            financial_ok = random.random() < probs["financial_ok"]
+            team_happy = random.random() < probs["team_happy"]
+            on_time = random.random() < probs["on_time"]
+            # A late project tries the client's patience on top of
+            # whatever else is going on.
             customer_happy = random.random() < (
-                p_succ * (1.0 if on_time else 0.72))
-            on_budget = random.random() < p_succ * 0.95
-            outcome_ok = random.random() < p_succ
+                probs["customer_happy"] * (1.0 if on_time else 0.72))
+            on_budget = random.random() < probs["financial_ok"] * 0.95
+            outcome_ok = random.random() < probs["outcome_ok"]
             # Follow-on work comes from a happy client and a thing that
-            # worked — not from margin.
+            # worked — and small customers rarely have a second project.
             doors_opened = (customer_happy and outcome_ok
-                            and random.random() < 0.55)
-            # The headline stays a single Boolean because several views
-            # rank on it, but it is now a composite of the core three
-            # rather than a coin flip of its own.
+                            and random.random() < {"small": 0.3, "mid": 0.55,
+                                                   "enterprise": 0.7}[customer_size])
             success = sum([financial_ok, team_happy, customer_happy]) >= 2
             status = "complete"
         else:
             success = on_time = on_budget = None
             financial_ok = team_happy = customer_happy = None
             outcome_ok = doors_opened = None
+            seniority = _team_seniority(by_name, all_people)
             status = random.choices(["active", "at_risk", "delayed"], weights=[60, 25, 15], k=1)[0]
 
         pid = f"PRJ-{1000 + idx}"
@@ -1074,6 +1072,13 @@ def generate_projects_and_assignments(
             "site": site,
             "technology": technology,
             "domain": domain,
+            # Commercial and shape drivers. These are the columns the
+            # six outcome predictions actually turn on.
+            "contract_type": contract,
+            "scope_clarity": clarity,
+            "novelty": novelty,
+            "customer_size": customer_size,
+            "team_seniority": seniority,
             "start_month": start_month,
             "on_time": on_time,
             "on_budget": on_budget,
@@ -1282,6 +1287,108 @@ def _went_well(persona: PersonaSpec, person: str, role: str,
     if person in persona.project_chaotic:
         p *= 0.6
     return random.random() < max(0.05, min(0.95, p))
+
+
+# Commercial and shape attributes that drive outcomes DIFFERENTLY.
+#
+# From a real software-project post-mortem, and the reason they are
+# worth having is that their effects diverge: a single "success" score
+# averages them into nothing, while the 3+3 shows the shape. Trying a
+# new stack makes the team happy and the numbers bad. Fixed price on an
+# unclear scope is where money goes to die but the crew may still enjoy
+# it. That divergence is what `_relate` and the six `_predict`s have to
+# find, and it cannot be found if every outcome is a copy of one prior.
+CONTRACT_TYPES = ["fixed_price", "capped", "time_and_materials"]
+CONTRACT_WEIGHTS = [40, 25, 35]
+
+SCOPE_CLARITY = ["clear", "evolving", "unclear"]
+CLARITY_WEIGHTS = [45, 35, 20]
+
+NOVELTY = ["proven", "some_new", "new_stack"]
+NOVELTY_WEIGHTS = [50, 32, 18]
+
+CUSTOMER_SIZE = ["small", "mid", "enterprise"]
+SIZE_WEIGHTS = [25, 45, 30]
+
+
+def _team_seniority(people_by_name: dict, team: list[str]) -> str:
+    """How senior the crew is, as a bucket.
+
+    Derived from who is actually on it rather than drawn at random, so
+    "senior team → everything goes better" is a real relationship
+    between two columns and not two independent dice.
+    """
+    ranks = [people_by_name.get(n, {}).get("seniority", "mid") for n in team]
+    if not ranks:
+        return "mixed"
+    senior = sum(1 for r in ranks if r == "senior") / len(ranks)
+    junior = sum(1 for r in ranks if r == "junior") / len(ranks)
+    if senior >= 0.5:
+        return "senior_heavy"
+    if junior >= 0.5:
+        return "junior_heavy"
+    return "mixed"
+
+
+def _outcomes(base: float, *, contract: str, clarity: str, novelty: str,
+              customer_size: str, seniority: str, oversized: bool) -> dict:
+    """The six outcomes, each with its OWN drivers.
+
+    Everything here is a claim about software projects that someone
+    learned the expensive way:
+
+      * fixed price on an unclear scope destroys margin, and it barely
+        touches whether the team enjoyed it;
+      * an unclear scope hurts the schedule and the client's patience
+        before it hurts the build;
+      * a senior crew improves everything, which is the one factor that
+        moves all six the same way;
+      * a new stack makes people happy and the numbers bad — the
+        clearest case for scoring more than one thing;
+      * small customers churn scope and pay late, and rarely open a
+        second door.
+    """
+    def clamp(x):
+        return max(0.05, min(0.95, x))
+
+    senior_boost = {"senior_heavy": 1.18, "mixed": 1.0, "junior_heavy": 0.86}[seniority]
+
+    money = base * senior_boost
+    money *= {
+        "fixed_price":      {"clear": 1.02, "evolving": 0.72, "unclear": 0.48},
+        "capped":           {"clear": 1.0,  "evolving": 0.85, "unclear": 0.68},
+        "time_and_materials": {"clear": 1.06, "evolving": 1.0, "unclear": 0.92},
+    }[contract][clarity]
+    money *= {"proven": 1.05, "some_new": 0.92, "new_stack": 0.70}[novelty]
+    money *= {"small": 0.82, "mid": 1.0, "enterprise": 1.05}[customer_size]
+
+    on_time = base * senior_boost
+    on_time *= {"clear": 1.05, "evolving": 0.86, "unclear": 0.68}[clarity]
+    on_time *= {"proven": 1.04, "some_new": 0.94, "new_stack": 0.78}[novelty]
+    on_time *= 0.9 if oversized else 1.0
+
+    # People are happiest doing interesting work with people who know
+    # what they are doing. Commercial pain barely registers.
+    team_happy = base * senior_boost
+    team_happy *= {"proven": 0.94, "some_new": 1.08, "new_stack": 1.22}[novelty]
+    team_happy *= {"clear": 1.02, "evolving": 1.0, "unclear": 0.86}[clarity]
+    team_happy *= 0.85 if oversized else 1.0
+
+    customer_happy = base * senior_boost
+    customer_happy *= {"clear": 1.05, "evolving": 0.92, "unclear": 0.76}[clarity]
+    customer_happy *= {"small": 0.86, "mid": 1.0, "enterprise": 1.0}[customer_size]
+
+    outcome_ok = base * senior_boost
+    outcome_ok *= {"proven": 1.02, "some_new": 1.0, "new_stack": 0.9}[novelty]
+    outcome_ok *= {"clear": 1.04, "evolving": 0.95, "unclear": 0.84}[clarity]
+
+    return {
+        "financial_ok": clamp(money),
+        "on_time": clamp(on_time),
+        "team_happy": clamp(team_happy),
+        "customer_happy": clamp(customer_happy),
+        "outcome_ok": clamp(outcome_ok),
+    }
 
 
 def _sample_skills(pool: str) -> list[str]:

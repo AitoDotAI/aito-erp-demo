@@ -65,6 +65,32 @@ const DEFAULT_PANEL: AitoPanelConfig = {
   ],
 };
 
+const DRIVER_FIELDS: { key: string; label: string }[] = [
+  { key: "contract_type", label: "Contract" },
+  { key: "scope_clarity", label: "Scope clarity" },
+  { key: "novelty", label: "Newness" },
+  { key: "customer_size", label: "Client size" },
+  { key: "team_seniority", label: "Crew" },
+];
+
+const DRIVER_VALUE_LABELS: Record<string, string> = {
+  fixed_price: "fixed price",
+  time_and_materials: "time & materials",
+  capped: "capped",
+  clear: "clear",
+  evolving: "evolving",
+  unclear: "unclear",
+  proven: "proven stack",
+  some_new: "some new",
+  new_stack: "new stack",
+  small: "small",
+  mid: "mid-size",
+  enterprise: "enterprise",
+  senior_heavy: "senior-heavy",
+  mixed: "mixed",
+  junior_heavy: "junior-heavy",
+};
+
 const BAND_LABEL: Record<string, string> = {
   under: "under the going rate",
   at_market: "at the going rate",
@@ -135,6 +161,16 @@ export default function PlannerPage() {
   const [localOnly, setLocalOnly] = useState(false);
   const [technology, setTechnology] = useState("");
   const [domain, setDomain] = useState("");
+  // The commercial shape. Defaults are the common case, not the safe
+  // one — a demo that opens on the best-case contract never shows what
+  // the model is for.
+  const [drivers, setDrivers] = useState<Record<string, string>>({
+    contract_type: "fixed_price",
+    scope_clarity: "evolving",
+    novelty: "some_new",
+    customer_size: "mid",
+    team_seniority: "mixed",
+  });
   // null = use the predicted role mix. Any edit pins the list, so the
   // prediction stops overwriting a decision the user just made.
   const [roleEdits, setRoleEdits] = useState<PlannerRoleEdit[] | null>(null);
@@ -212,6 +248,7 @@ export default function PlannerPage() {
         local_only: localOnly,
         technology,
         domain,
+        ...drivers,
         roles: useRoles,
         competing_bid: competing,
         existing_customer: existing,
@@ -408,6 +445,23 @@ export default function PlannerPage() {
                     onChange={(e) => setTeamSize(Number(e.target.value))}
                   />
                 </label>
+                {DRIVER_FIELDS.map((f) => (
+                  <label className="pl-field" key={f.key}>
+                    <span>{f.label}</span>
+                    <select
+                      value={drivers[f.key] ?? ""}
+                      onChange={(e) =>
+                        setDrivers({ ...drivers, [f.key]: e.target.value })
+                      }
+                    >
+                      {(options?.drivers?.[f.key] ?? []).map((v) => (
+                        <option key={v} value={v}>
+                          {DRIVER_VALUE_LABELS[v] ?? v}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
                 <label className="pl-field">
                   <span>Stack</span>
                   <select

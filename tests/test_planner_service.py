@@ -228,7 +228,12 @@ def test_levers_report_a_difference_not_a_new_number():
             "duration_days": 120, "priority": "high"}
     effects = _levers(client, base, {"financial_ok": 0.5, "on_time": 0.5,
                                      "customer_happy": 0.5})
-    assert [e.label for e in effects] == [label for label, _ in LEVERS]
+    # Only the levers whose field is present in the context apply — the
+    # categorical ones (contract, scope, crew) are skipped here because
+    # this bare context does not carry those columns.
+    numeric = [label for label, change in LEVERS
+               if all(op == "add" for op, _ in change.values())]
+    assert [e.label for e in effects] == numeric
 
     longer = next(e for e in effects if e.label == "Three weeks longer")
     assert all(d["after"] > d["before"] for d in longer.deltas)
@@ -244,3 +249,19 @@ def test_a_lever_that_cannot_apply_is_dropped_not_faked():
     client = _FakeClient({})
     effects = _levers(client, {"project_type": "design"}, {"on_time": 0.5})
     assert effects == []
+
+
+def test_a_categorical_lever_that_changes_nothing_is_skipped():
+    """"Switch to time & materials" is not a lever on a proposal that is
+    already time & materials. Reporting it as a row of zeroes implies it
+    was tried and found not to matter, which is a different and wrong
+    message."""
+    from src.planner_service import _levers
+
+    client = _FakeClient({})
+    effects = _levers(
+        client,
+        {"project_type": "implementation", "contract_type": "time_and_materials"},
+        {"financial_ok": 0.5},
+    )
+    assert "Time & materials" not in [e.label for e in effects]

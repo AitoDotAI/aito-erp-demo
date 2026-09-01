@@ -379,6 +379,29 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 
 ---
 
+### The outcome drivers, and why there are five of them
+
+From a real software-project post-mortem, and the reason they earn
+their place is that their effects **diverge** across the 3+3. A single
+success score averages exactly that away.
+
+| driver | what it does |
+|---|---|
+| `contract_type` × `scope_clarity` | fixed price on an unclear scope: money 33% vs 71% on a clear one |
+| `novelty` | a new stack: money **38%**, team **90%** — the clearest case for scoring more than one thing |
+| `team_seniority` | the one factor that moves all six the same way (71/89/73 vs 44/63/52) |
+| `customer_size` | small clients: customer-happy 48% vs 59%, doors opened 11% vs 26% |
+
+`team_seniority` is derived from who is actually on the crew rather
+than drawn separately, so "senior team → everything goes better" is a
+relationship between two columns and not two independent dice.
+
+These are also what make the levers worth having: on a fixed-price,
+unclear-scope, new-stack, small-client proposal the planner reports
+money at 16% and team happiness at 76%, and says nailing the scope
+buys +29 points of on-time while three more weeks buys nothing —
+because the problem was never duration.
+
 ### Why `proposals` is its own table
 
 Booked work is not the whole claim on a person's time. Two or three

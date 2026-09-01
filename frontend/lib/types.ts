@@ -801,6 +801,11 @@ export interface EngagementPlan {
   site: string;
   technology: string;
   domain: string;
+  contract_type: string;
+  scope_clarity: string;
+  novelty: string;
+  customer_size: string;
+  team_seniority: string;
   required_skills: string;
   seniority: string;
   local_only: boolean;
@@ -822,6 +827,7 @@ export interface PlannerOptions {
   roles: string[];
   seniorities: string[];
   technologies_by_type: Record<string, string[]>;
+  drivers: Record<string, string[]>;
   domain_by_customer: Record<string, string>;
   domains: string[];
 }
