@@ -4046,3 +4046,23 @@ body {
   color: var(--mid);
   padding: 10px 18px 2px;
 }
+
+/* Three kinds of reason, shown differently, because they are different
+   claims. Teal is Aito's own `$why` evidence — the database used this
+   field. Gold is a client-side coincidence with the proposal. Grey is
+   context that argued nothing. Painting all three alike was the version
+   that implied the database had endorsed a person's certifications. */
+.pl-chip-aito {
+  background: rgba(18, 181, 173, 0.13);
+  border-color: var(--aito-teal);
+  color: #0b6f6a;
+  font-weight: 600;
+}
+
+.pl-chip-match {
+  background: var(--gold-light);
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+
+.pl-chip-fact { /* inherits .pl-chip */ }

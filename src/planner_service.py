@@ -81,8 +81,9 @@ class Candidate:
     certifications: str = ""
     site: str = ""
     seniority: str = ""
+    domains: str = ""
     years_experience: int = 0
-    matches: list[str] = field(default_factory=list)
+    matches: list[dict] = field(default_factory=list)
     # Standing over THIS project's window, not a running total. A
     # person at 300% today whose bookings end before the project starts
     # is available for it; the flat number said otherwise.
@@ -105,6 +106,7 @@ class Candidate:
             "certifications": self.certifications,
             "site": self.site,
             "seniority": self.seniority,
+            "domains": self.domains,
             "years_experience": self.years_experience,
             "matches": self.matches,
             "booked_pct": self.booked_pct,
@@ -252,6 +254,8 @@ class EngagementPlan:
     team_size: int
     priority: str
     site: str
+    technology: str
+    domain: str
     required_skills: str
     seniority: str
     local_only: bool
@@ -273,6 +277,8 @@ class EngagementPlan:
             "team_size": self.team_size,
             "priority": self.priority,
             "site": self.site,
+            "technology": self.technology,
+            "domain": self.domain,
             "required_skills": self.required_skills,
             "seniority": self.seniority,
             "local_only": self.local_only,
@@ -299,7 +305,9 @@ def planner_options(client: AitoClient) -> dict:
     except AitoError:
         return {"project_types": [], "customers_by_type": {},
                 "sites": [], "site_by_customer": {},
-                "roles": [], "seniorities": []}
+                "roles": [], "seniorities": [],
+                "technologies_by_type": {}, "domain_by_customer": {},
+                "domains": []}
 
     hits = response.get("hits") or []
     customers: dict[str, set[str]] = {}
@@ -320,6 +328,15 @@ def planner_options(client: AitoClient) -> dict:
     # The role vocabulary and the sites people are actually based at,
     # read off `people` — the form should offer what exists, not what a
     # constant in this file guesses.
+    technologies: dict[str, set[str]] = {}
+    domains_by_customer: dict[str, str] = {}
+    for hit in hits:
+        if hit.get("project_type") and hit.get("technology"):
+            technologies.setdefault(hit["project_type"], set()).add(
+                hit["technology"])
+        if hit.get("customer") and hit.get("domain"):
+            domains_by_customer.setdefault(hit["customer"], hit["domain"])
+
     disciplines: set[str] = set()
     person_sites: set[str] = set()
     seniorities: set[str] = set()
@@ -341,6 +358,9 @@ def planner_options(client: AitoClient) -> dict:
         "site_by_customer": site_by_customer,
         "roles": sorted(disciplines),
         "seniorities": sorted(seniorities),
+        "technologies_by_type": {k: sorted(v) for k, v in technologies.items()},
+        "domain_by_customer": domains_by_customer,
+        "domains": sorted(set(domains_by_customer.values())),
     }
 
 
@@ -348,7 +368,7 @@ def planner_options(client: AitoClient) -> dict:
 # explicitly because naming any `select` replaces Aito's default of
 # returning the whole linked row.
 PERSON_FIELDS = ["title", "discipline", "skills", "certifications",
-                 "site", "seniority", "years_experience"]
+                 "domains", "site", "seniority", "years_experience"]
 
 
 def _hits(client: AitoClient, table: str, where: dict,
@@ -467,6 +487,8 @@ def plan_engagement(
     priority: str = "medium",
     site: str = "",
     start_month: str = "",
+    technology: str = "",
+    domain: str = "",
     required_skills: str = "",
     seniority: str = "",
     local_only: bool = False,
@@ -525,6 +547,10 @@ def plan_engagement(
         where: dict = {"project_type": project_type, "role": role}
         if site:
             where["site"] = site
+        if technology:
+            where["technology"] = technology
+        if domain:
+            where["domain"] = domain
         if local_only and site:
             where["person.site"] = site
         # Requirements are PER ROLE. "Must have Next.js" is a statement
@@ -566,6 +592,7 @@ def plan_engagement(
                 certifications=str(hit.get("certifications") or ""),
                 site=str(hit.get("site") or ""),
                 seniority=str(hit.get("seniority") or ""),
+                domains=str(hit.get("domains") or ""),
                 years_experience=int(hit.get("years_experience") or 0),
                 booked_pct=standing.booked_pct,
                 free_pct=standing.free_pct,
@@ -574,7 +601,9 @@ def plan_engagement(
                 absence_kind=standing.absence_kind,
                 why=process_factors(hit.get("$why") or {}, p),
             )
-            candidate.matches = _match_chips(candidate, role, site)
+            candidate.matches = _match_chips(
+                candidate, role, site, technology, domain,
+                _highlighted_fields(candidate.why))
             candidates.append(candidate)
         roles.append(RoleSlot(role=role, count=count, share=share,
                               skills=want_skills, seniority=want_seniority,
@@ -598,6 +627,10 @@ def plan_engagement(
     }
     if site:
         delivery_where["site"] = site
+    if technology:
+        delivery_where["technology"] = technology
+    if domain:
+        delivery_where["domain"] = domain
     success_p, success_why = _p_of(
         _hits(client, "projects", delivery_where, "success", limit=2), True)
 
@@ -632,6 +665,8 @@ def plan_engagement(
         team_size=team_size,
         priority=priority,
         site=site,
+        technology=technology,
+        domain=domain,
         required_skills=required_skills,
         seniority=seniority,
         local_only=local_only,
@@ -712,31 +747,70 @@ def _this_month() -> int:
     return month_index(f"{today.year}-{today.month:02d}")
 
 
-def _match_chips(candidate: Candidate, role: str, site: str) -> list[str]:
-    """The candidate's own attributes that answer this request.
+def _match_chips(candidate: Candidate, role: str, site: str,
+                 technology: str, domain: str,
+                 highlighted: set[str]) -> list[dict]:
+    """The candidate's own attributes, each marked with WHY it is shown.
 
-    These are read off the person's row, not inferred: the ranking is
-    Aito's, and these say what about the person the ranking is made of.
-    Kept to facts on the record so a delivery lead can argue with them
-    — "Frontend Developer", "based in Tampere", "React", not a score.
+    Three different claims, and conflating them was the problem:
+
+      `aito`  — Aito's `$why` named this field as evidence behind the
+                ranking. The strongest label, and the only one that
+                says the database used it.
+      `match` — this attribute coincides with something the proposal
+                asked for. Client-side string comparison, honest but
+                not inference.
+      `fact`  — context. True, useful to read, argued nothing.
+
+    They are returned as structured chips rather than strings so the UI
+    can show the difference instead of implying they are all the same
+    kind of reason.
     """
-    chips: list[str] = []
+    def chip(label: str, kind: str, field: str = "") -> dict:
+        # Aito's own evidence outranks a client-side coincidence.
+        if field and field in highlighted:
+            kind = "aito"
+        return {"label": label, "kind": kind, "field": field}
+
+    chips: list[dict] = []
     if candidate.title:
-        chips.append(candidate.title)
+        chips.append(chip(candidate.title, "fact"))
     if candidate.discipline and candidate.discipline == role:
-        chips.append(f"does {role} work")
+        chips.append(chip(f"does {role} work", "match", "role"))
     if site and candidate.site == site:
-        chips.append(f"based in {site}")
+        chips.append(chip(f"based in {site}", "match", "site"))
     elif candidate.site:
-        chips.append(f"{candidate.site} — would travel")
-    # Two or three skills is a reason; the whole list is a CV dump.
-    for skill in candidate.skills.split()[:3]:
-        chips.append(skill)
+        chips.append(chip(f"{candidate.site} — would travel", "fact", "site"))
+
+    skills = candidate.skills.split()
+    wanted = {t.lower() for t in technology.split()}
+    for skill in skills[:5]:
+        chips.append(chip(skill, "match" if skill.lower() in wanted else "fact",
+                          "technology" if skill.lower() in wanted else ""))
+    for sector in candidate.domains.split(" "):
+        if sector and domain and sector.lower() in domain.lower():
+            chips.append(chip(f"{domain} experience", "match", "domain"))
+            break
     if candidate.certifications:
-        chips.append(candidate.certifications.split(",")[0].strip())
+        chips.append(chip(candidate.certifications.split(",")[0].strip(), "fact"))
     if candidate.years_experience:
-        chips.append(f"{candidate.years_experience}y")
+        chips.append(chip(f"{candidate.years_experience}y", "fact"))
     return chips
+
+
+def _highlighted_fields(why: dict) -> set[str]:
+    """Which context fields Aito's `$why` actually named.
+
+    `why_processor` has already flattened the tree; each lift carries
+    the fields it highlighted as `$context.<field>`. Those are the
+    chips that get to claim the database backed them.
+    """
+    fields: set[str] = set()
+    for lift in (why or {}).get("lifts", []) or []:
+        for hl in lift.get("highlights", []) or []:
+            raw = str(hl.get("raw_field") or hl.get("field") or "")
+            fields.add(raw.replace("$context.", ""))
+    return fields
 
 
 def _current_loads(client: AitoClient) -> dict[str, tuple[int, str]]:

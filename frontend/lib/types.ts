@@ -693,6 +693,16 @@ export interface OutlookResponse {
 }
 
 /* ─── Engagement Planner (planner_service) ─── */
+/** A reason shown next to a candidate, tagged with what KIND of claim
+ *  it is: `aito` = Aito's `$why` named this field as evidence,
+ *  `match` = it coincides with the proposal (client-side), `fact` =
+ *  context that argued nothing. */
+export interface PlannerChip {
+  label: string;
+  kind: "aito" | "match" | "fact";
+  field: string;
+}
+
 export interface PlannerCandidate {
   person: string;
   fit: number;
@@ -704,8 +714,9 @@ export interface PlannerCandidate {
   certifications: string;
   site: string;
   seniority: string;
+  domains: string;
   years_experience: number;
-  matches: string[];
+  matches: PlannerChip[];
   booked_pct: number;
   free_pct: number;
   available: boolean;
@@ -769,6 +780,8 @@ export interface EngagementPlan {
   team_size: number;
   priority: string;
   site: string;
+  technology: string;
+  domain: string;
   required_skills: string;
   seniority: string;
   local_only: boolean;
@@ -788,4 +801,7 @@ export interface PlannerOptions {
   site_by_customer: Record<string, string>;
   roles: string[];
   seniorities: string[];
+  technologies_by_type: Record<string, string[]>;
+  domain_by_customer: Record<string, string>;
+  domains: string[];
 }

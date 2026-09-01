@@ -794,6 +794,8 @@ def planner_plan(body: dict, request: Request):
         team_size=int(body["team_size"]),
         priority=str(body.get("priority", "medium")),
         site=str(body.get("site", "")),
+        technology=str(body.get("technology", "")),
+        domain=str(body.get("domain", "")),
         start_month=str(body.get("start_month", "")),
         required_skills=str(body.get("required_skills", "")),
         seniority=str(body.get("seniority", "")),

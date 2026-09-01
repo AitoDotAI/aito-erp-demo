@@ -133,6 +133,8 @@ export default function PlannerPage() {
   });
   const [competing, setCompeting] = useState(true);
   const [localOnly, setLocalOnly] = useState(false);
+  const [technology, setTechnology] = useState("");
+  const [domain, setDomain] = useState("");
   // null = use the predicted role mix. Any edit pins the list, so the
   // prediction stops overwriting a decision the user just made.
   const [roleEdits, setRoleEdits] = useState<PlannerRoleEdit[] | null>(null);
@@ -172,7 +174,20 @@ export default function PlannerPage() {
   useEffect(() => {
     const hinted = options?.site_by_customer?.[customer];
     if (hinted) setSite(hinted);
+    const sector = options?.domain_by_customer?.[customer];
+    if (sector) setDomain(sector);
   }, [customer, options]);
+
+  const technologies = useMemo(
+    () => options?.technologies_by_type?.[projectType] ?? [],
+    [options, projectType],
+  );
+
+  useEffect(() => {
+    if (technologies.length && !technologies.includes(technology)) {
+      setTechnology(technologies[0]);
+    }
+  }, [technologies, technology]);
 
   const submit = (roles?: PlannerRoleEdit[] | null) => {
     const useRoles = roles === undefined ? roleEdits : roles;
@@ -191,6 +206,8 @@ export default function PlannerPage() {
         site,
         start_month: startMonth,
         local_only: localOnly,
+        technology,
+        domain,
         roles: useRoles,
         competing_bid: competing,
         existing_customer: existing,
@@ -376,6 +393,28 @@ export default function PlannerPage() {
                   />
                 </label>
                 <label className="pl-field">
+                  <span>Stack</span>
+                  <select
+                    value={technology}
+                    onChange={(e) => setTechnology(e.target.value)}
+                  >
+                    {technologies.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="pl-field">
+                  <span>Sector</span>
+                  <select
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                  >
+                    {(options?.domains ?? []).map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="pl-field">
                   <span>Starts</span>
                   <input
                     type="month"
@@ -533,8 +572,13 @@ export default function PlannerPage() {
                         <tr>
                           <th style={{ width: "26%" }}>Role</th>
                           <th>Assignee</th>
-                          <th style={{ width: "16%", textAlign: "right" }}>
-                            Fit
+                          <th
+                            style={{ width: "18%", textAlign: "right" }}
+                            title="P(person | role, site, stack, sector) — how
+                                   often they are the one who does work like
+                                   this. Not a rating of how well they do it."
+                          >
+                            Usual pick
                           </th>
                           <th style={{ width: "20%", textAlign: "right" }}>
                             Free in window
@@ -624,8 +668,11 @@ export default function PlannerPage() {
                                   {openSeat === key && (
                                     <div className="pl-menu">
                                       <div className="pl-menu-head">
-                                        Ranked by <em>_predict person</em> given
-                                        role + site
+                                        <strong>How often this person is the
+                                        one who does work like this</strong> —
+                                        <em>_predict person</em> given role,
+                                        site, stack and sector. It is not a
+                                        rating of how well they do it
                                       {slot.skills || slot.seniority ||
                                        plan.local_only
                                         ? ", filtered on person.skills / " +
@@ -688,14 +735,17 @@ export default function PlannerPage() {
                                           <div className="pl-chips">
                                             {c.matches.map((m) => (
                                               <span
-                                                className={
-                                                  site && m === `based in ${site}`
-                                                    ? "pl-chip pl-chip-hit"
-                                                    : "pl-chip"
+                                                className={`pl-chip pl-chip-${m.kind}`}
+                                                key={m.label}
+                                                title={
+                                                  m.kind === "aito"
+                                                    ? `Aito's $why named ${m.field} as evidence`
+                                                    : m.kind === "match"
+                                                      ? "matches what the proposal asked for"
+                                                      : undefined
                                                 }
-                                                key={m}
                                               >
-                                                {m}
+                                                {m.label}
                                               </span>
                                             ))}
                                           </div>

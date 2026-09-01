@@ -272,9 +272,8 @@ METSA = PersonaSpec(
         "O. Halonen", "I. Pulkkinen", "N. Forsberg", "J. Karjalainen",
         *MORE_PROJECT_PEOPLE[:46],
     ],
-    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila",
-                      *MORE_PROJECT_PEOPLE[:14]},
-    project_chaotic={"V. Jokinen", "T. Rinne", *MORE_PROJECT_PEOPLE[14:20]},
+    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
+    project_chaotic={"V. Jokinen", "T. Rinne"},
     project_customers={
         "maintenance":  ["Internal — Production", "Internal — Site Helsinki", "Wärtsilä Oy", "Caverion Suomi"],
         "construction": ["NCC Suomi", "Lemminkäinen", "City of Tampere"],
@@ -417,9 +416,8 @@ AURORA = PersonaSpec(
         "O. Halonen", "N. Forsberg",
         *MORE_PROJECT_PEOPLE[:13],
     ],
-    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila",
-                      *MORE_PROJECT_PEOPLE[:4]},
-    project_chaotic={"V. Jokinen", "T. Rinne", *MORE_PROJECT_PEOPLE[4:6]},
+    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
+    project_chaotic={"V. Jokinen", "T. Rinne"},
     project_customers={
         "store-fitout":   ["Internal — Store Helsinki", "Internal — Store Tampere", "Internal — Store Oulu"],
         "ecom-launch":    ["Internal — E-com"],
@@ -572,9 +570,8 @@ STUDIO = PersonaSpec(
         "L. Lounela",
         *MORE_PROJECT_PEOPLE[:27],
     ],
-    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila",
-                      *MORE_PROJECT_PEOPLE[:8]},
-    project_chaotic={"V. Jokinen", "T. Rinne", *MORE_PROJECT_PEOPLE[8:12]},
+    project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
+    project_chaotic={"V. Jokinen", "T. Rinne"},
     project_customers={
         "design":         ["Wolt Enterprises", "Reaktor", "Nordea Brand", "Marimekko"],
         "implementation": ["Telia Finland", "Posti Group", "Fortum", "S-Group"],
@@ -863,23 +860,29 @@ def _project_success_p(
         p *= 0.85
     else:
         p *= 1.10
-    # Same dilution argument as the chaotic drag below: the per-member
-    # boost is sized so the per-TEAM effect survives a bench four times
-    # the size it was tuned against.
+    # Reliable and chaotic people are a small, distinctive minority —
+    # five and two per persona. Scaling that ROSTER with the bench (an
+    # earlier attempt) made a third of everyone "reliable", so almost
+    # every team was high-reliability and the contrast disappeared.
+    # Scale the per-member EFFECT instead: one standout on a team of
+    # five should still move the number.
     p *= 1.0 + 0.16 * sum(1 for m in members if m in persona.project_reliable)
-    # 0.18 per chaotic member was tuned against a fifteen-person bench,
-    # where one such member was a third of a team. On a forty-person
-    # bench they are one of five or six, and the drag washed out to a
-    # single point across the portfolio — too weak for `_relate` to
-    # surface a person as a success factor, which is the whole point of
-    # the Project Portfolio panel. The per-member effect is stronger so
-    # that the PER-TEAM effect stays what it was.
+    # Same reasoning: a bigger per-member drag, not a bigger roster.
     p *= 1.0 - 0.30 * sum(1 for m in members if m in persona.project_chaotic)
     if budget / max(duration, 1) > 2500:
         p *= 0.80
     if priority == "high":
         p *= 0.95
-    return max(0.05, min(0.97, p))
+    # Ceiling at 0.78, not 0.97. `success` is now 2-of-3 independent
+    # core outcomes, and a composite SATURATES: at p=0.90 the three
+    # outcomes land at 0.97/0.99/0.95 and two-of-three is 0.998, so a
+    # team of reliable people and a team of nobodies both score ~100%
+    # and the engineered people-signal — the thing the portfolio's
+    # success-factor panel exists to surface — compresses to nothing.
+    # The composite is only responsive while the underlying p stays
+    # off its ceiling, so the ceiling comes down and the per-outcome
+    # multipliers no longer inflate above p.
+    return max(0.05, min(0.78, p))
 
 
 def generate_projects_and_assignments(
@@ -942,6 +945,8 @@ def generate_projects_and_assignments(
         # produced "active" projects whose scheduled end was years in
         # the past, which makes any forward revenue view empty and any
         # capacity view meaningless.
+        technology = random.choice(TECHNOLOGIES.get(ptype, ["general"]))
+        domain = _domain_for(customer_for_site, random)
         span = month_span(duration)
         now = _month_index(TODAY_MONTH)
         earliest = _month_index(MONTHS[0])
@@ -977,19 +982,19 @@ def generate_projects_and_assignments(
             # drivers, so `_predict` on one is not a restatement of the
             # others and `_relate` can find different factors behind
             # each.
-            financial_ok = random.random() < p_succ * 1.08
+            financial_ok = random.random() < p_succ
             # Overloaded crews and chaotic teammates cost morale
             # regardless of whether the numbers landed.
-            morale = p_succ * (0.88 if team_size > spec["team"][1] else 1.10)
+            morale = p_succ * (0.85 if team_size > spec["team"][1] else 1.0)
             team_happy = random.random() < morale
             # Clients forgive an overrun far more readily than silence
             # about it, so predictability drives client sentiment
             # harder than budget does.
-            on_time = random.random() < p_succ * 1.05
+            on_time = random.random() < p_succ
             customer_happy = random.random() < (
-                p_succ * (1.10 if on_time else 0.72))
-            on_budget = random.random() < p_succ * 0.98
-            outcome_ok = random.random() < p_succ * 1.04
+                p_succ * (1.0 if on_time else 0.72))
+            on_budget = random.random() < p_succ * 0.95
+            outcome_ok = random.random() < p_succ
             # Follow-on work comes from a happy client and a thing that
             # worked — not from margin.
             doors_opened = (customer_happy and outcome_ok
@@ -1021,6 +1026,8 @@ def generate_projects_and_assignments(
             "priority": priority,
             "status": status,
             "site": site,
+            "technology": technology,
+            "domain": domain,
             "start_month": start_month,
             "on_time": on_time,
             "on_budget": on_budget,
@@ -1053,6 +1060,8 @@ def generate_projects_and_assignments(
                 "allocation_pct": allocation,
                 "project_type": ptype,
                 "site": site,
+                "technology": technology,
+                "domain": domain,
                 # The window this booking occupies, denormalised off the
                 # project. Availability is a question about a DATE
                 # RANGE, and answering it by joining every assignment
@@ -1107,6 +1116,50 @@ def site_for(text: str) -> str | None:
         if needle.lower() in text.lower():
             return site
     return None
+
+
+# What a project is built WITH and who it is built FOR. Both are
+# staffing signals a skills list misses — "has done React" and "has
+# done React for a municipality" are different people — and both move
+# outcomes, because an unfamiliar stack or an unfamiliar sector is
+# where estimates go wrong.
+TECHNOLOGIES = {
+    # studio
+    "design":         ["Figma", "design-system", "Framer"],
+    "implementation": ["React", "Next.js", "Node", "Python", "Shopify"],
+    "strategy":       ["research", "workshops"],
+    "discovery":      ["research", "prototyping"],
+    "retainer":       ["React", "Node", "design-system"],
+    # metsa
+    "maintenance":    ["Siemens-S7", "hydraulics", "condition-monitoring"],
+    "construction":   ["concrete", "steel-frame", "MEP"],
+    "rollout":        ["telematics", "SCADA", "IoT-sensors"],
+    "audit":          ["ISO-9001", "energy-audit", "safety-audit"],
+    "rd":             ["prototyping", "materials", "CAD"],
+    # aurora
+    "store-fitout":   ["fixtures", "lighting", "POS"],
+    "ecom-launch":    ["Shopify", "PIM", "payment-integration"],
+    "marketing-camp": ["CRM", "email-automation", "paid-social"],
+}
+
+DOMAINS = ["public sector", "telecom", "retail", "energy", "industrial",
+           "media", "finance", "logistics"]
+
+
+def _domain_for(customer: str, rng: random.Random) -> str:
+    """A customer's sector. Stable per customer within a persona, so a
+    given account always reads as the same industry."""
+    lowered = customer.lower()
+    for needle, domain in (
+        ("city of", "public sector"), ("kaupunki", "public sector"),
+        ("internal", "industrial"), ("telia", "telecom"), ("elisa", "telecom"),
+        ("posti", "logistics"), ("fortum", "energy"), ("nordea", "finance"),
+        ("sanoma", "media"), ("marimekko", "retail"), ("s-group", "retail"),
+        ("stora", "industrial"), ("wärtsilä", "industrial"),
+    ):
+        if needle in lowered:
+            return domain
+    return rng.choice(DOMAINS)
 
 
 def _sample_skills(pool: str) -> list[str]:
@@ -1182,6 +1235,10 @@ def generate_people(persona: PersonaSpec) -> list[dict]:
             # developer" an answerable question.
             "skills": " ".join(_sample_skills(spec["skills"])),
             "certifications": spec.get("certifications", ""),
+            # Sectors this person has actually delivered in. Text, so
+            # `$match` works and a partial overlap still counts.
+            "domains": " ".join(random.sample(DOMAINS,
+                                              k=random.randint(1, 3))),
             "site": random.choices(SITES, weights=SITE_WEIGHTS, k=1)[0],
             "seniority": seniority,
             "years_experience": random.randint(*years),

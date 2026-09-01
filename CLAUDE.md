@@ -271,6 +271,21 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     that ever appeared on ONE project, so a singleton stays a
     singleton — without anyone hard-coding which roles are management.
 
+    **The candidate number is not a quality score.** It is
+    `P(person | role, site, stack, sector)` — how often they are the
+    one who does work like this. The column says "Usual pick" and the
+    picker says so in words, because "Fit 43%" invited the reading
+    that Aito rates how well someone does their job. It does not, and
+    a demo that implies it would be selling something the database
+    cannot do. A separate assignment-quality rating is a real
+    follow-up; it is not this number.
+
+    **Chips carry provenance.** Each reason next to a candidate is
+    tagged `aito` (Aito's `$why` named that field as evidence — teal),
+    `match` (coincides with the proposal, computed here — gold) or
+    `fact` (context, argued nothing — grey). Painting all three alike
+    implied the database had endorsed someone's certifications.
+
     **Two kinds of clause, and the difference is the lesson.**
     `project_type` / `role` / `site` describe the JOB and are
     *evidence* — they let Aito rank on how such work was staffed

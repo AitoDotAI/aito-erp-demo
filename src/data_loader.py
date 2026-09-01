@@ -111,6 +111,12 @@ SCHEMAS = {
             "priority": {"type": "String", "nullable": False},
             "status": {"type": "String", "nullable": False},
             "site": {"type": "String", "nullable": False},
+            # What it is built with and who it is built for. Both are
+            # staffing signals a skills list misses, and both move
+            # outcomes — an unfamiliar stack or sector is where
+            # estimates go wrong.
+            "technology": {"type": "String", "nullable": False},
+            "domain": {"type": "String", "nullable": False},
             "start_month": {"type": "String", "nullable": False},
             # Outcomes are nullable: only completed projects have them.
             #
@@ -148,6 +154,7 @@ SCHEMAS = {
             # point. A String here would only ever match the exact list.
             "skills": {"type": "Text", "nullable": False},
             "certifications": {"type": "Text", "nullable": True},
+            "domains": {"type": "Text", "nullable": False},
             "site": {"type": "String", "nullable": False},
             "seniority": {"type": "String", "nullable": False},
             "years_experience": {"type": "Int", "nullable": False},
@@ -166,6 +173,8 @@ SCHEMAS = {
             # directly without needing a cross-table join.
             "project_type": {"type": "String", "nullable": False},
             "site": {"type": "String", "nullable": False},
+            "technology": {"type": "String", "nullable": False},
+            "domain": {"type": "String", "nullable": False},
             # The window this booking occupies — availability is a
             # question about a date range, not a running total.
             "start_month": {"type": "String", "nullable": False},
