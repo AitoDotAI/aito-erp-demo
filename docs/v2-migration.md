@@ -350,18 +350,32 @@ likewise missing. Confirmed: a v2 `_predict` now answers with
 `x-aitoai-response-time: 209.61` against v1's `183.58`. Guarded
 upstream by `V2WireContractParityTest/responseTimeHeader`.
 
-### 9. Cold-start exceeds the client timeout
+### 9. Cold-start exceeds the client timeout — and non-master envs are why
 
-*did not reproduce*
+*mechanism identified; it decides the deployment plan*
 
-The first sweep after the 08-27 redeploy had three views time out at the
-client's 30 s limit (`_predict` on `purchases`, `_relate`); the same
-sweep run again was 14/14 with no change. On `38a234a6` the first sweep
-after a redeploy was **42/42 cold**, with no retry. Matches the
-accounting demo's finding (todo td-20260829124802850866: cold v2 views
-at 16 s–276 s), so treat this as unconfirmed-here rather than gone;
-worth re-checking after the next deploy since it is invisible until it
-isn't.
+The first sweep after the 08-27 redeploy had three views time out at
+the client's 30 s limit; the same sweep run again was 14/14. On
+`38a234a6` the first sweep after a redeploy was 42/42 cold. Treated as
+"did not reproduce" — until the reason surfaced.
+
+**`master` is memoized; every other env lives in an evictable cache.**
+`Aito.envCache` carries `evictInactive(threshold)`,
+`evictLRU(count, protectAccessedWithinMs)` and
+`evictByMemory(target)`, and `LinkedEnv` refers throughout to the
+"memoized master" as the source. So a branch env that has been idle is
+dropped and the next query pays the full rebuild, while master is held.
+
+That is very likely the whole of the accounting demo's
+16 s–276 s cold views (todo td-20260829124802850866), and it is not a
+bug — it is a cache doing its job on an env nobody was using.
+
+**Consequence for the cutover.** Running production against
+`/env/v2` works and is the safe way to go live, but it is a poor
+steady state: a demo that is quiet between prospect visits is exactly
+the access pattern that gets evicted, so the first click of every
+session pays cold-start. The env indirection is a deployment
+mechanism, not a place to live.
 
 ### 10. Things that did *not* break
 
@@ -450,6 +464,51 @@ creates the `v2raw` copy-on-write branch and loads it without calling
 `optimize`. Master is never touched.
 
 ---
+
+## Deploying it
+
+Three worries, and only the third is real:
+
+* *"Promote the env first and the running app breaks."* It doesn't
+  arise — the app names the env in the URL
+  (`AITO_<T>_V2_API_URL=…/env/v2`), so `AITO_API_VERSION=v2` reads the
+  branch while `master` keeps serving v1. Nothing is swapped, so
+  nothing has to be ordered.
+* *"Deploy the app first and it fails until the DB is promoted."*
+  Same answer: the app is already pointed at a live env.
+* *"Promote without a backup and I cannot roll back."* True, and the
+  fix is one call. `promoteEnv` is `setBranch(master ← name, force)`:
+  the source env survives but **the previous master content does
+  not**. Branch it first — copy-on-write, instant — and rollback is
+  the same operation in reverse.
+
+```bash
+# 0. the v2 envs are only as current as the last load
+./do load-data-v2 --tenant=all
+./do v2-check --tenant=all            # must be all-ok before anything else
+
+# 1. go live on the branch. master untouched, rollback is an env var
+AITO_API_VERSION=v2   # in the deployed environment, then redeploy
+
+# 2. once it has been watched: make it master, keeping a way back
+POST /api/v2/_envs           {"name": "v1-backup", "basedOn": "master"}
+POST /api/v2/_envs/v2/promote
+#    then drop `/env/v2` from the URLs and redeploy
+
+# rollback at any point
+POST /api/v2/_envs/v1-backup/promote
+```
+
+Do not linger between (1) and (2). Non-master envs are evictable
+(§9), so a quiet demo running on a branch pays cold-start on the first
+click of every session — the one number this demo cannot afford to be
+bad. Promotion is what buys the retention, not just a tidier URL.
+
+`./do load-data-v2` drops and recreates every table, and
+`data_loader._assert_env_scoped` refuses a URL with no `/env/`
+segment: on v2 an unscoped URL resolves to `master` and returns
+`200 OK`, so the guard is the only thing between a reload and
+production.
 
 ## What's left
 
