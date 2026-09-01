@@ -22,6 +22,7 @@ Run with:  python data/generate_personas.py
 import json
 import random
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent
@@ -35,6 +36,77 @@ MONTHS = [
     for m in range(1, 13)
     if (y, m) >= (2022, 6) and (y, m) <= (2026, 3)
 ]
+
+# The month the generated world considers "now". Purchases, orders and
+# price history are undated history and keep using MONTHS above; only
+# PROJECTS need an anchor, because a project is the one entity here
+# with a lifespan — it starts, runs, and is either finished or still
+# running *as of some date*.
+#
+# Anchoring on the generation date rather than a constant is deliberate.
+# A fixed anchor silently rots: it stays correct for a month and then
+# every "active" project is one whose scheduled end is in the past,
+# which is what the previous `random.choice(MONTHS)` produced for both
+# statuses alike — 95 in-flight projects, none ending later than four
+# months ago. Regenerating re-anchors the world.
+#
+# The cost is that a loaded database ages between regenerations (the
+# fixtures themselves are gitignored build output, so there is nothing
+# committed to go stale — but Aito holds whatever was last loaded). The
+# forecast view surfaces that instead of hiding it: a project past its
+# scheduled end shows as overdue, which is an honest ERP state and the
+# thing a delivery lead actually wants flagged.
+TODAY = date.today()
+TODAY_MONTH = f"{TODAY.year}-{TODAY.month:02d}"
+
+
+def _month_index(month: str) -> int:
+    """`"2026-09"` → months since year 0. Lets months be compared and
+    shifted with plain integer arithmetic."""
+    year, mon = month.split("-")
+    return int(year) * 12 + int(mon) - 1
+
+
+def _month_from_index(index: int) -> str:
+    return f"{index // 12}-{index % 12 + 1:02d}"
+
+
+def shift_month(month: str, months: int) -> str:
+    return _month_from_index(_month_index(month) + months)
+
+
+# Deliverable staff beyond each persona's named core. The core names
+# carry the hand-tuned success effects (`project_reliable` /
+# `project_chaotic` / `manager_fit`); these are the rest of the bench,
+# and exist so headcount matches the number of projects in flight.
+#
+# Without them the arithmetic was absurd: 95 concurrent Studio projects
+# staffed from a pool of 15 put every consultant at ~1800% allocated,
+# and the capacity view — whose entire job is to answer "who is free" —
+# could only ever answer "nobody".
+MORE_PROJECT_PEOPLE = [
+    "R. Aalto", "T. Nieminen", "M. Virtanen", "J. Laine", "A. Koskinen",
+    "P. Heikkilä", "S. Järvinen", "K. Lehtonen", "E. Anttila", "V. Rantanen",
+    "H. Kinnunen", "O. Savolainen", "N. Hämäläinen", "L. Nurmi", "T. Väisänen",
+    "M. Peltola", "J. Hiltunen", "A. Toivonen", "S. Manninen", "K. Kallio",
+    "E. Turunen", "P. Leppänen", "R. Sipilä", "V. Ahonen", "N. Räsänen",
+    "H. Laitinen", "O. Kettunen", "M. Pitkänen", "J. Mustonen", "A. Ojala",
+    "L. Halme", "T. Kauppinen", "S. Vainio", "K. Ranta", "E. Salminen",
+    "P. Mäkinen", "V. Karppinen", "H. Tuominen", "O. Lahtinen", "N. Jokela",
+    "M. Sillanpää", "J. Vuorinen", "A. Rissanen", "S. Kokkonen", "K. Määttä",
+    "E. Hakala", "P. Autio", "R. Koivisto", "V. Niskanen", "N. Seppälä",
+    "H. Pesonen", "O. Rautio", "M. Lehto", "J. Riihimäki", "A. Suominen",
+    "L. Immonen", "T. Kärkkäinen", "S. Haapala", "K. Tolonen", "E. Moilanen",
+]
+
+
+def month_span(duration_days: int) -> int:
+    """How many whole months a duration covers, minimum one.
+
+    Projects are scheduled in days but recognised in months, so this is
+    the bridge between the two. 30.44 is the mean Gregorian month.
+    """
+    return max(1, round(duration_days / 30.44))
 
 
 # ── Persona spec ────────────────────────────────────────────────────
@@ -126,7 +198,7 @@ METSA = PersonaSpec(
     n_orders=1400,
     n_price_history=900,
     n_completed_projects=220,
-    n_active_projects=65,
+    n_active_projects=18,
     project_types={
         "maintenance":  {"budget": (8000, 60000),  "duration": (10, 60),  "team": (2, 5), "weight": 40},
         "construction": {"budget": (40000, 280000),"duration": (60, 240), "team": (5, 12),"weight": 25},
@@ -146,6 +218,7 @@ METSA = PersonaSpec(
         "A. Lindgren", "K. Saari", "L. Aho", "P. Korhonen", "S. Niemi",
         "M. Salo", "E. Heikkinen", "H. Mattila", "V. Jokinen", "T. Rinne",
         "O. Halonen", "I. Pulkkinen", "N. Forsberg", "J. Karjalainen",
+        *MORE_PROJECT_PEOPLE[:46],
     ],
     project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
     project_chaotic={"V. Jokinen", "T. Rinne"},
@@ -241,7 +314,7 @@ AURORA = PersonaSpec(
     n_price_history=6500,
     # Smaller project tier — retail does fewer formal projects than maintenance.
     n_completed_projects=70,
-    n_active_projects=22,
+    n_active_projects=9,
     project_types={
         "store-fitout":   {"budget": (40000, 200000),"duration": (30, 90),  "team": (3, 7), "weight": 40},
         "ecom-launch":    {"budget": (60000, 300000),"duration": (60, 180), "team": (4, 9), "weight": 25},
@@ -259,6 +332,7 @@ AURORA = PersonaSpec(
         "A. Lindgren", "K. Saari", "L. Aho", "P. Korhonen", "S. Niemi",
         "M. Salo", "H. Mattila", "V. Jokinen", "T. Rinne",
         "O. Halonen", "N. Forsberg",
+        *MORE_PROJECT_PEOPLE[:13],
     ],
     project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
     project_chaotic={"V. Jokinen", "T. Rinne"},
@@ -355,7 +429,7 @@ STUDIO = PersonaSpec(
     n_price_history=700,
     # Project-heavy persona — billable client engagements.
     n_completed_projects=340,
-    n_active_projects=95,
+    n_active_projects=14,
     project_types={
         "design":         {"budget": (8000, 80000),  "duration": (15, 90),  "team": (2, 5),  "weight": 30},
         "implementation": {"budget": (30000, 200000),"duration": (45, 180), "team": (4, 9),  "weight": 25},
@@ -376,6 +450,7 @@ STUDIO = PersonaSpec(
         "M. Salo", "E. Heikkinen", "H. Mattila", "V. Jokinen", "T. Rinne",
         "O. Halonen", "I. Pulkkinen", "N. Forsberg", "J. Karjalainen",
         "L. Lounela",
+        *MORE_PROJECT_PEOPLE[:27],
     ],
     project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
     project_chaotic={"V. Jokinen", "T. Rinne"},
@@ -694,7 +769,32 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
         duration = random.randint(*spec["duration"])
         priority = random.choices(["low", "medium", "high"], weights=[25, 50, 25], k=1)[0]
         customer = random.choice(persona.project_customers[ptype])
-        start_month = random.choice(MONTHS)
+
+        # Schedule the project relative to TODAY_MONTH, by status.
+        # A completed project must have finished before now; an
+        # in-flight one must still be running, i.e. it started within
+        # its own duration of now. Picking a start month at random
+        # across the whole history for both — the previous behaviour —
+        # produced "active" projects whose scheduled end was years in
+        # the past, which makes any forward revenue view empty and any
+        # capacity view meaningless.
+        span = month_span(duration)
+        now = _month_index(TODAY_MONTH)
+        earliest = _month_index(MONTHS[0])
+        if completed:
+            # Finished, so its scheduled end is strictly before this
+            # month — a project ending this month is still in flight.
+            latest_start = now - span - 1
+            start_month = _month_from_index(
+                random.randint(earliest, max(earliest, latest_start))
+            )
+        else:
+            # Still running: started within `span` months of now, and
+            # not in the future. Long retainers therefore reach further
+            # back than a two-week discovery, which is correct.
+            start_month = _month_from_index(
+                random.randint(max(earliest, now - span + 1), now)
+            )
 
         p_succ = _project_success_p(
             persona, ptype, manager, team_size, members, budget, duration, priority,

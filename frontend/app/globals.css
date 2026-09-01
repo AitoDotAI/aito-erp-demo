@@ -3614,3 +3614,110 @@ body {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Revenue Outlook ──────────────────────────────────────────────
+   Two bars per month, overlaid rather than side by side: the
+   prediction is a restatement of the same schedule, not a second
+   independent series, and overlapping them makes the gap between
+   them the thing the eye lands on. */
+.fc-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 20px 18px 8px;
+  min-height: 200px;
+}
+
+.fc-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.fc-bars {
+  position: relative;
+  width: 100%;
+  height: 150px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.fc-bar {
+  position: absolute;
+  bottom: 0;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.25s ease;
+}
+
+/* The schedule sits behind, wider and muted — the baseline claim. */
+.fc-bar-sched {
+  width: 100%;
+  background: var(--blue-light);
+  border-top: 2px solid var(--blue);
+}
+
+/* The prediction sits in front, narrower and in the accent colour,
+   so a month where Aito disagrees with the schedule reads instantly. */
+.fc-bar-exp {
+  width: 52%;
+  background: var(--gold);
+}
+
+.fc-col-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--ink);
+  margin-top: 6px;
+  white-space: nowrap;
+}
+
+.fc-col-label {
+  font-size: 10.5px;
+  color: var(--mid);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.fc-legend {
+  display: flex;
+  gap: 20px;
+  padding: 4px 18px 16px;
+  font-size: 11px;
+  color: var(--mid);
+}
+
+.fc-legend span { display: flex; align-items: center; gap: 6px; }
+
+.fc-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.fc-p {
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.fc-p-high { background: var(--green-light); color: var(--green); }
+.fc-p-mid  { background: var(--gold-light);  color: var(--gold-dark); }
+.fc-p-low  { background: var(--red-light);   color: var(--red); }
+.fc-p-none { color: var(--mid); }
+
+.fc-overdue {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--red-light);
+  color: var(--red);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

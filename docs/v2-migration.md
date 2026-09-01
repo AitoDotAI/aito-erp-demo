@@ -231,11 +231,19 @@ for rather than unwrapping whatever came back. Per-case `top` /
 
 *absorbed — by design; still reproduces, and should*
 
-v1's PUT replaces an existing table. v2 rejects it:
+Both versions refuse, and they refuse differently — which is the part
+this section originally got wrong. v1 replaces an *empty* table and
+refuses one holding rows; v2 refuses on existence alone:
 
 ```
-400 schema.create_failed: Table 'purchases' already exists
+v1: 400 Cannot replace table `purchases` schema. The table contains
+         data, please delete the data first.
+v2: 400 schema.create_failed: Table 'purchases' already exists
 ```
+
+So "v1's PUT replaces an existing table", as this document previously
+claimed, is only true before the first load. Caught by running
+`./do load-data` without `--reset` against a populated v1 tenant.
 
 Since a `v2` env branched from master inherits rep1 tables that must
 become collections, the v2 load path always deletes first. Reasonable

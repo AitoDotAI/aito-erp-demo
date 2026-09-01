@@ -646,3 +646,48 @@ export interface Alternative {
   confidence: number;
   why?: WhyExplanation | WhyFactor[];
 }
+
+/* ─── Revenue Outlook (forecast_service) ─── */
+export interface ForecastMonth {
+  month: string;
+  scheduled_eur: number;
+  expected_eur: number;
+  slipped_eur: number;
+}
+
+export interface ProjectOutlook {
+  project_id: string;
+  name: string;
+  customer: string;
+  project_type: string;
+  manager: string;
+  status: string;
+  budget_eur: number;
+  start_month: string;
+  scheduled_end_month: string;
+  months_total: number;
+  months_remaining: number;
+  remaining_eur: number;
+  overdue: boolean;
+  on_time_p: number | null;
+  on_budget_p: number | null;
+  at_risk_eur: number;
+  on_time_why: WhyExplanation | Record<string, never>;
+  on_budget_why: WhyExplanation | Record<string, never>;
+}
+
+export interface OutlookKPIs {
+  active_count: number;
+  order_book_eur: number;
+  next_quarter_eur: number;
+  at_risk_eur: number;
+  overdue_count: number;
+  overdue_eur: number;
+}
+
+export interface OutlookResponse {
+  as_of: string;
+  kpis: OutlookKPIs;
+  months: ForecastMonth[];
+  projects: ProjectOutlook[];
+}

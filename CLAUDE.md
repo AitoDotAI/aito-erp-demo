@@ -79,6 +79,7 @@ These never relax.
 │   ├── pricing_service.py             # Price Intelligence (_estimate)
 │   ├── demand_service.py              # Demand Forecast (_estimate)
 │   ├── inventory_service.py           # Inventory Intelligence
+│   ├── forecast_service.py            # Revenue Outlook (_predict on_time)
 │   └── overview_service.py            # Automation Overview
 │
 ├── frontend/                          # Next.js 16 (App Router)
@@ -201,7 +202,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 
 ---
 
-## The 14 views
+## The 15 views
 
 ### Procurement
 1. **PO Queue** — pending POs with predicted cost center, account, approver
@@ -237,9 +238,14 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     allocation + historical norm; "what if" forecast uses
     `_predict assignments.role|allocation_pct` filtered by the
     denormalised `project_type` column. Studio-only.
+14. **Revenue Outlook** — the order book spread over the coming months
+    by percentage-of-completion, then risk-adjusted by
+    `_predict on_time` / `on_budget` per in-flight project. Answers
+    "when does sold work turn into cash, and how much of that date do
+    we believe". Metsä + Studio (Aurora hides it with `/projects`).
 
 ### Overview
-14. **Automation Overview** — coverage stats + learning curve
+15. **Automation Overview** — coverage stats + learning curve
 
 ---
 
@@ -258,6 +264,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | demand_service | `_predict` + search | Units forecast |
 | inventory_service | demand + stock | Days of supply + reorder |
 | project_service | `_predict` + `_relate` | Project success forecast + broad success factors (people from `assignments`, categoricals from `projects`) |
+| forecast_service | `_predict` ×2 | `on_time` / `on_budget` per in-flight project → risk-adjusted revenue by month |
 
 ---
 

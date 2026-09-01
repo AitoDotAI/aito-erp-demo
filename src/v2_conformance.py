@@ -45,6 +45,7 @@ from src.approval_service import demo_approval_queue_for, predict_batch as predi
 from src.catalog_service import get_incomplete
 from src.demand_service import get_demand_forecast
 from src.inventory_service import get_inventory_status
+from src.forecast_service import get_outlook
 from src.overview_service import get_overview
 from src.po_service import demo_pos_for, predict_batch as predict_po_batch
 from src.pricing_service import get_pricing_overview
@@ -98,6 +99,8 @@ VIEWS: tuple[View, ...] = (
          lambda c, t: get_portfolio(c)),
     View("utilization", "_predict + _search",
          lambda c, t: get_utilization_overview(c)),
+    View("forecast", "_predict ×2 + _search",
+         lambda c, t: get_outlook(c)),
     View("overview", "_evaluate + _search",
          lambda c, t: get_overview(c)),
 )

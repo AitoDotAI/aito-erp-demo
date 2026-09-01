@@ -769,6 +769,21 @@ def projects_portfolio(request: Request):
     return result
 
 
+@app.get("/api/forecast/outlook")
+def forecast_outlook(request: Request):
+    """Revenue outlook — the order book spread over the coming months,
+    risk-adjusted by a per-project `_predict on_time`."""
+    from src.forecast_service import get_outlook
+    tenant, aito = client_from_request(request)
+    cache_key = _tk(tenant, "forecast_outlook")
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+    result = get_outlook(aito).to_dict()
+    cache.set(cache_key, result)
+    return result
+
+
 @app.post("/api/projects/forecast")
 def projects_forecast(body: dict, request: Request):
     _, aito = client_from_request(request)
