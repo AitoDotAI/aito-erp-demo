@@ -46,6 +46,7 @@ from src.catalog_service import get_incomplete
 from src.demand_service import get_demand_forecast
 from src.inventory_service import get_inventory_status
 from src.forecast_service import get_outlook
+from src.planner_service import plan_engagement, planner_options
 from src.overview_service import get_overview
 from src.po_service import demo_pos_for, predict_batch as predict_po_batch
 from src.pricing_service import get_pricing_overview
@@ -68,6 +69,20 @@ class View:
     name: str
     endpoints: str
     run: Callable[[AitoClient, TenantId], Any]
+
+
+def _planner_type(client) -> str:
+    """A project type this tenant really has, so the probe conditions on
+    something rather than silently falling back to the base rate."""
+    types = planner_options(client).get("project_types") or []
+    return types[0] if types else "construction"
+
+
+def _planner_customer(client) -> str:
+    options = planner_options(client)
+    ptype = _planner_type(client)
+    customers = options.get("customers_by_type", {}).get(ptype) or []
+    return customers[0] if customers else "Internal"
 
 
 VIEWS: tuple[View, ...] = (
@@ -101,6 +116,11 @@ VIEWS: tuple[View, ...] = (
          lambda c, t: get_utilization_overview(c)),
     View("forecast", "_predict ×2 + _search",
          lambda c, t: get_outlook(c)),
+    View("planner", "_predict ×N + _search",
+         lambda c, t: plan_engagement(
+             c, customer=_planner_customer(c), scope="probe",
+             project_type=_planner_type(c), quoted_eur=150000.0,
+             duration_days=120, team_size=6)),
     View("overview", "_evaluate + _search",
          lambda c, t: get_overview(c)),
 )

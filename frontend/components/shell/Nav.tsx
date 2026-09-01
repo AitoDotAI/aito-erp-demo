@@ -65,6 +65,7 @@ const SECTIONS: NavSection[] = [
       { label: "Project Portfolio", href: "/projects" },
       { label: "Project Plan", href: "/project-plan" },
       { label: "Utilization", href: "/utilization" },
+      { label: "Engagement Planner", href: "/planner" },
       { label: "Revenue Outlook", href: "/forecast" },
     ],
   },

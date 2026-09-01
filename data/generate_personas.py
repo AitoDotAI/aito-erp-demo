@@ -152,6 +152,11 @@ class PersonaSpec:
     # Description vocabularies — used to build readable purchase descriptions.
     descriptions: dict[str, list[str]]
     # Product catalog (commerce-oriented persona only — others get a thin set)
+    # Quote pipeline — bids sent, won and lost. Defaults to none so a
+    # persona that doesn't sell project work simply has no `quotes`
+    # fixture and the table stays empty (see OPTIONAL_TABLES).
+    n_quotes: int = 0
+    quote_scopes: dict[str, list[str]] = field(default_factory=dict)
     product_categories: dict[str, dict] = field(default_factory=dict)
     product_name_templates: dict[str, list[str]] = field(default_factory=dict)
 
@@ -205,6 +210,23 @@ METSA = PersonaSpec(
         "rollout":      {"budget": (15000, 80000), "duration": (20, 90),  "team": (3, 6), "weight": 15},
         "audit":        {"budget": (4000, 25000),  "duration": (5, 25),   "team": (1, 3), "weight": 10},
         "rd":           {"budget": (20000, 120000),"duration": (30, 150), "team": (2, 5), "weight": 10},
+    },
+    n_quotes=520,
+    quote_scopes={
+        "maintenance":  ["Annual service contract for the Tampere line",
+                          "Preventive maintenance, two shifts, spare parts included",
+                          "Breakdown cover with four-hour response"],
+        "construction": ["New assembly hall foundation and frame",
+                          "Site extension including MEP and commissioning",
+                          "Warehouse rebuild, phased over two quarters"],
+        "rollout":      ["Fleet telematics rollout across three sites",
+                          "Machine monitoring sensors and dashboard",
+                          "Depot scheduling system deployment"],
+        "audit":        ["Compliance audit against the machinery directive",
+                          "Energy efficiency survey of the Oulu plant",
+                          "Safety audit and remediation plan"],
+        "rd":           ["Prototype hydraulic assembly and test rig",
+                          "Materials trial for the seal kit redesign"],
     },
     project_managers=["M. Hakala", "T. Virtanen", "K. Mäkinen", "J. Lehtinen"],
     project_leads={
@@ -321,6 +343,18 @@ AURORA = PersonaSpec(
         "marketing-camp": {"budget": (15000, 90000), "duration": (15, 60),  "team": (2, 5), "weight": 25},
         "audit":          {"budget": (4000, 20000),  "duration": (5, 20),   "team": (1, 3), "weight": 10},
     },
+    n_quotes=240,
+    quote_scopes={
+        "store-fitout": ["Full refit of the Tampere flagship",
+                          "Shelving and lighting refresh, six stores",
+                          "Checkout zone rebuild over one weekend"],
+        "ecom-launch":  ["New webstore front end and payment integration",
+                          "Marketplace channel launch with feed sync"],
+        "marketing-camp": ["Autumn homeware campaign across all channels",
+                          "Loyalty push with personalised offers"],
+        "audit":        ["Store compliance audit across the Nordic range",
+                          "Supplier onboarding review"],
+    },
     project_managers=["M. Eronen", "A. Niemi", "R. Salonen"],
     project_leads={
         "store-fitout":   ["L. Aho", "P. Korhonen"],
@@ -436,6 +470,21 @@ STUDIO = PersonaSpec(
         "strategy":       {"budget": (15000, 90000), "duration": (20, 60),  "team": (2, 4),  "weight": 20},
         "discovery":      {"budget": (4000, 20000),  "duration": (5, 25),   "team": (1, 3),  "weight": 15},
         "retainer":       {"budget": (12000, 60000), "duration": (90, 365), "team": (1, 3),  "weight": 10},
+    },
+    n_quotes=610,
+    quote_scopes={
+        "design":         ["Brand identity refresh and design system",
+                            "Mobile app redesign, six key flows",
+                            "Marketing site art direction and build"],
+        "implementation": ["Headless commerce build with CMS migration",
+                            "Design system implementation in React",
+                            "Customer portal rebuild and SSO integration"],
+        "strategy":       ["Digital strategy and roadmap to 2028",
+                            "Service blueprint for the onboarding journey"],
+        "discovery":      ["Two-week discovery sprint with user interviews",
+                            "Technical feasibility review"],
+        "retainer":       ["Ongoing design retainer, two days a week",
+                            "Embedded product team for two quarters"],
     },
     project_managers=["A. Lahti", "J. Mäkelä", "K. Saarinen", "L. Lounela"],
     project_leads={
@@ -860,6 +909,107 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
 
 
 # ── Driver ──────────────────────────────────────────────────────────
+
+
+# What a customer says when they say no. Ordered roughly by how often
+# a delivery organisation actually hears it.
+LOSS_REASONS = ["price", "timing", "scope_fit", "incumbent", "budget_frozen"]
+
+# Price relative to the going rate for that project_type and size. The
+# bands are the feature the sales conversation is actually about, and
+# bucketing them lets `_relate` and `_predict` treat "we quoted 30%
+# over" as one thing rather than as a thousand distinct Decimals.
+PRICE_BANDS = ["under", "at_market", "over", "well_over"]
+
+
+def generate_quotes(persona: PersonaSpec, projects: list[dict]) -> list[dict]:
+    """Bids sent, and how they landed.
+
+    A won quote becomes a project, so `projects` is a survivorship-
+    biased sample: it contains no losses at all. The planner view needs
+    the losses, because the question it answers — "will this estimate
+    cost us the deal, and what will they object to" — is answerable
+    only from work that did *not* close.
+
+    The generative story, which the view then has to rediscover from
+    the data alone:
+
+      * Price is the dominant driver, and it is non-linear. Quoting
+        `at_market` wins most of the time; `well_over` loses most of
+        the time, and when it loses it loses on `price`.
+      * An existing customer forgives a high price to a degree — the
+        relationship absorbs roughly one band.
+      * A competing bid costs about fifteen points of win rate flat.
+      * Short durations on big scopes lose on `timing`, not price,
+        which is the case where cutting the price would not have
+        helped — the thing a sales team most often gets wrong.
+    """
+    quotes: list[dict] = []
+    types = list(persona.project_types.keys())
+    weights = [persona.project_types[t]["weight"] for t in types]
+    # Reuse the delivered projects' customers so the two tables talk
+    # about the same accounts.
+    customers_by_type = persona.project_customers
+
+    for idx in range(persona.n_quotes):
+        ptype = random.choices(types, weights=weights, k=1)[0]
+        spec = persona.project_types[ptype]
+        customer = random.choice(customers_by_type[ptype])
+        team_size = random.randint(*spec["team"])
+        duration = random.randint(*spec["duration"])
+        priority = random.choices(["low", "medium", "high"], weights=[25, 50, 25], k=1)[0]
+        competing = random.random() < 0.45
+        existing = random.random() < 0.55
+
+        low, high = spec["budget"]
+        market = (low + high) / 2
+        band = random.choices(PRICE_BANDS, weights=[15, 45, 28, 12], k=1)[0]
+        multiplier = {"under": 0.82, "at_market": 1.0,
+                      "over": 1.22, "well_over": 1.55}[band]
+        quoted = round(market * multiplier * random.uniform(0.9, 1.1), -2)
+
+        # Base win rate by price band, then the modifiers.
+        p_win = {"under": 0.78, "at_market": 0.72,
+                 "over": 0.45, "well_over": 0.22}[band]
+        if existing:
+            p_win += 0.12
+        if competing:
+            p_win -= 0.15
+        # A tight schedule for the scope is its own risk, independent
+        # of price.
+        rushed = duration < spec["duration"][0] + (spec["duration"][1] - spec["duration"][0]) * 0.2
+        if rushed:
+            p_win -= 0.12
+        p_win = min(max(p_win, 0.05), 0.95)
+
+        won = random.random() < p_win
+        if won:
+            loss_reason = None
+        elif rushed and random.random() < 0.55:
+            loss_reason = "timing"
+        elif band in ("over", "well_over") and random.random() < 0.7:
+            loss_reason = "price"
+        else:
+            loss_reason = random.choice(LOSS_REASONS[1:])
+
+        scope_words = persona.quote_scopes[ptype]
+        quotes.append({
+            "quote_id": f"QT-{2000 + idx}",
+            "customer": customer,
+            "project_type": ptype,
+            "scope": random.choice(scope_words),
+            "quoted_eur": quoted,
+            "price_band": band,
+            "duration_days": duration,
+            "team_size": team_size,
+            "priority": priority,
+            "competing_bid": competing,
+            "existing_customer": existing,
+            "quoted_month": random.choice(MONTHS),
+            "won": won,
+            "loss_reason": loss_reason,
+        })
+    return quotes
 
 
 def generate_impressions(persona: PersonaSpec, products: list[dict]) -> list[dict]:
@@ -1386,6 +1536,7 @@ def write_persona(persona: PersonaSpec) -> None:
     # / maintenance phase model the project-plan view depends on doesn't
     # apply directly to retail (Aurora) or services (Studio) personas.
     tasks = generate_metsa_tasks(persona, projects) if persona.tenant_id == "metsa" else []
+    quotes = generate_quotes(persona, projects) if persona.n_quotes else []
 
     with open(out / "purchases.json",     "w") as f: json.dump(purchases,    f, indent=2, ensure_ascii=False)
     with open(out / "products.json",      "w") as f: json.dump(products,     f, indent=2, ensure_ascii=False)
@@ -1397,6 +1548,8 @@ def write_persona(persona: PersonaSpec) -> None:
         with open(out / "impressions.json", "w") as f: json.dump(impressions, f, indent=2, ensure_ascii=False)
     if tasks:
         with open(out / "tasks.json",     "w") as f: json.dump(tasks,        f, indent=2, ensure_ascii=False)
+    if quotes:
+        with open(out / "quotes.json",    "w") as f: json.dump(quotes,       f, indent=2, ensure_ascii=False)
 
     completed = [p for p in projects if p["status"] == "complete"]
     succ = [p for p in completed if p["success"]]
@@ -1411,6 +1564,9 @@ def write_persona(persona: PersonaSpec) -> None:
         print(f"    success rate: {len(succ)}/{len(completed)} = "
               f"{len(succ)/len(completed):.0%}")
     print(f"  assignments:    {len(assignments)}")
+    if quotes:
+        won = sum(1 for q in quotes if q["won"])
+        print(f"  quotes:         {len(quotes)} (won {won} = {won/len(quotes):.0%})")
     if impressions:
         print(f"  impressions:    {len(impressions)} "
               f"(clicked={sum(1 for r in impressions if r['clicked'])})")

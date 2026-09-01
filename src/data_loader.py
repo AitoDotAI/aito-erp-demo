@@ -132,6 +132,35 @@ SCHEMAS = {
             "project_success": {"type": "Boolean", "nullable": True},
         },
     },
+    # Bids that were sent to a customer, and what happened to them.
+    # Projects only record work that was WON, so nothing else in this
+    # database can answer "will this proposal land, and if not, why" —
+    # the loss is the signal, and it exists nowhere else. `loss_reason`
+    # is nullable because a won quote has none; that is the same
+    # convention `projects.success` uses for work still in flight.
+    "quotes": {
+        "type": "table",
+        "columns": {
+            "quote_id": {"type": "String", "nullable": False},
+            "customer": {"type": "String", "nullable": False},
+            "project_type": {"type": "String", "nullable": False},
+            "scope": {"type": "Text", "nullable": False},
+            "quoted_eur": {"type": "Decimal", "nullable": False},
+            # The quote's price against the going rate for work of this
+            # type and size, bucketed. Aito reads a bare String far more
+            # reliably than it reads "is 190500 a lot" — the bucket IS
+            # the feature, and it is what a salesperson argues about.
+            "price_band": {"type": "String", "nullable": False},
+            "duration_days": {"type": "Int", "nullable": False},
+            "team_size": {"type": "Int", "nullable": False},
+            "priority": {"type": "String", "nullable": False},
+            "competing_bid": {"type": "Boolean", "nullable": False},
+            "existing_customer": {"type": "Boolean", "nullable": False},
+            "quoted_month": {"type": "String", "nullable": False},
+            "won": {"type": "Boolean", "nullable": False},
+            "loss_reason": {"type": "String", "nullable": True},
+        },
+    },
     # Per-task rows that sit underneath each project: phase, assignee
     # (either an internal employee or an external subcontractor), and
     # the realised outcome. Drives the Project Plan view — Aito both
@@ -200,7 +229,7 @@ SCHEMAS = {
 # silently skips these instead of erroring — the Aito table is created
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
-OPTIONAL_TABLES = {"impressions", "tasks"}
+OPTIONAL_TABLES = {"impressions", "tasks", "quotes"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:

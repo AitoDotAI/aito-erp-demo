@@ -691,3 +691,68 @@ export interface OutlookResponse {
   months: ForecastMonth[];
   projects: ProjectOutlook[];
 }
+
+/* ─── Engagement Planner (planner_service) ─── */
+export interface PlannerCandidate {
+  person: string;
+  fit: number;
+  current_load_pct: number;
+  status: string;
+  why: WhyExplanation | Record<string, never>;
+}
+
+export interface PlannerRoleSlot {
+  role: string;
+  count: number;
+  share: number;
+  candidates: PlannerCandidate[];
+}
+
+export interface PlannerDeliveryRisk {
+  success_p: number | null;
+  on_time_p: number | null;
+  on_budget_p: number | null;
+  success_why: WhyExplanation | Record<string, never>;
+  on_time_why: WhyExplanation | Record<string, never>;
+}
+
+export interface PlannerPriceCheck {
+  comparable_count: number;
+  median_eur: number;
+  low_eur: number;
+  high_eur: number;
+  quoted_eur: number;
+  ratio: number;
+  band: string;
+}
+
+export interface PlannerObjection {
+  reason: string;
+  p: number;
+}
+
+export interface PlannerSalesRisk {
+  win_p: number | null;
+  win_why: WhyExplanation | Record<string, never>;
+  objections: PlannerObjection[];
+  quote_history: number;
+}
+
+export interface EngagementPlan {
+  customer: string;
+  scope: string;
+  project_type: string;
+  quoted_eur: number;
+  duration_days: number;
+  team_size: number;
+  priority: string;
+  roles: PlannerRoleSlot[];
+  delivery: PlannerDeliveryRisk;
+  price: PlannerPriceCheck | null;
+  sales: PlannerSalesRisk | null;
+}
+
+export interface PlannerOptions {
+  project_types: string[];
+  customers_by_type: Record<string, string[]>;
+}

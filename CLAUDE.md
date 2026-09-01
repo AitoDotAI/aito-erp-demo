@@ -80,6 +80,7 @@ These never relax.
 │   ├── demand_service.py              # Demand Forecast (_estimate)
 │   ├── inventory_service.py           # Inventory Intelligence
 │   ├── forecast_service.py            # Revenue Outlook (_predict on_time)
+│   ├── planner_service.py             # Engagement Planner (staffing + quote risk)
 │   └── overview_service.py            # Automation Overview
 │
 ├── frontend/                          # Next.js 16 (App Router)
@@ -105,7 +106,8 @@ These never relax.
 │       ├── api.ts                     # apiFetch, fmtAmount, confClass
 │       └── types.ts                   # TypeScript interfaces
 │
-├── data/                              # JSON fixtures
+├── data/                              # JSON fixtures (gitignored;
+│                                      #   `./do generate-personas`)
 │   ├── purchases.json                 # ~200 PO records
 │   ├── products.json                  # ~50 product catalog
 │   ├── orders.json                    # ~300 historical orders
@@ -202,7 +204,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 
 ---
 
-## The 15 views
+## The 16 views
 
 ### Procurement
 1. **PO Queue** — pending POs with predicted cost center, account, approver
@@ -238,14 +240,21 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     allocation + historical norm; "what if" forecast uses
     `_predict assignments.role|allocation_pct` filtered by the
     denormalised `project_type` column. Studio-only.
-14. **Revenue Outlook** — the order book spread over the coming months
+14. **Engagement Planner** — a proposal (customer, scope, quote,
+    duration, team size) in; a staffed team, a price check, delivery
+    risk and a predicted customer objection out. Roles from
+    `_predict assignments.role`, people from `_predict person` per
+    role annotated with live load, delivery from `_predict success |
+    on_time`, and the sales read from `_predict quotes.won` +
+    `loss_reason`. Metsä + Studio.
+15. **Revenue Outlook** — the order book spread over the coming months
     by percentage-of-completion, then risk-adjusted by
     `_predict on_time` / `on_budget` per in-flight project. Answers
     "when does sold work turn into cash, and how much of that date do
     we believe". Metsä + Studio (Aurora hides it with `/projects`).
 
 ### Overview
-15. **Automation Overview** — coverage stats + learning curve
+16. **Automation Overview** — coverage stats + learning curve
 
 ---
 
@@ -265,8 +274,20 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | inventory_service | demand + stock | Days of supply + reorder |
 | project_service | `_predict` + `_relate` | Project success forecast + broad success factors (people from `assignments`, categoricals from `projects`) |
 | forecast_service | `_predict` ×2 | `on_time` / `on_budget` per in-flight project → risk-adjusted revenue by month |
+| planner_service | `_predict` ×N + `_search` | Role mix + people per role; delivery risk; `quotes.won` / `loss_reason` for the predicted objection |
 
 ---
+
+### Why there is a `quotes` table
+
+`projects` records work that was **won**. Nothing else in the schema
+can answer "will this proposal land, and if not what will they say",
+because every row in every other table is a survivor. `quotes` carries
+the losses and a nullable `loss_reason`, and it is what the Engagement
+Planner's sales read is built on. `price_band` is bucketed on purpose:
+Aito reads "we quoted well over" far more reliably than it reads a raw
+Decimal it has never seen, and the bucket is what a salesperson argues
+about anyway.
 
 ## Mock data principles
 

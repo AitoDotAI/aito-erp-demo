@@ -769,6 +769,50 @@ def projects_portfolio(request: Request):
     return result
 
 
+@app.post("/api/planner/plan")
+def planner_plan(body: dict, request: Request):
+    """Staff, price and sales-risk a proposed engagement.
+
+    POST rather than GET: the whole proposal is the query, and it is a
+    dozen fields the user is editing on screen. Not cached for the same
+    reason — every submission is a different question.
+    """
+    from src.planner_service import plan_engagement
+    _, aito = client_from_request(request)
+    required = ("customer", "project_type", "quoted_eur",
+                "duration_days", "team_size")
+    missing = [f for f in required if body.get(f) in (None, "")]
+    if missing:
+        return {"error": f"missing required field(s): {', '.join(missing)}"}
+    return plan_engagement(
+        aito,
+        customer=str(body["customer"]),
+        scope=str(body.get("scope", "")),
+        project_type=str(body["project_type"]),
+        quoted_eur=float(body["quoted_eur"]),
+        duration_days=int(body["duration_days"]),
+        team_size=int(body["team_size"]),
+        priority=str(body.get("priority", "medium")),
+        competing_bid=bool(body.get("competing_bid", False)),
+        existing_customer=bool(body.get("existing_customer", True)),
+    ).to_dict()
+
+
+@app.get("/api/planner/options")
+def planner_options(request: Request):
+    """Project types and customers this tenant actually has history for,
+    so the form offers real choices rather than free text."""
+    from src.planner_service import planner_options as options
+    tenant, aito = client_from_request(request)
+    cache_key = _tk(tenant, "planner_options")
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+    result = options(aito)
+    cache.set(cache_key, result)
+    return result
+
+
 @app.get("/api/forecast/outlook")
 def forecast_outlook(request: Request):
     """Revenue outlook — the order book spread over the coming months,

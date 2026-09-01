@@ -50,7 +50,7 @@ export const TENANTS: TenantProfile[] = [
     audience: "Commerce (Oscar / ERPly-style)",
     accent: "#1a4a7a",
     // Hide projects + heavy approval routing — retail leans on stock + price.
-    hideRoutes: ["/projects", "/project-plan", "/approval", "/utilization", "/forecast"],
+    hideRoutes: ["/projects", "/project-plan", "/approval", "/utilization", "/forecast", "/planner"],
     defaultRoute: "/inventory",
   },
   {
