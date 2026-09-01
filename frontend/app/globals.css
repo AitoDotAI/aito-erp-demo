@@ -4066,3 +4066,9 @@ body {
 }
 
 .pl-chip-fact { /* inherits .pl-chip */ }
+
+.pl-hint-warn {
+  border-color: var(--red);
+  background: var(--red-light);
+  color: var(--red);
+}

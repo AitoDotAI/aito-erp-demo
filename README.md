@@ -14,7 +14,7 @@ ERP features** built on Aito's `_predict`, `_relate`, `_search`, and
 `_match` operators. Each view comes with a hero screenshot, working
 code, and a use-case guide. The demo runs in three industry profiles —
 **Metsä Machinery** (industrial maintenance), **Aurora Retail**
-(commerce), **Helsinki Studio** (services) — each backed by its own
+(commerce), **Vire Consulting** (services) — each backed by its own
 Aito DB, swap profiles in the TopBar.
 
 > Profile switching here is for *content variety*, not a multi-tenant
@@ -296,7 +296,7 @@ and persona-appropriate fixtures. Switch in the TopBar (`localStorage.demoTenant
 |---------|----------|------------|
 | **Metsä Machinery Oy** | Industrial maintenance / construction (Lemonsoft-shaped buyer) | Wärtsilä, ABB, Caverion, NCC · 3.2K POs · 320 spare-part SKUs · 285 maintenance/construction projects · 46 months of history |
 | **Aurora Retail Oy** | Multi-channel retail (Oscar / ERPly-shaped buyer) | Valio, Marimekko, L'Oréal · 5.3K POs · 3.2K SKUs · 18K orders · 6.5K price points |
-| **Helsinki Studio** | Professional services (horizontal SaaS buyer) | Adobe, AWS, Figma · 3.2K POs · 435 client engagements · 2.1K assignments |
+| **Vire Consulting** | Professional services (horizontal SaaS buyer) | Adobe, AWS, Figma · 3.2K POs · 435 client engagements · 2.1K assignments |
 
 Each profile filters which views appear in the side nav. The right-rail
 Aito panel re-tones with persona-specific examples: Metsä's panel

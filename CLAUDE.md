@@ -130,7 +130,7 @@ These never relax.
 - **Cache**: Two-layer (in-memory + Aito table) with startup warming
 - **Data**: JSON fixtures uploaded to Aito via `./do load-data`
 - **Demo profiles**: A TopBar switcher selects between three tenant
-  personas (Metsä Machinery / Aurora Retail / Helsinki Studio).
+  personas (Metsä Machinery / Aurora Retail / Vire Consulting).
   Frontend config lives in `frontend/lib/tenants.ts`; persisted in
   `localStorage` under `demoTenant`. Each profile filters the side
   nav so only the views relevant to that audience appear.
@@ -155,7 +155,8 @@ These never relax.
   + 235 client-engagement projects for a services vibe). Each tenant
   also gets its own `projects` + `assignments` tables with persona-
   appropriate project types (Metsä: maintenance/construction;
-  Aurora: store-fitout/ecom-launch; Studio: design/strategy/retainer).
+  Aurora: store-fitout/ecom-launch; Vire: implementation/strategy/
+  discovery/design/retainer).
   `data_loader.py` reads `data/<tenant>/<table>.json` first and
   falls back to the flat `data/<table>.json` so partially-migrated
   setups still work. Run `./do generate-personas` then
@@ -349,6 +350,23 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | planner_service | `_predict` ×N + `_search` | Role mix + people per role; delivery risk; `quotes.won` / `loss_reason` for the predicted objection |
 
 ---
+
+### Role mixes are per project type, and that is the point
+
+`assignments.role` used to be drawn uniformly across every discipline,
+which staffed a **design** project with backend developers and QA, and
+made `_predict role` return the same near-flat mix for every service
+line — because that is genuinely what the data said. Each project type
+now declares the disciplines it uses (`project_types[t]["roles"]`), so
+strategy is architect-led, retainers carry devops, and design is
+designers. If the planner ever proposes an incoherent team again, this
+is the first place to look: the prediction is only as good as the
+correlation in the fixture.
+
+Note the residual: asking for eight seats where comparable work used
+three spreads the long tail of the mix onto the team. The mix is right,
+the size is not, and the form says so in red rather than silently
+producing a strange team.
 
 ### Why `absences` is its own table
 

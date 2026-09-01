@@ -55,9 +55,9 @@ export const TENANTS: TenantProfile[] = [
   },
   {
     id: "studio",
-    name: "Helsinki Studio",
-    tagline: "Professional services · 42 consultants",
-    audience: "Services / professional (horizontal SaaS)",
+    name: "Vire Consulting Oy",
+    tagline: "Software consultancy · 42 consultants",
+    audience: "Software consultancies (Futurice / Reaktor / Solita-style)",
     accent: "#2d7a4f",
     // Services don't carry physical inventory; pricing data is too
     // thin (80 SKUs, 200 price rows) to make Pricing credible. The

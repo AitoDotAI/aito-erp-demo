@@ -7,8 +7,8 @@ TopBar profiles:
                     Lemonsoft-style buyer)
   data/aurora/    → Aurora Retail Oy    (multi-channel retail,
                     Oscar / ERPly-style buyer)
-  data/studio/    → Helsinki Studio     (professional services,
-                    horizontal SaaS buyer)
+  data/studio/    → Vire Consulting Oy  (full-service software
+                    consultancy, Futurice / Reaktor-style buyer)
 
 Every persona produces the full table set (purchases / products /
 orders / price_history / projects / assignments) so the schemas in
@@ -211,11 +211,16 @@ METSA = PersonaSpec(
     n_completed_projects=220,
     n_active_projects=18,
     project_types={
-        "maintenance":  {"budget": (8000, 60000),  "duration": (10, 60),  "team": (2, 5), "weight": 40},
-        "construction": {"budget": (40000, 280000),"duration": (60, 240), "team": (5, 12),"weight": 25},
-        "rollout":      {"budget": (15000, 80000), "duration": (20, 90),  "team": (3, 6), "weight": 15},
-        "audit":        {"budget": (4000, 25000),  "duration": (5, 25),   "team": (1, 3), "weight": 10},
-        "rd":           {"budget": (20000, 120000),"duration": (30, 150), "team": (2, 5), "weight": 10},
+        "maintenance":  {"budget": (8000, 60000),  "duration": (10, 60),  "team": (2, 5), "weight": 40,
+                          "roles": {'mechanical': 40, 'electrical': 25, 'hvac': 20, 'automation': 15}},
+        "construction": {"budget": (40000, 280000),"duration": (60, 240), "team": (5, 12),"weight": 25,
+                          "roles": {'civil': 35, 'electrical': 20, 'hvac': 20, 'mechanical': 15, 'quality': 10}},
+        "rollout":      {"budget": (15000, 80000), "duration": (20, 90),  "team": (3, 6), "weight": 15,
+                          "roles": {'automation': 40, 'electrical': 25, 'mechanical': 20, 'quality': 15}},
+        "audit":        {"budget": (4000, 25000),  "duration": (5, 25),   "team": (1, 3), "weight": 10,
+                          "roles": {'quality': 55, 'electrical': 25, 'hvac': 20}},
+        "rd":           {"budget": (20000, 120000),"duration": (30, 150), "team": (2, 5), "weight": 10,
+                          "roles": {'mechanical': 40, 'automation': 30, 'quality': 15, 'electrical': 15}},
     },
     n_quotes=520,
     quote_scopes={
@@ -365,13 +370,20 @@ AURORA = PersonaSpec(
     n_orders=18000,
     n_price_history=6500,
     # Smaller project tier — retail does fewer formal projects than maintenance.
-    n_completed_projects=70,
+    # 70 completed projects made the success rate swing six points
+    # between regenerations on sampling noise alone, which read as
+    # the fixture breaking. More history, same shape.
+    n_completed_projects=170,
     n_active_projects=9,
     project_types={
-        "store-fitout":   {"budget": (40000, 200000),"duration": (30, 90),  "team": (3, 7), "weight": 40},
-        "ecom-launch":    {"budget": (60000, 300000),"duration": (60, 180), "team": (4, 9), "weight": 25},
-        "marketing-camp": {"budget": (15000, 90000), "duration": (15, 60),  "team": (2, 5), "weight": 25},
-        "audit":          {"budget": (4000, 20000),  "duration": (5, 20),   "team": (1, 3), "weight": 10},
+        "store-fitout":   {"budget": (40000, 200000),"duration": (30, 90),  "team": (3, 7), "weight": 40,
+                          "roles": {'visual': 45, 'supply': 25, 'ecommerce': 20, 'marketing': 10}},
+        "ecom-launch":    {"budget": (60000, 300000),"duration": (60, 180), "team": (4, 9), "weight": 25,
+                          "roles": {'ecommerce': 50, 'marketing': 20, 'supply': 20, 'visual': 10}},
+        "marketing-camp": {"budget": (15000, 90000), "duration": (15, 60),  "team": (2, 5), "weight": 25,
+                          "roles": {'marketing': 55, 'visual': 25, 'ecommerce': 20}},
+        "audit":          {"budget": (4000, 20000),  "duration": (5, 20),   "team": (1, 3), "weight": 10,
+                          "roles": {'supply': 45, 'ecommerce': 30, 'visual': 25}},
     },
     n_quotes=240,
     quote_scopes={
@@ -467,12 +479,12 @@ AURORA = PersonaSpec(
 )
 
 
-# ── Helsinki Studio — professional services ─────────────────────────
+# ── Vire Consulting Oy — full-service software consultancy ──────────
 
 
 STUDIO = PersonaSpec(
     tenant_id="studio",
-    name="Helsinki Studio",
+    name="Vire Consulting Oy",
     suppliers=[
         # Frequencies bumped ~2× from the original — services firms
         # have many small, recurring SaaS / subscription line items.
@@ -513,11 +525,16 @@ STUDIO = PersonaSpec(
     n_completed_projects=340,
     n_active_projects=14,
     project_types={
-        "design":         {"budget": (8000, 80000),  "duration": (15, 90),  "team": (2, 5),  "weight": 30},
-        "implementation": {"budget": (30000, 200000),"duration": (45, 180), "team": (4, 9),  "weight": 25},
-        "strategy":       {"budget": (15000, 90000), "duration": (20, 60),  "team": (2, 4),  "weight": 20},
-        "discovery":      {"budget": (4000, 20000),  "duration": (5, 25),   "team": (1, 3),  "weight": 15},
-        "retainer":       {"budget": (12000, 60000), "duration": (90, 365), "team": (1, 3),  "weight": 10},
+        "design":         {"budget": (8000, 80000),  "duration": (15, 90),  "team": (2, 5),  "weight": 16,
+                          "roles": {'ux design': 55, 'frontend': 20, 'qa': 15, 'data': 10}},
+        "implementation": {"budget": (30000, 200000),"duration": (45, 180), "team": (4, 9),  "weight": 34,
+                          "roles": {'backend': 26, 'frontend': 20, 'architect': 15, 'qa': 15, 'devops': 12, 'data': 7, 'ux design': 5}},
+        "strategy":       {"budget": (15000, 90000), "duration": (20, 60),  "team": (2, 4),  "weight": 20,
+                          "roles": {'architect': 35, 'ux design': 30, 'data': 20, 'backend': 15}},
+        "discovery":      {"budget": (4000, 20000),  "duration": (5, 25),   "team": (1, 3),  "weight": 18,
+                          "roles": {'ux design': 40, 'architect': 30, 'data': 18, 'backend': 12}},
+        "retainer":       {"budget": (12000, 60000), "duration": (90, 365), "team": (2, 5),  "weight": 14,
+                          "roles": {'backend': 28, 'frontend': 24, 'devops': 20, 'qa': 16, 'ux design': 12}},
     },
     n_quotes=610,
     quote_scopes={
@@ -551,6 +568,14 @@ STUDIO = PersonaSpec(
         "data":            {"title": "Data Engineer",
                             "skills": "SQL dbt pipelines analytics warehousing Python Airflow Snowflake BigQuery visualisation experimentation",
                             "certifications": ""},
+        "architect":       {"title": "Solution Architect",
+                            "skills": "architecture integration cloud domain-driven-design "
+                                      "security API-design migration event-driven",
+                            "certifications": "AWS Solutions Architect, Azure Architect"},
+        "devops":          {"title": "DevOps Engineer",
+                            "skills": "Kubernetes Terraform CI/CD observability AWS "
+                                      "Azure Docker platform-engineering",
+                            "certifications": "CKA"},
         "qa":              {"title": "QA Engineer",
                             "skills": "test automation Playwright regression accessibility audits Cypress performance testing API testing exploratory testing CI",
                             "certifications": "ISTQB"},
@@ -915,8 +940,18 @@ def generate_projects_and_assignments(
         # correlation the planner has to rediscover — if members were
         # sampled uniformly, `role` would predict nothing about `person`
         # and the match would be an accident of frequency.
-        member_roles = [random.choice(ordinary_disciplines)
-                        for _ in range(team_size)]
+        # Which disciplines this KIND of work needs. Picking uniformly
+        # across every discipline — the previous behaviour — staffed a
+        # design project with backend developers and QA, and made
+        # `_predict role` return the same near-flat mix for every
+        # project type, because that is genuinely what the data said.
+        # The mix has to vary by project type or the planner has
+        # nothing to learn and every proposal gets the same team.
+        role_mix = spec.get("roles") or {d: 1 for d in ordinary_disciplines}
+        mix_roles = [r for r in role_mix if r in ordinary_disciplines]
+        mix_weights = [role_mix[r] for r in mix_roles]
+        member_roles = random.choices(mix_roles, weights=mix_weights,
+                                      k=team_size)
         members = []
         for role_needed in member_roles:
             bench = [n for n in by_discipline.get(role_needed, [])
@@ -1126,10 +1161,10 @@ def site_for(text: str) -> str | None:
 TECHNOLOGIES = {
     # studio
     "design":         ["Figma", "design-system", "Framer"],
-    "implementation": ["React", "Next.js", "Node", "Python", "Shopify"],
-    "strategy":       ["research", "workshops"],
+    "implementation": ["React", "Node", "Python", "AWS", "Azure", "Kubernetes"],
+    "strategy":       ["architecture-review", "cloud-migration", "workshops"],
     "discovery":      ["research", "prototyping"],
-    "retainer":       ["React", "Node", "design-system"],
+    "retainer":       ["React", "Node", "AWS", "Kubernetes"],
     # metsa
     "maintenance":    ["Siemens-S7", "hydraulics", "condition-monitoring"],
     "construction":   ["concrete", "steel-frame", "MEP"],

@@ -374,13 +374,25 @@ export default function PlannerPage() {
                     Team size
                     {plan?.shape.suggested_size ? (
                       <button
-                        className="pl-hint"
+                        /* Loud when the ask is well past what comparable
+                           work used: spreading eight seats over a role
+                           mix that historically needed three is what
+                           drags a lone backend developer onto a design
+                           project. The mix is right; the size is not. */
+                        className={
+                          teamSize > plan.shape.suggested_size * 1.5
+                            ? "pl-hint pl-hint-warn"
+                            : "pl-hint"
+                        }
                         onClick={(e) => {
                           e.preventDefault();
                           setTeamSize(plan.shape.suggested_size ?? teamSize);
                         }}
+                        title="Comparable work used this many people. Click to use it."
                       >
-                        Aito says {plan.shape.suggested_size}
+                        {teamSize > plan.shape.suggested_size * 1.5
+                          ? `comparable work used ${plan.shape.suggested_size}`
+                          : `Aito says ${plan.shape.suggested_size}`}
                       </button>
                     ) : null}
                   </span>
