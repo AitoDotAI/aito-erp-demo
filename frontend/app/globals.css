@@ -3979,3 +3979,59 @@ body {
    corners. Only this card opts out — the table inside has no rounded
    edge of its own to protect. */
 .card-overflow { overflow: visible; }
+
+/* Role editing sits on the row rather than in a mode: the predicted
+   mix is a starting point, and disagreeing with it should cost one
+   click, not a trip back to the form. */
+.pl-role-edit { display: inline-flex; gap: 2px; margin-left: 6px; }
+
+.pl-role-edit button {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--mid);
+  cursor: pointer;
+}
+
+.pl-role-edit button:hover { border-color: var(--gold); color: var(--gold-dark); }
+
+.pl-add-role,
+.pl-reset {
+  font-family: inherit;
+  font-size: 10.5px;
+  margin-left: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--mid);
+  cursor: pointer;
+}
+
+.pl-add-role:hover,
+.pl-reset:hover { border-color: var(--gold); color: var(--gold-dark); }
+
+/* A seat's own requirement, next to the seat. */
+.pl-role-req { display: flex; gap: 4px; margin-top: 5px; }
+
+.pl-role-req input,
+.pl-role-req select {
+  font-family: inherit;
+  font-size: 10.5px;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--ink);
+  min-width: 0;
+}
+
+.pl-role-req input { flex: 1; }
+.pl-role-req input:focus,
+.pl-role-req select:focus { outline: none; border-color: var(--gold); }

@@ -795,6 +795,10 @@ def planner_plan(body: dict, request: Request):
         priority=str(body.get("priority", "medium")),
         site=str(body.get("site", "")),
         start_month=str(body.get("start_month", "")),
+        required_skills=str(body.get("required_skills", "")),
+        seniority=str(body.get("seniority", "")),
+        local_only=bool(body.get("local_only", False)),
+        roles_override=body.get("roles") or None,
         competing_bid=bool(body.get("competing_bid", False)),
         existing_customer=bool(body.get("existing_customer", True)),
     ).to_dict()

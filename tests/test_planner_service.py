@@ -22,6 +22,9 @@ class _FakeClient:
         return self._responses.get((table, predict_field),
                                    {"hits": [], "offset": 0, "total": 0})
 
+    def search(self, table, where, limit=100):
+        return {"hits": [], "offset": 0, "total": 0}
+
 
 def _role_client(mix):
     return _FakeClient({
@@ -153,3 +156,32 @@ def test_leave_in_the_window_disqualifies_even_with_capacity():
     ])]
     _fill_seats(slots)
     assert slots[0].assignees == ["Present"]
+
+
+def test_a_role_requirement_does_not_leak_onto_other_roles():
+    """"Must have Next.js" is a fact about the frontend seat.
+
+    Applied proposal-wide it staffed the QA and project-manager seats
+    with frontend developers, because `role` is evidence Aito weighs
+    while `person.skills` is a filter it enforces — so the filter won.
+    Requirements travel with the seat that has them.
+    """
+    from src.planner_service import plan_engagement
+
+    client = _FakeClient({})
+    plan = plan_engagement(
+        client, customer="C", scope="s", project_type="implementation",
+        quoted_eur=1000.0, duration_days=30, team_size=2,
+        roles_override=[
+            {"role": "frontend", "count": 1, "skills": "Next.js"},
+            {"role": "qa", "count": 1},
+        ],
+    )
+    person_calls = {
+        where.get("role"): where
+        for table, where, field in client.calls
+        if table == "assignments" and field == "person"
+    }
+    assert person_calls["frontend"]["person.skills"] == {"$match": "Next.js"}
+    assert "person.skills" not in person_calls["qa"]
+    assert [r.skills for r in plan.roles] == ["Next.js", ""]

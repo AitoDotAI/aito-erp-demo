@@ -16,6 +16,16 @@ import type {
   WhyExplanation,
 } from "@/lib/types";
 
+/** A role row as the user has it: how many seats, and what that seat
+ *  requires. Requirements live here rather than on the proposal —
+ *  "must have Next.js" is a fact about the frontend seat. */
+interface PlannerRoleEdit {
+  role: string;
+  count: number;
+  skills?: string;
+  seniority?: string;
+}
+
 const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_predict",
   endpoints: ["_predict", "_search"],
@@ -122,6 +132,10 @@ export default function PlannerPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
   const [competing, setCompeting] = useState(true);
+  const [localOnly, setLocalOnly] = useState(false);
+  // null = use the predicted role mix. Any edit pins the list, so the
+  // prediction stops overwriting a decision the user just made.
+  const [roleEdits, setRoleEdits] = useState<PlannerRoleEdit[] | null>(null);
   // Which seat's picker is open, and any manual reassignments. Aito
   // proposes; the scheduler disposes, and the override is per seat.
   const [openSeat, setOpenSeat] = useState<string | null>(null);
@@ -130,6 +144,7 @@ export default function PlannerPage() {
 
   useEffect(() => {
     setPlan(null);
+    setRoleEdits(null);
     apiFetch<PlannerOptions>("/api/planner/options")
       .then((o) => {
         setOptions(o);
@@ -159,7 +174,8 @@ export default function PlannerPage() {
     if (hinted) setSite(hinted);
   }, [customer, options]);
 
-  const submit = () => {
+  const submit = (roles?: PlannerRoleEdit[] | null) => {
+    const useRoles = roles === undefined ? roleEdits : roles;
     setBusy(true);
     setError(null);
     apiFetch<EngagementPlan>("/api/planner/plan", {
@@ -174,6 +190,8 @@ export default function PlannerPage() {
         priority,
         site,
         start_month: startMonth,
+        local_only: localOnly,
+        roles: useRoles,
         competing_bid: competing,
         existing_customer: existing,
       }),
@@ -224,6 +242,44 @@ export default function PlannerPage() {
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
     });
+  };
+
+  /** The role list currently in force — the user's edit if there is
+   *  one, otherwise whatever the prediction returned. */
+  const currentRoles = (): PlannerRoleEdit[] =>
+    roleEdits ??
+    (plan?.roles ?? []).map((r) => ({
+      role: r.role,
+      count: r.count,
+      skills: r.skills,
+      seniority: r.seniority,
+    }));
+
+  const editRoles = (next: PlannerRoleEdit[]) => {
+    const cleaned = next.filter((r) => r.count > 0);
+    setRoleEdits(cleaned);
+    submit(cleaned);
+  };
+
+  const changeCount = (role: string, delta: number) =>
+    editRoles(
+      currentRoles().map((r) =>
+        r.role === role ? { ...r, count: r.count + delta } : r,
+      ),
+    );
+
+  const setRoleReq = (role: string, patch: Partial<PlannerRoleEdit>) =>
+    editRoles(
+      currentRoles().map((r) => (r.role === role ? { ...r, ...patch } : r)),
+    );
+
+  const addRole = (role: string) => {
+    const rows = currentRoles();
+    editRoles(
+      rows.some((r) => r.role === role)
+        ? rows.map((r) => (r.role === role ? { ...r, count: r.count + 1 } : r))
+        : [...rows, { role, count: 1 }],
+    );
   };
 
   const bestFit = (candidates: PlannerCandidate[]) =>
@@ -350,6 +406,14 @@ export default function PlannerPage() {
                 <label className="pl-check">
                   <input
                     type="checkbox"
+                    checked={localOnly}
+                    onChange={(e) => setLocalOnly(e.target.checked)}
+                  />
+                  <span>Based on site only</span>
+                </label>
+                <label className="pl-check">
+                  <input
+                    type="checkbox"
                     checked={competing}
                     onChange={(e) => setCompeting(e.target.checked)}
                   />
@@ -363,7 +427,14 @@ export default function PlannerPage() {
                   />
                   <span>Existing customer</span>
                 </label>
-                <button className="pl-go" onClick={submit} disabled={busy}>
+                <button
+                  className="pl-go"
+                  onClick={() => {
+                    setRoleEdits(null);
+                    submit(null);
+                  }}
+                  disabled={busy}
+                >
                   {busy ? "Predicting…" : "Plan it"}
                 </button>
               </div>
@@ -430,8 +501,32 @@ export default function PlannerPage() {
                     <div className="card-head">
                       <span className="card-title">The team</span>
                       <span className="card-meta">
-                        {plan.team_size} seats · free across{" "}
-                        {plan.window_months} months from {plan.start_month}
+                        {plan.roles.reduce((n, r) => n + r.count, 0)} seats ·
+                        free across {plan.window_months} months from{" "}
+                        {plan.start_month}
+                        <select
+                          className="pl-add-role"
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) addRole(e.target.value);
+                          }}
+                        >
+                          <option value="">+ add role</option>
+                          {(options?.roles ?? []).map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                        {roleEdits && (
+                          <button
+                            className="pl-reset"
+                            onClick={() => {
+                              setRoleEdits(null);
+                              submit(null);
+                            }}
+                          >
+                            reset to predicted mix
+                          </button>
+                        )}
                       </span>
                     </div>
                     <table className="tbl">
@@ -459,10 +554,60 @@ export default function PlannerPage() {
                             return (
                               <tr key={key}>
                                 <td>
-                                  <div className="pl-role-cell">{slot.role}</div>
-                                  <div className="pl-role-sub">
-                                    {pct(slot.share)} of comparable teams
+                                  <div className="pl-role-cell">
+                                    {slot.role}
+                                    {seat === 0 && (
+                                      <span className="pl-role-edit">
+                                        <button
+                                          title="one fewer"
+                                          onClick={() => changeCount(slot.role, -1)}
+                                        >
+                                          −
+                                        </button>
+                                        <button
+                                          title="one more"
+                                          onClick={() => changeCount(slot.role, 1)}
+                                        >
+                                          +
+                                        </button>
+                                      </span>
+                                    )}
                                   </div>
+                                  <div className="pl-role-sub">
+                                    {slot.share
+                                      ? `${pct(slot.share)} of comparable teams`
+                                      : "added by hand"}
+                                  </div>
+                                  {seat === 0 && (
+                                    <div className="pl-role-req">
+                                      <input
+                                        type="text"
+                                        placeholder="must have…"
+                                        defaultValue={slot.skills}
+                                        onBlur={(e) => {
+                                          if (e.target.value !== slot.skills)
+                                            setRoleReq(slot.role, {
+                                              skills: e.target.value,
+                                            });
+                                        }}
+                                      />
+                                      <select
+                                        value={slot.seniority}
+                                        onChange={(e) =>
+                                          setRoleReq(slot.role, {
+                                            seniority: e.target.value,
+                                          })
+                                        }
+                                      >
+                                        <option value="">any</option>
+                                        {(options?.seniorities ?? []).map((sn) => (
+                                          <option key={sn} value={sn}>
+                                            {sn}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
                                 </td>
                                 <td>
                                   <button
@@ -481,8 +626,14 @@ export default function PlannerPage() {
                                     <div className="pl-menu">
                                       <div className="pl-menu-head">
                                         Ranked by <em>_predict person</em> given
-                                        role + site. Availability is over the
-                                        project's own window — click to reassign
+                                        role + site
+                                      {slot.skills || slot.seniority ||
+                                       plan.local_only
+                                        ? ", filtered on person.skills / " +
+                                          "person.seniority / person.site"
+                                        : ""}
+                                      . Availability is over the project's own
+                                        window — click to reassign
                                       </div>
                                       {slot.candidates.map((c) => (
                                         <button

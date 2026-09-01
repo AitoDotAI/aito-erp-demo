@@ -254,6 +254,22 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     shows one assignee with a picker listing every candidate, score and
     reason. Metsä + Studio.
 
+    **Two kinds of clause, and the difference is the lesson.**
+    `project_type` / `role` / `site` describe the JOB and are
+    *evidence* — they let Aito rank on how such work was staffed
+    before. The `person.*` clauses are linked-field *filters* on the
+    candidate: `person.site` (where someone is based, not where the job
+    is), `person.seniority`, and `$match` over `person.skills`. Aito
+    applies them in the query, so a filtered-out person never reaches
+    the shortlist. Requirements are held PER ROLE — a proposal-wide
+    "must have Next.js" staffed the QA and project-manager seats with
+    frontend developers, because the filter is enforced while `role` is
+    only weighed.
+
+    **The role list is editable.** ± seats per role, `+ add role`, a
+    per-seat requirement, and `reset to predicted mix`. The prediction
+    is a starting point, not a verdict.
+
     **Availability is a window, not a number.** `assignments` carries
     the months each booking occupies, and `absences` carries planned
     leave; `availability_service` combines them into per-person load

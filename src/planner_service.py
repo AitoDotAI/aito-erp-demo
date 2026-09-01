@@ -122,6 +122,8 @@ class RoleSlot:
     count: int                 # how many of this role the mix implies
     share: float               # P(role) in comparable history
     candidates: list[Candidate]
+    skills: str = ""           # `person.skills` $match for THIS seat
+    seniority: str = ""        # `person.seniority` filter for THIS seat
     # One name per seat, picked from `candidates` — see `_fill_seats`.
     # The dropdown in the UI offers the rest.
     assignees: list[str] = field(default_factory=list)
@@ -131,6 +133,8 @@ class RoleSlot:
             "role": self.role,
             "count": self.count,
             "share": self.share,
+            "skills": self.skills,
+            "seniority": self.seniority,
             "candidates": [c.to_dict() for c in self.candidates],
             "assignees": self.assignees,
         }
@@ -221,6 +225,9 @@ class EngagementPlan:
     team_size: int
     priority: str
     site: str
+    required_skills: str
+    seniority: str
+    local_only: bool
     start_month: str
     window_months: int
     shape: TeamShape
@@ -239,6 +246,9 @@ class EngagementPlan:
             "team_size": self.team_size,
             "priority": self.priority,
             "site": self.site,
+            "required_skills": self.required_skills,
+            "seniority": self.seniority,
+            "local_only": self.local_only,
             "start_month": self.start_month,
             "window_months": self.window_months,
             "shape": self.shape.to_dict(),
@@ -261,7 +271,8 @@ def planner_options(client: AitoClient) -> dict:
         response = client.search("projects", {}, limit=500)
     except AitoError:
         return {"project_types": [], "customers_by_type": {},
-                "sites": [], "site_by_customer": {}}
+                "sites": [], "site_by_customer": {},
+                "roles": [], "seniorities": []}
 
     hits = response.get("hits") or []
     customers: dict[str, set[str]] = {}
@@ -279,11 +290,30 @@ def planner_options(client: AitoClient) -> dict:
             sites.add(site)
             if customer:
                 site_by_customer.setdefault(customer, site)
+    # The role vocabulary and the sites people are actually based at,
+    # read off `people` — the form should offer what exists, not what a
+    # constant in this file guesses.
+    disciplines: set[str] = set()
+    person_sites: set[str] = set()
+    seniorities: set[str] = set()
+    try:
+        for row in client.search("people", {}, limit=500).get("hits") or []:
+            if row.get("discipline"):
+                disciplines.add(row["discipline"])
+            if row.get("site"):
+                person_sites.add(row["site"])
+            if row.get("seniority"):
+                seniorities.add(row["seniority"])
+    except AitoError:
+        pass
+
     return {
         "project_types": sorted(customers),
         "customers_by_type": {k: sorted(v) for k, v in customers.items()},
-        "sites": sorted(sites),
+        "sites": sorted(sites | person_sites),
         "site_by_customer": site_by_customer,
+        "roles": sorted(disciplines),
+        "seniorities": sorted(seniorities),
     }
 
 
@@ -370,6 +400,10 @@ def plan_engagement(
     priority: str = "medium",
     site: str = "",
     start_month: str = "",
+    required_skills: str = "",
+    seniority: str = "",
+    local_only: bool = False,
+    roles_override: list[dict] | None = None,
     competing_bid: bool = False,
     existing_customer: bool = True,
 ) -> EngagementPlan:
@@ -390,15 +424,53 @@ def plan_engagement(
     window = availability_in_window(client, start_month, window_len)
     loads = _current_loads(client)
     roles: list[RoleSlot] = []
-    for role, count, share in _role_slots(client, project_type, team_size):
+    # An edited role list wins over the predicted mix. The prediction is
+    # a starting point — a delivery lead who knows this job needs two
+    # QA and no data engineer should not have to argue with it.
+    mix: list[tuple[str, int, float, str, str]] = (
+        [(r["role"], int(r["count"]), 0.0,
+          str(r.get("skills") or ""), str(r.get("seniority") or ""))
+         for r in roles_override]
+        if roles_override else
+        [(role, count, share, "", "")
+         for role, count, share in _role_slots(client, project_type, team_size)])
+    for role, count, share, role_skills, role_seniority in mix:
         # `assignments.person` is a link to `people.person`, so this one
         # call returns the ranking AND every column of the matched
         # person's row — title, skills, site, seniority. No second
         # lookup, and the metadata that justifies the match arrives with
         # the match itself.
-        where = {"project_type": project_type, "role": role}
+        # Two kinds of clause here, and the difference matters.
+        #
+        # `project_type` / `role` / `site` describe the JOB, and they
+        # are evidence: they say "work like this" and let Aito rank on
+        # how such work was staffed before. Note `site` is the
+        # PROJECT's site, denormalised onto the assignment.
+        #
+        # The `person.*` clauses are linked-field filters on the
+        # CANDIDATE, and they are constraints: `person.site` is where
+        # someone is based (not where the job is), `person.seniority`
+        # and a `$match` over `person.skills` are properties of them.
+        # Aito applies them in the query, so a filtered-out candidate
+        # never reaches the shortlist rather than being ranked and then
+        # dropped here.
+        where: dict = {"project_type": project_type, "role": role}
         if site:
             where["site"] = site
+        if local_only and site:
+            where["person.site"] = site
+        # Requirements are PER ROLE. "Must have Next.js" is a statement
+        # about the frontend seat, and applying it to the QA and the
+        # project manager — as a single proposal-wide filter did —
+        # staffs those seats with frontend developers, because `role`
+        # is evidence while `person.skills` is a hard filter. A
+        # requirement that belongs to one seat has to travel with it.
+        want_seniority = role_seniority or seniority
+        want_skills = (role_skills or required_skills).strip()
+        if want_seniority:
+            where["person.seniority"] = want_seniority
+        if want_skills:
+            where["person.skills"] = {"$match": want_skills}
         hits = _hits(client, "assignments", where, "person", limit=6,
                      select_extra=PERSON_FIELDS)
         candidates = []
@@ -430,6 +502,7 @@ def plan_engagement(
             candidate.matches = _match_chips(candidate, role, site)
             candidates.append(candidate)
         roles.append(RoleSlot(role=role, count=count, share=share,
+                              skills=want_skills, seniority=want_seniority,
                               candidates=candidates))
     _fill_seats(roles)
 
@@ -479,6 +552,9 @@ def plan_engagement(
         team_size=team_size,
         priority=priority,
         site=site,
+        required_skills=required_skills,
+        seniority=seniority,
+        local_only=local_only,
         start_month=start_month,
         window_months=window_len,
         shape=shape,

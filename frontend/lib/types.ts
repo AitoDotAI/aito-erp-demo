@@ -718,6 +718,8 @@ export interface PlannerRoleSlot {
   role: string;
   count: number;
   share: number;
+  skills: string;
+  seniority: string;
   candidates: PlannerCandidate[];
   assignees: string[];
 }
@@ -761,6 +763,9 @@ export interface EngagementPlan {
   team_size: number;
   priority: string;
   site: string;
+  required_skills: string;
+  seniority: string;
+  local_only: boolean;
   start_month: string;
   window_months: number;
   shape: { suggested_size: number | null; size_p: number | null };
@@ -775,4 +780,6 @@ export interface PlannerOptions {
   customers_by_type: Record<string, string[]>;
   sites: string[];
   site_by_customer: Record<string, string>;
+  roles: string[];
+  seniorities: string[];
 }
