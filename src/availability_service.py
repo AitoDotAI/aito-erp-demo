@@ -99,6 +99,70 @@ def _fetch(client: AitoClient, table: str, limit: int) -> list[dict]:
     return response.get("hits") or []
 
 
+def role_phases(client: AitoClient) -> dict[str, tuple[float, float]]:
+    """When each role is needed, as a fraction of a project's span.
+
+    Measured from the data rather than declared here. The generator has
+    its own table of phases, and copying it into this module would be
+    the same mistake the booktest made with the reliability roster: a
+    constant duplicated across a boundary drifts. Reading it back from
+    `assignments` × `projects` means a fixture change moves the planner
+    with it.
+
+    Falls back to the whole span for a role with no usable history —
+    booking someone for longer than needed is the safe direction.
+    """
+    projects = {p["project_id"]: p for p in _fetch(client, "projects", 500)}
+    spans: dict[str, list[tuple[float, float]]] = {}
+    for row in _fetch(client, "assignments", 4000):
+        project = projects.get(row.get("project_id"))
+        if not project or not row.get("start_month"):
+            continue
+        base = month_index(project["start_month"])
+        total = max(1, round(int(project["duration_days"]) / 30.44))
+        lo = (month_index(row["start_month"]) - base) / total
+        hi = (month_index(row["end_month"]) - base + 1) / total
+        if 0.0 <= lo <= 1.0 and 0.0 < hi <= 1.2:
+            spans.setdefault(row["role"], []).append((lo, min(hi, 1.0)))
+
+    phases: dict[str, tuple[float, float]] = {}
+    for role, pairs in spans.items():
+        if len(pairs) < 5:
+            continue
+        phases[role] = (sum(p[0] for p in pairs) / len(pairs),
+                        sum(p[1] for p in pairs) / len(pairs))
+    return phases
+
+
+def restrict(standing: WindowAvailability,
+             months: list[str]) -> WindowAvailability:
+    """Re-read one person's standing over a SUB-window.
+
+    A seat does not run for the whole project — the designer is wanted
+    at the start, the QA engineer at the end — so the question "is this
+    person free" has to be asked about the months the seat actually
+    occupies. Derived from the `by_month` the full-window pass already
+    built, so this costs no extra queries.
+    """
+    wanted = [m for m in months if m in standing.by_month]
+    if not wanted:
+        return standing
+    loads = [standing.by_month[m] for m in wanted]
+    booked = round(sum(loads) / len(loads))
+    absent = sorted(set(standing.absent_months) & set(wanted))
+    return WindowAvailability(
+        person=standing.person,
+        booked_pct=booked,
+        peak_pct=max(loads),
+        free_pct=max(0, 100 - booked),
+        absent_months=absent,
+        absence_kind=standing.absence_kind if absent else "",
+        by_month={m: standing.by_month[m] for m in wanted},
+        contention=standing.contention,
+        contention_pct=standing.contention_pct,
+    )
+
+
 def availability_in_window(
     client: AitoClient, start_month: str, months: int,
 ) -> dict[str, WindowAvailability]:

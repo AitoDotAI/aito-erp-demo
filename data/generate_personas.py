@@ -1002,8 +1002,18 @@ def generate_projects_and_assignments(
                 random.randint(max(earliest, now - span + 1), now)
             )
 
+        # The LEAD counts. They were excluded here, which mattered more
+        # than it looks: four of the five people the fixture marks as
+        # standouts are named in `project_leads`, so most projects
+        # "with a reliable person" got no boost at all — the engineered
+        # effect measured as NEGATIVE, and `_relate` over
+        # `assignments.person` (which does include the lead) was mining
+        # a signal the generator never put there. The person running the
+        # project is the last one whose effect should be dropped.
+        all_people = [lead] + members
         p_succ = _project_success_p(
-            persona, ptype, manager, team_size, members, budget, duration, priority,
+            persona, ptype, manager, team_size, all_people, budget, duration,
+            priority,
         )
 
         if completed:
@@ -1048,7 +1058,6 @@ def generate_projects_and_assignments(
             status = random.choices(["active", "at_risk", "delayed"], weights=[60, 25, 15], k=1)[0]
 
         pid = f"PRJ-{1000 + idx}"
-        all_people = [lead] + members
         projects.append({
             "project_id": pid,
             "name": f"{ptype.capitalize()} — {customer.split('—')[-1].strip()} #{idx}",
@@ -1089,6 +1098,9 @@ def generate_projects_and_assignments(
             # `_predict` queries can filter by it without needing a
             # cross-table join. Production ERPs typically do the same
             # for query performance on timesheet/assignment tables.
+            seat_first, seat_last = phase_window(
+                role, _month_index(start_month), span)
+            discipline = by_name.get(person, {}).get("discipline", role)
             assignments.append({
                 "assignment_id": f"ASG-{pid}-{i:02d}",
                 "project_id": pid,
@@ -1104,9 +1116,14 @@ def generate_projects_and_assignments(
                 # RANGE, and answering it by joining every assignment
                 # back to its project in Python is the kind of thing
                 # that makes a demo look slow for no reason.
-                "start_month": start_month,
-                "end_month": shift_month(start_month, span - 1),
+                "start_month": _month_from_index(seat_first),
+                "end_month": _month_from_index(seat_last),
                 "project_success": success,  # nullable mirror of projects.success
+                # Whether THIS person did well in THIS seat — related to
+                # the project's outcome but not the same question.
+                "went_well": (None if not completed else
+                              _went_well(persona, person, role, discipline,
+                                         bool(success))),
             })
 
     for i in range(persona.n_completed_projects):
@@ -1197,6 +1214,74 @@ def _domain_for(customer: str, rng: random.Random) -> str:
         if needle in lowered:
             return domain
     return rng.choice(DOMAINS)
+
+
+# When in a project each discipline is actually needed, as a fraction
+# of its span. Booking everyone for the whole project — the previous
+# model — holds a designer for four months when they are wanted for
+# one, which makes capacity read pessimistic everywhere and is simply
+# not how delivery works.
+ROLE_PHASE = {
+    # studio / consultancy
+    "project manager": (0.0, 1.0),
+    "ux design":       (0.0, 0.45),
+    "architect":       (0.0, 0.55),
+    "data":            (0.15, 0.85),
+    "backend":         (0.15, 0.95),
+    "frontend":        (0.25, 1.0),
+    "qa":              (0.5, 1.0),
+    "devops":          (0.6, 1.0),
+    # metsa
+    "site manager":    (0.0, 1.0),
+    "civil":           (0.0, 0.5),
+    "mechanical":      (0.2, 0.8),
+    "electrical":      (0.35, 0.9),
+    "automation":      (0.45, 0.95),
+    "hvac":            (0.5, 1.0),
+    "quality":         (0.7, 1.0),
+    # aurora
+    "store lead":      (0.0, 1.0),
+    "supply":          (0.0, 0.6),
+    "visual":          (0.3, 0.9),
+    "ecommerce":       (0.2, 0.9),
+    "marketing":       (0.6, 1.0),
+}
+
+
+def phase_window(role: str, start_index: int, span: int) -> tuple[int, int]:
+    """The months a role is actually needed, inside a project's span.
+
+    Clamped so every seat occupies at least one month — a two-month
+    project still needs its QA engineer for some of it, and a zero-width
+    booking would vanish from the capacity view entirely.
+    """
+    lo, hi = ROLE_PHASE.get(role, (0.0, 1.0))
+    first = start_index + int(span * lo)
+    last = start_index + max(int(span * hi) - 1, int(span * lo))
+    return first, max(first, min(last, start_index + span - 1))
+
+
+def _went_well(persona: PersonaSpec, person: str, role: str,
+               discipline: str, project_success: bool) -> bool:
+    """Did this person, in this seat, do a good job?
+
+    Deliberately NOT a restatement of whether the project succeeded.
+    A good person on a doomed project still did their bit, and a
+    project can land despite someone: the correlation is strong but
+    the two are separable, which is the entire reason this column is
+    worth having next to "who usually does this".
+
+    Working outside your own discipline is the biggest single drag —
+    it is what the planner is trying to help a lead avoid.
+    """
+    p = 0.72 if project_success else 0.45
+    if role != discipline:
+        p *= 0.62
+    if person in persona.project_reliable:
+        p *= 1.25
+    if person in persona.project_chaotic:
+        p *= 0.6
+    return random.random() < max(0.05, min(0.95, p))
 
 
 def _sample_skills(pool: str) -> list[str]:

@@ -4129,3 +4129,41 @@ body {
 
 .pl-delta-up { color: var(--green); font-weight: 600; }
 .pl-delta-down { color: var(--red); font-weight: 600; }
+
+/* Bid / Delivery. Two jobs on one screen, and each was crowding the
+   other: a lead staffing a team does not care which objection ranks
+   first, and a partner pricing the work does not care which QA
+   engineer is free in November. */
+.pl-views {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.pl-view {
+  font-family: inherit;
+  font-size: 11.5px;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--mid);
+  cursor: pointer;
+}
+
+.pl-view-on {
+  background: var(--gold-light);
+  border-color: var(--gold);
+  color: var(--gold-dark);
+  font-weight: 600;
+}
+
+.pl-views-note { font-size: 11px; color: var(--mid); margin-left: 6px; }
+
+.pl-chip-warn {
+  background: var(--red-light);
+  border-color: var(--red);
+  color: var(--red);
+  font-weight: 600;
+}

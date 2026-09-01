@@ -47,7 +47,8 @@ from statistics import median
 from src.aito_client import AitoClient, AitoError
 from src.availability_service import (WindowAvailability,
                                       availability_in_window, month_label,
-                                      month_index)
+                                      month_index, restrict, role_phases,
+                                      window_months)
 from src.utilization_service import get_overview as get_utilization
 from src.why_processor import process_factors
 
@@ -94,6 +95,11 @@ class Candidate:
     absence_kind: str = ""
     contention: int = 0
     contention_pct: int = 0
+    # P(went_well = true) for this person in this seat, from
+    # `_recommend ... goal={went_well: true}`. A different question from
+    # `fit`: that one is who USUALLY does this, this one is who did well
+    # when they did.
+    quality_p: float | None = None
     why: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -118,6 +124,7 @@ class Candidate:
             "absence_kind": self.absence_kind,
             "contention": self.contention,
             "contention_pct": self.contention_pct,
+            "quality_p": self.quality_p,
             "why": self.why,
         }
 
@@ -130,6 +137,10 @@ class RoleSlot:
     candidates: list[Candidate]
     skills: str = ""           # `person.skills` $match for THIS seat
     seniority: str = ""        # `person.seniority` filter for THIS seat
+    # The months this seat actually occupies — a designer at the start,
+    # a QA engineer at the end, not everyone for the whole project.
+    from_month: str = ""
+    to_month: str = ""
     # One name per seat, picked from `candidates` — see `_fill_seats`.
     # The dropdown in the UI offers the rest.
     assignees: list[str] = field(default_factory=list)
@@ -141,6 +152,8 @@ class RoleSlot:
             "share": self.share,
             "skills": self.skills,
             "seniority": self.seniority,
+            "from_month": self.from_month,
+            "to_month": self.to_month,
             "candidates": [c.to_dict() for c in self.candidates],
             "assignees": self.assignees,
         }
@@ -548,6 +561,8 @@ def plan_engagement(
     start_month = start_month or month_label(_this_month())
     window_len = max(1, round(duration_days / 30.44))
     window = availability_in_window(client, start_month, window_len)
+    phases = role_phases(client)
+    all_months = window_months(start_month, window_len)
     loads = _current_loads(client)
     roles: list[RoleSlot] = []
     # An edited role list wins over the predicted mix. The prediction is
@@ -611,6 +626,14 @@ def plan_engagement(
             where["$or"] = [{"person.skills": {"$match": t}} for t in terms]
         hits = _hits(client, "assignments", where, "person", limit=6,
                      select_extra=PERSON_FIELDS)
+        # The months THIS seat occupies, from the historical phase of
+        # the role. Availability is then asked about those months only.
+        lo, hi = phases.get(role, (0.0, 1.0))
+        first = min(int(len(all_months) * lo), len(all_months) - 1)
+        last = max(first, min(int(len(all_months) * hi) - 1,
+                              len(all_months) - 1))
+        seat_months = all_months[first:last + 1] or all_months
+        quality = _quality_ranking(client, where)
         candidates = []
         for hit in hits:
             person = str(hit.get("$value") or hit.get("person"))
@@ -618,6 +641,7 @@ def plan_engagement(
             load, status = loads.get(person, (0, "available"))
             standing = window.get(person) or WindowAvailability(
                 person=person, booked_pct=0, peak_pct=0, free_pct=100)
+            standing = restrict(standing, seat_months)
             candidate = Candidate(
                 person=person,
                 fit=p,
@@ -638,6 +662,7 @@ def plan_engagement(
                 absence_kind=standing.absence_kind,
                 contention=standing.contention,
                 contention_pct=standing.contention_pct,
+                quality_p=quality.get(person),
                 why=process_factors(hit.get("$why") or {}, p),
             )
             candidate.matches = _match_chips(
@@ -646,6 +671,8 @@ def plan_engagement(
             candidates.append(candidate)
         roles.append(RoleSlot(role=role, count=count, share=share,
                               skills=want_skills, seniority=want_seniority,
+                              from_month=seat_months[0],
+                              to_month=seat_months[-1],
                               candidates=candidates))
     _fill_seats(roles)
 
@@ -826,6 +853,15 @@ def _match_chips(candidate: Candidate, role: str, site: str,
         chips.append(chip(candidate.title, "fact"))
     if candidate.discipline and candidate.discipline == role:
         chips.append(chip(f"does {role} work", "match", "role"))
+    elif candidate.discipline:
+        # Off-discipline, and worth saying out loud rather than leaving
+        # the reader to notice the title. Narrowing the context far
+        # enough (type + role + site + stack + sector) thins the matching
+        # history until people who once covered a seat outrank the ones
+        # who normally fill it — and `went_well` says working outside
+        # your discipline is the single biggest drag on how it goes.
+        chips.append({"label": f"not usually {role}", "kind": "warn",
+                      "field": "role"})
     if site and candidate.site == site:
         chips.append(chip(f"based in {site}", "match", "site"))
     elif candidate.site:
@@ -860,6 +896,35 @@ def _highlighted_fields(why: dict) -> set[str]:
             raw = str(hl.get("raw_field") or hl.get("field") or "")
             fields.add(raw.replace("$context.", ""))
     return fields
+
+
+def _quality_ranking(client: AitoClient, where: dict) -> dict[str, float]:
+    """`person → P(went_well)` for this kind of seat.
+
+    `_recommend` with a goal is the right operator here: for each
+    candidate person it returns the probability the GOAL holds given the
+    context, which is precisely "if we put this person in this seat, did
+    it go well historically". Predicting `person` would answer the other
+    question — who usually gets the seat — which the shortlist already
+    shows and which says nothing about how it went.
+
+    One call per role, not per candidate.
+    """
+    try:
+        response = client.recommend(
+            # Wide enough that the six candidates the shortlist shows
+            # are almost always inside it — a blank "did well" column
+            # next to a ranked name reads as "no history", when in fact
+            # it only means the goal ranking was truncated above them.
+            "assignments", where, "person", {"went_well": True}, limit=40)
+    except AitoError:
+        return {}
+    ranking: dict[str, float] = {}
+    for hit in response.get("hits") or []:
+        person = hit.get("$value") or hit.get("person")
+        if person is not None:
+            ranking[str(person)] = float(hit.get("$p", 0.0))
+    return ranking
 
 
 def _levers(client: AitoClient, base_where: dict,

@@ -313,6 +313,26 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     prediction: a calendar is a fact, and dressing arithmetic up as
     inference is the sort of thing this demo must not teach.
 
+    **Two columns, two questions.** "Usual pick" is
+    `P(person | role, site, stack, sector)` — who does this. "Did well"
+    is `_recommend person goal={went_well: true}` — who did well when
+    they did. They diverge, and the gap is the conversation: the second
+    most usual project manager scores 16% usual and 28% did-well.
+    `assignments.went_well` is deliberately not a restatement of
+    `project_success`: a good person on a doomed project still did
+    their bit.
+
+    **Seats are phased.** A designer is wanted at the start and a QA
+    engineer at the end, so each seat books only the months its role
+    historically occupies and availability is asked about THOSE months.
+    The phases are measured from `assignments` × `projects` rather than
+    declared in the service — a constant copied across that boundary
+    would drift, the way the booktest's roster did.
+
+    **Bid / Delivery.** Two jobs on one screen were crowding each
+    other; the objection ranking is a sales artefact and the capacity
+    table is a delivery one.
+
     **Levers answer "so what".** Six probabilities describe a risk;
     none says what to do about it. `_levers` re-runs the same outcome
     `_predict` against a context that differs in one field — three

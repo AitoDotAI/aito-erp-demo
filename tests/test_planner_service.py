@@ -25,6 +25,9 @@ class _FakeClient:
     def search(self, table, where, limit=100):
         return {"hits": [], "offset": 0, "total": 0}
 
+    def recommend(self, table, where, field, goal, select=None, limit=8):
+        return {"hits": [], "offset": 0, "total": 0}
+
 
 def _role_client(mix):
     return _FakeClient({

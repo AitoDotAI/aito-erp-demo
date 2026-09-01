@@ -180,6 +180,13 @@ SCHEMAS = {
             "start_month": {"type": "String", "nullable": False},
             "end_month": {"type": "String", "nullable": False},
             "project_success": {"type": "Boolean", "nullable": True},
+            # Did this person do well in THIS seat. Nullable, because
+            # only completed work has a verdict. Related to
+            # `project_success` but not the same question: a good person
+            # on a doomed project still did their bit, which is why the
+            # planner can show "usually does this" and "did well when
+            # they did" as two different columns.
+            "went_well": {"type": "Boolean", "nullable": True},
         },
     },
     # Teams pencilled onto bids that have not closed. Booked work is

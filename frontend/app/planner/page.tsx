@@ -138,6 +138,10 @@ export default function PlannerPage() {
   // null = use the predicted role mix. Any edit pins the list, so the
   // prediction stops overwriting a decision the user just made.
   const [roleEdits, setRoleEdits] = useState<PlannerRoleEdit[] | null>(null);
+  // The screen serves two jobs. Selling asks what it costs and whether
+  // they will say yes; delivering asks who is free and what to change.
+  // Showing both at once squeezed the half you were not doing.
+  const [view, setView] = useState<"bid" | "delivery">("delivery");
   // Which seat's picker is open, and any manual reassignments. Aito
   // proposes; the scheduler disposes, and the override is per seat.
   const [openSeat, setOpenSeat] = useState<string | null>(null);
@@ -493,6 +497,23 @@ export default function PlannerPage() {
 
             {plan && (
               <>
+                <div className="pl-views">
+                  {(["bid", "delivery"] as const).map((v) => (
+                    <button
+                      key={v}
+                      className={view === v ? "pl-view pl-view-on" : "pl-view"}
+                      onClick={() => setView(v)}
+                    >
+                      {v === "bid" ? "Bid" : "Delivery"}
+                    </button>
+                  ))}
+                  <span className="pl-views-note">
+                    {view === "bid"
+                      ? "what it costs and whether they say yes"
+                      : "who is free and what to change"}
+                  </span>
+                </div>
+
                 <div className="kpi-row">
                   <div className="kpi">
                     <div className="kpi-label">Fair price</div>
@@ -547,6 +568,7 @@ export default function PlannerPage() {
                 </div>
 
                 <div className="proj-grid">
+                  {view === "delivery" && (
                   <section className="card card-overflow">
                     <div className="card-head">
                       <span className="card-title">The team</span>
@@ -585,12 +607,21 @@ export default function PlannerPage() {
                           <th style={{ width: "26%" }}>Role</th>
                           <th>Assignee</th>
                           <th
-                            style={{ width: "18%", textAlign: "right" }}
+                            style={{ width: "14%", textAlign: "right" }}
                             title="P(person | role, site, stack, sector) — how
                                    often they are the one who does work like
                                    this. Not a rating of how well they do it."
                           >
                             Usual pick
+                          </th>
+                          <th
+                            style={{ width: "14%", textAlign: "right" }}
+                            title="P(went well) for this person in this kind of
+                                   seat — _recommend with goal
+                                   {went_well: true}. A different question from
+                                   who usually gets the seat."
+                          >
+                            Did well
                           </th>
                           <th style={{ width: "20%", textAlign: "right" }}>
                             Free in window
@@ -629,6 +660,8 @@ export default function PlannerPage() {
                                     )}
                                   </div>
                                   <div className="pl-role-sub">
+                                    {slot.from_month.slice(2)} –{" "}
+                                    {slot.to_month.slice(2)} ·{" "}
                                     {slot.share
                                       ? `${pct(slot.share)} of comparable teams`
                                       : "added by hand"}
@@ -726,8 +759,13 @@ export default function PlannerPage() {
                                               </span>
                                             )}
                                             <span className="pl-opt-fit">
-                                              {pct(c.fit)}
+                                              {pct(c.fit)} usual
                                             </span>
+                                            {c.quality_p != null && (
+                                              <span className={riskClass(c.quality_p)}>
+                                                {pct(c.quality_p)} did well
+                                              </span>
+                                            )}
                                             <span className={availClass(c)}>
                                               {c.available
                                                 ? `${c.free_pct}% free`
@@ -764,7 +802,9 @@ export default function PlannerPage() {
                                                     ? `Aito's $why named ${m.field} as evidence`
                                                     : m.kind === "match"
                                                       ? "matches what the proposal asked for"
-                                                      : undefined
+                                                      : m.kind === "warn"
+                                                        ? "outside their usual discipline — the biggest single drag on how an assignment goes"
+                                                        : undefined
                                                 }
                                               >
                                                 {m.label}
@@ -778,6 +818,11 @@ export default function PlannerPage() {
                                 </td>
                                 <td style={{ textAlign: "right" }}>
                                   {pct(chosen?.fit ?? null)}
+                                </td>
+                                <td style={{ textAlign: "right" }}>
+                                  <span className={riskClass(chosen?.quality_p ?? null)}>
+                                    {pct(chosen?.quality_p ?? null)}
+                                  </span>
                                 </td>
                                 <td style={{ textAlign: "right" }}>
                                   {chosen && (
@@ -797,8 +842,11 @@ export default function PlannerPage() {
                       </tbody>
                     </table>
                   </section>
+                  )}
 
                   <section className="card">
+                    {view === "bid" && (
+                    <>
                     <div className="card-head">
                       <span className="card-title">
                         If they say no, this is what they say
@@ -839,6 +887,9 @@ export default function PlannerPage() {
                         This tenant has no quote history, so the sales read is
                         unavailable — the delivery numbers above still apply.
                       </p>
+                    )}
+
+                    </>
                     )}
 
                     <div className="card-head" style={{ marginTop: 8 }}>

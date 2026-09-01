@@ -175,28 +175,38 @@ def test_fixture_signal_reliable_people_boost_outcomes_combined():
     def reliable_count(p: dict) -> int:
         return len(_surnames(p) & RELIABLE_SURNAMES)
 
-    # Compare PRESENCE, not share. Share buckets are unstable: they
-    # depend on how big the reliable roster is relative to the bench, so
-    # growing the bench silently emptied one bucket and the test went on
-    # "passing" against 42 projects. "Two or more standouts" versus
-    # "none" is the same question asked in a way that survives the
-    # fixture being resized.
-    high = [p for p in all_completed if reliable_count(p) >= 1]
-    low = [p for p in all_completed if reliable_count(p) == 0]
+    # Compare PRESENCE, not share — and compare it WITHIN a team size.
+    #
+    # Both controls were learned the hard way. Share buckets depend on
+    # how big the reliable roster is relative to the bench, so growing
+    # the bench silently emptied one bucket. And presence alone is
+    # confounded by team size: a bigger team is likelier to contain a
+    # standout AND is penalised by `_project_success_p`, so the pooled
+    # comparison came out INVERTED (lift 0.92) while the engineered
+    # effect was still firmly positive. Stratifying removes the
+    # confound the test was never trying to measure.
+    by_size: dict[int, list[dict]] = {}
+    for project in all_completed:
+        by_size.setdefault(project["team_size"], []).append(project)
 
-    assert len(high) >= 30 and len(low) >= 30, (
-        f"buckets too small to compare: {len(high)} with a reliable "
-        f"member, {len(low)} with none"
+    weighted, total_weight = 0.0, 0
+    for size, group in by_size.items():
+        with_standout = [p for p in group if reliable_count(p) >= 1]
+        without = [p for p in group if reliable_count(p) == 0]
+        if len(with_standout) < 10 or len(without) < 10:
+            continue
+        weight = min(len(with_standout), len(without))
+        weighted += (_success_rate(with_standout)
+                     - _success_rate(without)) * weight
+        total_weight += weight
+
+    assert total_weight >= 60, (
+        f"not enough same-size pairs to compare: {total_weight}"
     )
-
-    rate_high = _success_rate(high)
-    rate_low = _success_rate(low)
-    lift = rate_high / max(rate_low, 0.01)
-
-    assert lift >= 1.05, (
-        f"reliable-people boost too weak across all personas: "
-        f"with a standout={rate_high:.0%} ({len(high)} projects) vs "
-        f"none={rate_low:.0%} ({len(low)} projects), lift={lift:.2f}"
+    boost = weighted / total_weight
+    assert boost >= 0.04, (
+        f"reliable-people boost too weak, controlling for team size: "
+        f"{boost:+.1%} across {total_weight} matched projects"
     )
 
 

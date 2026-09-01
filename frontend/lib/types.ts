@@ -696,10 +696,10 @@ export interface OutlookResponse {
 /** A reason shown next to a candidate, tagged with what KIND of claim
  *  it is: `aito` = Aito's `$why` named this field as evidence,
  *  `match` = it coincides with the proposal (client-side), `fact` =
- *  context that argued nothing. */
+ *  context that argued nothing, `warn` = something to look at. */
 export interface PlannerChip {
   label: string;
-  kind: "aito" | "match" | "fact";
+  kind: "aito" | "match" | "fact" | "warn";
   field: string;
 }
 
@@ -724,6 +724,7 @@ export interface PlannerCandidate {
   absence_kind: string;
   contention: number;
   contention_pct: number;
+  quality_p: number | null;
   why: WhyExplanation | Record<string, never>;
 }
 
@@ -733,6 +734,8 @@ export interface PlannerRoleSlot {
   share: number;
   skills: string;
   seniority: string;
+  from_month: string;
+  to_month: string;
   candidates: PlannerCandidate[];
   assignees: string[];
 }
