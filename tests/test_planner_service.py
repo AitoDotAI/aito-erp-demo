@@ -23,6 +23,11 @@ class _FakeClient:
                                    {"hits": [], "offset": 0, "total": 0})
 
     def search(self, table, where, limit=100):
+        # A bench, so the skill vocabulary resolves. A requirement is
+        # matched against the skills the tenant actually has.
+        if table == "people":
+            return {"hits": [{"person": "A", "skills": ["Next.js", "React"]}],
+                    "offset": 0, "total": 1}
         return {"hits": [], "offset": 0, "total": 0}
 
     def recommend(self, table, where, field, goal, select=None, limit=8):
@@ -266,3 +271,52 @@ def test_a_categorical_lever_that_changes_nothing_is_skipped():
         {"financial_ok": 0.5},
     )
     assert "Time & materials" not in [e.label for e in effects]
+
+
+def test_a_legacy_text_skills_column_fails_loudly():
+    """`list("React Node")` is ['R','e','a','c','t', ...].
+
+    A tenant whose `people` table predates the String[] schema would
+    otherwise render single-letter chips and a panel reading "Skills on
+    record: R, e, a, c, t" — plausible output hiding a half-finished
+    reload. The reload is a manual step per environment, so this will
+    happen to someone.
+    """
+    import pytest
+    from src.aito_client import AitoError
+    from src.planner_service import _string_list
+
+    assert _string_list({"skills": ["React", "Node"]}, "skills", "A") == ["React", "Node"]
+    assert _string_list({}, "skills", "A") == []
+    with pytest.raises(AitoError, match="not a list"):
+        _string_list({"skills": "React Node"}, "skills", "A")
+
+
+def test_typed_skills_resolve_case_insensitively():
+    """`$has` on a String[] is exact where `$match` on Text case-folded,
+    so "react" would silently match nobody."""
+    from src.planner_service import _resolve_skills
+
+    vocab = {"react": "React", "ui design": "UI design"}
+    resolved, unknown = _resolve_skills("react, UI DESIGN", vocab)
+    assert resolved == ["React", "UI design"]
+    assert unknown == []
+
+
+def test_an_unknown_skill_is_reported_not_silently_applied():
+    """Filtering on a skill nobody has empties the shortlist. Saying so
+    beats showing no candidates and no reason."""
+    from src.planner_service import _resolve_skills
+
+    resolved, unknown = _resolve_skills("React, Fortran", {"react": "React"})
+    assert resolved == ["React"]
+    assert unknown == ["Fortran"]
+
+
+def test_a_requirement_of_only_separators_filters_nothing():
+    """"," is truthy and strips to nothing — guarding on the raw string
+    sent `"$or": []`, an empty disjunction whose empty result the caller
+    swallows."""
+    from src.planner_service import _resolve_skills
+
+    assert _resolve_skills(", ,", {"react": "React"}) == ([], [])

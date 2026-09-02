@@ -735,6 +735,7 @@ export interface PlannerRoleSlot {
   count: number;
   share: number;
   skills: string;
+  unknown_skills: string[];
   seniority: string;
   from_month: string;
   to_month: string;

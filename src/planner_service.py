@@ -79,11 +79,11 @@ class Candidate:
     # every column of the linked row on each hit. No second lookup.
     title: str = ""
     discipline: str = ""
-    skills: str = ""
+    skills: list[str] = field(default_factory=list)
     certifications: str = ""
     site: str = ""
     seniority: str = ""
-    domains: str = ""
+    domains: list[str] = field(default_factory=list)
     years_experience: int = 0
     matches: list[dict] = field(default_factory=list)
     # Standing over THIS project's window, not a running total. A
@@ -144,7 +144,10 @@ class RoleSlot:
     count: int                 # how many of this role the mix implies
     share: float               # P(role) in comparable history
     candidates: list[Candidate]
-    skills: str = ""           # `person.skills` $match for THIS seat
+    skills: str = ""           # `person.skills` requirement for THIS seat
+    # Requirement terms this tenant has nobody for. Reported rather
+    # than silently filtering the shortlist to nothing.
+    unknown_skills: list[str] = field(default_factory=list)
     seniority: str = ""        # `person.seniority` filter for THIS seat
     # The months this seat actually occupies — a designer at the start,
     # a QA engineer at the end, not everyone for the whole project.
@@ -160,6 +163,7 @@ class RoleSlot:
             "count": self.count,
             "share": self.share,
             "skills": self.skills,
+            "unknown_skills": self.unknown_skills,
             "seniority": self.seniority,
             "from_month": self.from_month,
             "to_month": self.to_month,
@@ -725,6 +729,7 @@ def plan_engagement(
     phases = role_phases(client)
     all_months = window_months(start_month, window_len)
     loads = _current_loads(client)
+    vocabulary = _skill_vocabulary(client)
     roles: list[RoleSlot] = []
     # An edited role list wins over the predicted mix. The prediction is
     # a starting point — a delivery lead who knows this job needs two
@@ -774,6 +779,7 @@ def plan_engagement(
         # requirement that belongs to one seat has to travel with it.
         want_seniority = role_seniority or seniority
         want_skills = (role_skills or required_skills).strip()
+        unknown_skills: list[str] = []
         if want_seniority:
             where["person.seniority"] = want_seniority
         if want_skills:
@@ -785,8 +791,15 @@ def plan_engagement(
             # them returns nobody once there are more than two or three,
             # and an empty shortlist is a worse answer than a ranked
             # one. Aito then ranks by how many a person actually has.
-            terms = [t.strip() for t in want_skills.split(",") if t.strip()]
-            where["$or"] = [{"person.skills": {"$has": t}} for t in terms]
+            #
+            # Guarded on the RESOLVED terms, not on the raw string: an
+            # input of "," is truthy and strips to nothing, which would
+            # send `"$or": []` — an empty disjunction whose result
+            # `_hits` swallows, leaving the seat unstaffed for a reason
+            # nobody can see.
+            wanted, unknown_skills = _resolve_skills(want_skills, vocabulary)
+            if wanted:
+                where["$or"] = [{"person.skills": {"$has": t}} for t in wanted]
         hits = _hits(client, "assignments", where, "person", limit=6,
                      select_extra=PERSON_FIELDS)
         # The months THIS seat occupies, from the historical phase of
@@ -821,11 +834,11 @@ def plan_engagement(
                 status=status,
                 title=str(hit.get("title") or ""),
                 discipline=str(hit.get("discipline") or ""),
-                skills=list(hit.get("skills") or []),
+                skills=_string_list(hit, "skills", person),
                 certifications=str(hit.get("certifications") or ""),
                 site=str(hit.get("site") or ""),
                 seniority=str(hit.get("seniority") or ""),
-                domains=list(hit.get("domains") or []),
+                domains=_string_list(hit, "domains", person),
                 years_experience=int(hit.get("years_experience") or 0),
                 booked_pct=standing.booked_pct,
                 free_pct=standing.free_pct,
@@ -845,6 +858,7 @@ def plan_engagement(
             candidates.append(candidate)
         roles.append(RoleSlot(role=role, count=count, share=share,
                               skills=want_skills, seniority=want_seniority,
+                              unknown_skills=unknown_skills,
                               from_month=seat_months[0],
                               to_month=seat_months[-1],
                               candidates=candidates))
@@ -1013,6 +1027,68 @@ def _this_month() -> int:
     return month_index(f"{today.year}-{today.month:02d}")
 
 
+def _string_list(hit: dict, field_name: str, person: str) -> list[str]:
+    """Read a `String[]` column, refusing anything that is not one.
+
+    `list()` would accept a string and hand back its CHARACTERS —
+    `list("React Node")` is `['R', 'e', 'a', 'c', 't', ...]` — so a
+    tenant still holding the old whitespace-joined `Text` column would
+    render single-letter chips and a panel reading "Skills on record:
+    R, e, a, c, t". That is the silent coercion this project forbids:
+    plausible-looking output hiding a half-finished reload. The reload
+    is a separate manual step per environment, so it WILL happen to
+    someone.
+    """
+    value = hit.get(field_name)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise AitoError(
+            f"{field_name!r} for {person!r} came back as "
+            f"{type(value).__name__}, not a list. This tenant's `people` "
+            f"table predates the String[] schema — re-run "
+            f"`./do generate-personas` then `./do load-data --reset`."
+        )
+    return [str(v) for v in value]
+
+
+def _resolve_skills(raw: str,
+                    vocabulary: dict[str, str]) -> tuple[list[str], list[str]]:
+    """Map typed skill names onto the ones this tenant actually has.
+
+    Returns `(resolved, unknown)`, comma-separated and case-insensitive.
+
+    `$has` on a `String[]` is EXACT, where the old `$match` on a Text
+    column ran the analyzer and case-folded — so a typed "react" now
+    matches nobody, `_hits` swallows the empty response, and the seat
+    comes back unstaffed with nothing saying the filter caused it.
+    Resolving against the real vocabulary fixes the common case; an
+    unresolved term is handed back so the caller can say "we have
+    nobody with that" instead of quietly showing an empty list.
+    """
+    resolved: list[str] = []
+    unknown: list[str] = []
+    for term in (t.strip() for t in raw.split(",")):
+        if not term:
+            continue
+        canonical = vocabulary.get(term.lower())
+        (resolved if canonical else unknown).append(canonical or term)
+    return resolved, unknown
+
+
+def _skill_vocabulary(client: AitoClient) -> dict[str, str]:
+    """`lowercased skill -> canonical skill`, from this tenant's bench."""
+    try:
+        rows = client.search("people", {}, limit=500).get("hits") or []
+    except AitoError:
+        return {}
+    vocabulary: dict[str, str] = {}
+    for row in rows:
+        for skill in row.get("skills") or []:
+            vocabulary.setdefault(str(skill).lower(), str(skill))
+    return vocabulary
+
+
 def _match_chips(candidate: Candidate, role: str, site: str,
                  technology: str, domain: str,
                  highlighted: set[str]) -> list[dict]:
@@ -1057,9 +1133,14 @@ def _match_chips(candidate: Candidate, role: str, site: str,
     elif candidate.site:
         chips.append(chip(f"{candidate.site} — would travel", "fact", "site"))
 
+    # `technology` is one term ("research"); a skill may be several
+    # ("user research"). Equality alone stopped chipping those, so the
+    # test is equality OR the technology appearing as a word of it.
     wanted = technology.lower()
     for skill in candidate.skills[:5]:
-        hit_tech = bool(wanted) and skill.lower() == wanted
+        lowered = skill.lower()
+        hit_tech = bool(wanted) and (lowered == wanted
+                                     or wanted in lowered.split())
         chips.append(chip(skill, "match" if hit_tech else "fact",
                           "technology" if hit_tech else ""))
     if domain and domain in candidate.domains:

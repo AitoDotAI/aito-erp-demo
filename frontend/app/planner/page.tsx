@@ -737,6 +737,12 @@ export default function PlannerPage() {
                                       ? `${pct(slot.share)} of comparable teams`
                                       : "added by hand"}
                                   </div>
+                                  {seat === 0 && slot.unknown_skills.length > 0 && (
+                                    <div className="pl-unknown">
+                                      nobody has:{" "}
+                                      {slot.unknown_skills.join(", ")}
+                                    </div>
+                                  )}
                                   {seat === 0 && (
                                     <div className="pl-role-req">
                                       <input
