@@ -196,12 +196,15 @@ SCHEMAS = {
             "person": {"type": "String", "nullable": False},
             "discipline": {"type": "String", "nullable": False},
             "title": {"type": "String", "nullable": False},
-            # Text, not String: skills are a bag of terms, and matching
-            # "React" against "React TypeScript JavaScript" is the whole
-            # point. A String here would only ever match the exact list.
-            "skills": {"type": "Text", "nullable": False},
+            # `String[]` — a set, not prose. Both API versions support
+            # array columns, and `{"skills": {"$has": "UI design"}}` is
+            # exact membership on the whole skill. Stored as Text it had
+            # to be whitespace-joined, which shredded every multi-word
+            # skill into fragments ("UI", "design", "user") and made
+            # "management" appear three times in one person's list.
+            "skills": {"type": "String[]", "nullable": False},
             "certifications": {"type": "Text", "nullable": True},
-            "domains": {"type": "Text", "nullable": False},
+            "domains": {"type": "String[]", "nullable": False},
             "site": {"type": "String", "nullable": False},
             "seniority": {"type": "String", "nullable": False},
             "years_experience": {"type": "Int", "nullable": False},

@@ -464,6 +464,23 @@ person is available. That fact lives in an HR calendar, is derivable
 from nothing else here, and is what invalidates a staffing plan two
 weeks after it is made.
 
+### `skills` is a `String[]`, not prose
+
+Both API versions support array columns, so a skill is one value:
+`{"skills": {"$has": "UI design"}}` matches people who have that skill,
+not everyone with the word "design" somewhere in a sentence.
+
+It was Text, whitespace-joined, which shredded every multi-word skill
+into fragments — "UI", "design", "user" — and made "management" appear
+three times in one person's list, from "stakeholder management",
+"risk management" and "vendor management". React reported that as
+duplicate keys, which is how it was found: a rendering warning
+pointing at a modelling mistake. The chip keys are positional now too,
+so the next data slip surfaces as bad data rather than as silently
+dropped chips.
+
+`domains` is the same shape for the same reason.
+
 ### Why `people` is its own table
 
 `assignments` records who worked on what. It cannot say *why* they were

@@ -292,7 +292,7 @@ export default function PlannerPage() {
       description:
         `<em>${c.person}</em> — ${c.title}, ${c.seniority}, ` +
         `${c.years_experience}y, based in ${c.site}. Skills on record: ` +
-        `<em>${c.skills}</em>. ` +
+        `<em>${c.skills.join(", ")}</em>. ` +
         `Ranked as <em>${role}</em> on ` +
         `<em>${projectType}</em> work. Fit is P(person | project type, role) ` +
         `over the assignment history — how often this person is the one who ` +
@@ -741,7 +741,7 @@ export default function PlannerPage() {
                                     <div className="pl-role-req">
                                       <input
                                         type="text"
-                                        placeholder="must have…"
+                                        placeholder="must have… (comma separated)"
                                         defaultValue={slot.skills}
                                         onBlur={(e) => {
                                           if (e.target.value !== slot.skills)
@@ -861,10 +861,16 @@ export default function PlannerPage() {
                                             </div>
                                           )}
                                           <div className="pl-chips">
-                                            {c.matches.map((m) => (
+                                            {/* Keyed by position, not label: a
+                                                chip label is display text and
+                                                nothing guarantees it is unique.
+                                                It was not — duplicate skill
+                                                tokens made React drop chips
+                                                silently. */}
+                                            {c.matches.map((m, i) => (
                                               <span
                                                 className={`pl-chip pl-chip-${m.kind}`}
-                                                key={m.label}
+                                                key={`${i}-${m.label}`}
                                                 title={
                                                   m.kind === "aito"
                                                     ? `Aito's $why named ${m.field} as evidence`

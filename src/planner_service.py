@@ -777,14 +777,16 @@ def plan_engagement(
         if want_seniority:
             where["person.seniority"] = want_seniority
         if want_skills:
-            # `$match` is CONJUNCTIVE: every term has to be present.
-            # "Kubernetes Docker Redis GraphQL" as one match returns
-            # nobody, because no single person has all four — and an
-            # empty shortlist is a worse answer than a ranked one. Each
-            # term becomes its own clause under `$or`, so anyone with at
-            # least one qualifies and Aito ranks by how many they have.
-            terms = want_skills.split()
-            where["$or"] = [{"person.skills": {"$match": t}} for t in terms]
+            # `skills` is a `String[]`, so membership is `$has` on the
+            # whole skill — "UI design" matches people who have that
+            # skill, not everyone with the word "design" somewhere.
+            #
+            # One clause per requirement under `$or`: requiring ALL of
+            # them returns nobody once there are more than two or three,
+            # and an empty shortlist is a worse answer than a ranked
+            # one. Aito then ranks by how many a person actually has.
+            terms = [t.strip() for t in want_skills.split(",") if t.strip()]
+            where["$or"] = [{"person.skills": {"$has": t}} for t in terms]
         hits = _hits(client, "assignments", where, "person", limit=6,
                      select_extra=PERSON_FIELDS)
         # The months THIS seat occupies, from the historical phase of
@@ -819,11 +821,11 @@ def plan_engagement(
                 status=status,
                 title=str(hit.get("title") or ""),
                 discipline=str(hit.get("discipline") or ""),
-                skills=str(hit.get("skills") or ""),
+                skills=list(hit.get("skills") or []),
                 certifications=str(hit.get("certifications") or ""),
                 site=str(hit.get("site") or ""),
                 seniority=str(hit.get("seniority") or ""),
-                domains=str(hit.get("domains") or ""),
+                domains=list(hit.get("domains") or []),
                 years_experience=int(hit.get("years_experience") or 0),
                 booked_pct=standing.booked_pct,
                 free_pct=standing.free_pct,
@@ -1055,15 +1057,13 @@ def _match_chips(candidate: Candidate, role: str, site: str,
     elif candidate.site:
         chips.append(chip(f"{candidate.site} — would travel", "fact", "site"))
 
-    skills = candidate.skills.split()
-    wanted = {t.lower() for t in technology.split()}
-    for skill in skills[:5]:
-        chips.append(chip(skill, "match" if skill.lower() in wanted else "fact",
-                          "technology" if skill.lower() in wanted else ""))
-    for sector in candidate.domains.split(" "):
-        if sector and domain and sector.lower() in domain.lower():
-            chips.append(chip(f"{domain} experience", "match", "domain"))
-            break
+    wanted = technology.lower()
+    for skill in candidate.skills[:5]:
+        hit_tech = bool(wanted) and skill.lower() == wanted
+        chips.append(chip(skill, "match" if hit_tech else "fact",
+                          "technology" if hit_tech else ""))
+    if domain and domain in candidate.domains:
+        chips.append(chip(f"{domain} experience", "match", "domain"))
     if candidate.certifications:
         chips.append(chip(candidate.certifications.split(",")[0].strip(), "fact"))
     if candidate.years_experience:

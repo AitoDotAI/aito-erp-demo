@@ -244,25 +244,25 @@ METSA = PersonaSpec(
     lead_discipline="site manager",
     disciplines={
         "site manager":      {"title": "Site Manager",
-                              "skills": "site management scheduling subcontractors safety permits cost control handover surveying logistics",
+                              "skills": ['site management', 'scheduling', 'subcontractors', 'safety permits', 'cost control', 'handover', 'surveying', 'logistics'],
                               "certifications": "SFS 6002, occupational safety card"},
         "mechanical":        {"title": "Mechanical Engineer",
-                              "skills": "hydraulics gearboxes bearings CAD alignment vibration analysis pneumatics welding lubrication thermography",
+                              "skills": ['hydraulics', 'gearboxes', 'bearings', 'CAD', 'alignment', 'vibration analysis', 'pneumatics', 'welding', 'lubrication', 'thermography'],
                               "certifications": "hot work permit"},
         "automation":        {"title": "Automation Engineer",
-                              "skills": "PLC SCADA Siemens S7 instrumentation commissioning Beckhoff robotics fieldbus HMI safety PLC",
+                              "skills": ['PLC', 'SCADA', 'Siemens S7', 'instrumentation', 'commissioning', 'Beckhoff', 'robotics', 'fieldbus', 'HMI', 'safety PLC'],
                               "certifications": "SFS 6002"},
         "electrical":        {"title": "Electrical Engineer",
-                              "skills": "switchgear cabling motor drives earthing inspections thermal imaging UPS lighting design arc flash",
+                              "skills": ['switchgear', 'cabling', 'motor drives', 'earthing', 'inspections', 'thermal imaging', 'UPS', 'lighting design', 'arc flash'],
                               "certifications": "SFS 6002, electrical work licence"},
         "hvac":              {"title": "HVAC Technician",
-                              "skills": "ventilation heat recovery refrigeration ductwork balancing building automation heat pumps commissioning",
+                              "skills": ['ventilation', 'heat recovery', 'refrigeration', 'ductwork', 'balancing', 'building automation', 'heat pumps', 'commissioning'],
                               "certifications": "refrigerant handling"},
         "civil":             {"title": "Civil Engineer",
-                              "skills": "foundations concrete steel frame structural surveying drainage groundworks formwork rebar",
+                              "skills": ['foundations', 'concrete', 'steel frame', 'structural', 'surveying', 'drainage', 'groundworks', 'formwork', 'rebar'],
                               "certifications": "occupational safety card"},
         "quality":           {"title": "Quality Inspector",
-                              "skills": "auditing tolerances documentation ISO 9001 non-conformance metrology root cause analysis supplier audits",
+                              "skills": ['auditing', 'tolerances', 'documentation', 'ISO 9001', 'non-conformance', 'metrology', 'root cause analysis', 'supplier audits'],
                               "certifications": "ISO 9001 lead auditor"},
     },
     project_managers=["M. Hakala", "T. Virtanen", "K. Mäkinen", "J. Lehtinen"],
@@ -402,19 +402,19 @@ AURORA = PersonaSpec(
     lead_discipline="store lead",
     disciplines={
         "store lead":   {"title": "Store Project Lead",
-                         "skills": "store operations rollout planning staffing merchandising scheduling training openings",
+                         "skills": ['store operations', 'rollout planning', 'staffing', 'merchandising', 'scheduling', 'training', 'openings'],
                          "certifications": "retail operations"},
         "visual":       {"title": "Visual Merchandiser",
-                         "skills": "planograms display design signage lighting fixtures window design seasonal campaigns",
+                         "skills": ['planograms', 'display design', 'signage', 'lighting', 'fixtures', 'window design', 'seasonal campaigns'],
                          "certifications": ""},
         "ecommerce":    {"title": "Ecommerce Specialist",
-                         "skills": "Shopify product feeds SEO conversion analytics PIM marketplace integrations A/B testing",
+                         "skills": ['Shopify', 'product feeds', 'SEO', 'conversion', 'analytics', 'PIM', 'marketplace integrations', 'A/B testing'],
                          "certifications": "Google Analytics"},
         "supply":       {"title": "Supply Planner",
-                         "skills": "replenishment forecasting slotting supplier onboarding demand planning logistics inventory",
+                         "skills": ['replenishment', 'forecasting', 'slotting', 'supplier onboarding', 'demand planning', 'logistics', 'inventory'],
                          "certifications": ""},
         "marketing":    {"title": "Campaign Manager",
-                         "skills": "campaign planning CRM segmentation loyalty copywriting email automation paid social",
+                         "skills": ['campaign planning', 'CRM', 'segmentation', 'loyalty', 'copywriting', 'email automation', 'paid social'],
                          "certifications": ""},
     },
     project_managers=["M. Eronen", "A. Niemi", "R. Salonen"],
@@ -563,30 +563,28 @@ STUDIO = PersonaSpec(
     lead_discipline="project manager",
     disciplines={
         "project manager": {"title": "Project Manager",
-                            "skills": "agile coaching stakeholder management roadmapping budgeting facilitation risk management vendor management OKRs discovery workshops",
+                            "skills": ['agile coaching', 'stakeholder management', 'roadmapping', 'budgeting', 'facilitation', 'risk management', 'vendor management', 'OKRs', 'discovery workshops'],
                             "certifications": "Scrum Master, SAFe"},
         "frontend":        {"title": "Frontend Developer",
-                            "skills": "React TypeScript JavaScript CSS accessibility Next.js Vue design systems performance testing-library animation SSR",
+                            "skills": ['React', 'TypeScript', 'JavaScript', 'CSS', 'accessibility', 'Next.js', 'Vue', 'design systems', 'performance', 'testing-library', 'animation', 'SSR'],
                             "certifications": ""},
         "backend":         {"title": "Backend Developer",
-                            "skills": "Python Node PostgreSQL API design integrations AWS Kafka Django FastAPI GraphQL Docker Kubernetes Redis",
+                            "skills": ['Python', 'Node', 'PostgreSQL', 'API design', 'integrations', 'AWS', 'Kafka', 'Django', 'FastAPI', 'GraphQL', 'Docker', 'Kubernetes', 'Redis'],
                             "certifications": "AWS Solutions Architect"},
         "ux design":       {"title": "UX Designer",
-                            "skills": "UI design Figma prototyping user research design systems accessibility service design workshops interaction design illustration",
+                            "skills": ['UI design', 'Figma', 'prototyping', 'user research', 'design systems', 'accessibility', 'service design', 'workshops', 'interaction design', 'illustration'],
                             "certifications": ""},
         "data":            {"title": "Data Engineer",
-                            "skills": "SQL dbt pipelines analytics warehousing Python Airflow Snowflake BigQuery visualisation experimentation",
+                            "skills": ['SQL', 'dbt', 'pipelines', 'analytics', 'warehousing', 'Python', 'Airflow', 'Snowflake', 'BigQuery', 'visualisation', 'experimentation'],
                             "certifications": ""},
         "architect":       {"title": "Solution Architect",
-                            "skills": "architecture integration cloud domain-driven-design "
-                                      "security API-design migration event-driven",
+                            "skills": ['architecture', 'integration', 'cloud', 'domain-driven design', 'security', 'API design', 'migration', 'event-driven'],
                             "certifications": "AWS Solutions Architect, Azure Architect"},
         "devops":          {"title": "DevOps Engineer",
-                            "skills": "Kubernetes Terraform CI/CD observability AWS "
-                                      "Azure Docker platform-engineering",
+                            "skills": ['Kubernetes', 'Terraform', 'CI/CD', 'observability', 'AWS', 'Azure', 'Docker', 'platform engineering'],
                             "certifications": "CKA"},
         "qa":              {"title": "QA Engineer",
-                            "skills": "test automation Playwright regression accessibility audits Cypress performance testing API testing exploratory testing CI",
+                            "skills": ['test automation', 'Playwright', 'regression', 'accessibility audits', 'Cypress', 'performance testing', 'API testing', 'exploratory testing', 'CI'],
                             "certifications": "ISTQB"},
     },
     project_managers=["A. Lahti", "J. Mäkelä", "K. Saarinen", "L. Lounela"],
@@ -1503,18 +1501,26 @@ def _outcomes(base: float, *, contract: str, clarity: str, novelty: str,
     }
 
 
-def _sample_skills(pool: str) -> list[str]:
+def _sample_skills(pool: list[str]) -> list[str]:
     """A personal subset of a discipline's skill pool.
 
     Kept in the pool's own order so a skill list reads like a CV rather
     than a shuffled bag, and always includes the first few terms — the
     ones that define the discipline — so a frontend developer never
     comes back without React.
+
+    A LIST of skills, not a string of them. `people.skills` is a
+    `String[]` column, which both API versions support, so "UI design"
+    stays one skill instead of becoming "UI" and "design". Storing it
+    as whitespace-joined Text turned every multi-word skill into
+    fragments and made "management" appear three times in one person's
+    list — which React reported as duplicate keys, and which made the
+    chips read as nonsense.
     """
-    terms = pool.split()
-    core, rest = terms[:3], terms[3:]
-    extra = random.sample(rest, k=min(len(rest), random.randint(2, 5)))
-    return core + [t for t in terms if t in set(extra)]
+    assert len(pool) == len(set(pool)), f"duplicate skill in pool: {pool}"
+    core, rest = pool[:3], pool[3:]
+    extra = set(random.sample(rest, k=min(len(rest), random.randint(2, 5))))
+    return core + [t for t in pool if t in extra]
 
 
 def generate_people(persona: PersonaSpec) -> list[dict]:
@@ -1563,8 +1569,7 @@ def generate_people(persona: PersonaSpec) -> list[dict]:
             "person": person,
             "discipline": discipline,
             "title": spec["title"],
-            # Text, so `$match` and tokenised evidence work on it — the
-            # skill list is the one field a human reads first.
+            # `String[]` — a set of discrete skills. See _sample_skills.
             #
             # SAMPLED per person, not copied from the discipline. Giving
             # every backend developer the identical skill string made
@@ -1574,12 +1579,11 @@ def generate_people(persona: PersonaSpec) -> list[dict]:
             # for a candidate could only ever say "role is backend".
             # Individual skill sets are what make "why THIS backend
             # developer" an answerable question.
-            "skills": " ".join(_sample_skills(spec["skills"])),
+            "skills": _sample_skills(spec["skills"]),
             "certifications": spec.get("certifications", ""),
             # Sectors this person has actually delivered in. Text, so
             # `$match` works and a partial overlap still counts.
-            "domains": " ".join(random.sample(DOMAINS,
-                                              k=random.randint(1, 3))),
+            "domains": random.sample(DOMAINS, k=random.randint(1, 3)),
             "site": random.choices(SITES, weights=SITE_WEIGHTS, k=1)[0],
             "seniority": seniority,
             "years_experience": random.randint(*years),

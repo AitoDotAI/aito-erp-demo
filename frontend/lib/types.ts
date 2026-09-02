@@ -710,11 +710,11 @@ export interface PlannerCandidate {
   status: string;
   title: string;
   discipline: string;
-  skills: string;
+  skills: string[];
   certifications: string;
   site: string;
   seniority: string;
-  domains: string;
+  domains: string[];
   years_experience: number;
   matches: PlannerChip[];
   booked_pct: number;

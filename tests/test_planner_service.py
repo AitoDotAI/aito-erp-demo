@@ -185,10 +185,11 @@ def test_a_role_requirement_does_not_leak_onto_other_roles():
         for table, where, field in client.calls
         if table == "assignments" and field == "person"
     }
-    # One clause per term under `$or` — `$match` is conjunctive, so a
-    # multi-term requirement as a single match returns nobody.
+    # `skills` is a `String[]`, so membership is `$has` on the whole
+    # skill, and one clause per requirement under `$or` — requiring all
+    # of them returns nobody past two or three.
     assert person_calls["frontend"]["$or"] == [
-        {"person.skills": {"$match": "Next.js"}},
+        {"person.skills": {"$has": "Next.js"}},
     ]
     assert "$or" not in person_calls["qa"]
     assert [r.skills for r in plan.roles] == ["Next.js", ""]
