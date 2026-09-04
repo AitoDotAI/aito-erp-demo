@@ -21,11 +21,13 @@ Run with:  python data/generate_personas.py
 
 import json
 import random
+import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent
+sys.path.insert(0, str(DATA))
 
 # Months 2022-06 through 2026-03 (46 months) — wider window than
 # before so per-supplier _relate has enough samples even on the
@@ -765,6 +767,40 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
     }
     DEFAULT_SUFFIXES = ["", " v2", " HD", " Pro", " 10pk"]
 
+    # Variant axes — the part of a catalogue name that says WHICH one.
+    #
+    # Without these, `template + suffix` gave 241 distinct names across
+    # 3200 SKUs: thirty-three different products all called "Tape
+    # Measure 10pk". That is fine for a view that only ever shows a name
+    # beside its own row, and fatal for line matching, where the whole
+    # task is recovering a SKU from a description — no matcher can pick
+    # between thirty-three rows that are called the same thing, and the
+    # measured top-1 was 1.7%.
+    #
+    # Real catalogue names carry the discriminator: "tulppaani punainen
+    # 40cm" is species, colour and length precisely so a human can tell
+    # two rows apart. Size and colour pools are per category because a
+    # yoghurt has no colour and a t-shirt has no litre capacity.
+    VARIANT_AXES: dict[str, tuple[list[str], list[str]]] = {
+        "diy":                   (["3m", "5m", "8m", "25mm", "50mm"],
+                                  ["Yellow", "Black", "Chrome", "Blue"]),
+        "homeware":              (["20cm", "30cm", "40cm", "1.5L"],
+                                  ["White", "Black", "Natural", "Terracotta"]),
+        "fashion":               (["S", "M", "L", "XL"],
+                                  ["Black", "Navy", "Beige", "Olive", "Rust"]),
+        "electronics":           (["64GB", "128GB", "256GB", '13"', '15"'],
+                                  ["Black", "Silver", "Graphite"]),
+        "groceries":             (["250g", "500g", "1kg", "1L"], []),
+        "household":             (["750ml", "1L", "2L", "5L"], []),
+        "beauty":                (["30ml", "50ml", "100ml"], []),
+        "spare parts":           (["DN25", "DN40", "DN50", "M8", "M12"],
+                                  ["Steel", "Brass"]),
+        "electrical components": (["6A", "10A", "16A", "25A"], []),
+        "ppe & workwear":        (["S", "M", "L", "XL"],
+                                  ["Hi-Vis", "Navy", "Black"]),
+        "office supplies":       (["A4", "A5", "A3"], ["Black", "Blue"]),
+    }
+
     while len(products) < persona.n_products:
         counter += 1
         sku = f"SKU-{counter}"
@@ -773,7 +809,19 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         templates = persona.product_name_templates.get(cat, ["Item"])
         name = random.choice(templates)
 
+        # Variant tokens go between the template and the suffix, the way
+        # a real catalogue reads: "Tape Measure 5m Yellow 10pk".
+        sizes, colours = VARIANT_AXES.get(cat.lower(), ([], []))
         suffix_pool = SUFFIX_POOL.get(cat.lower(), DEFAULT_SUFFIXES)
+        # Beauty and groceries already carry their size in the SUFFIX
+        # pool (" 50ml", " 6-pack"), so adding a size variant too
+        # produced "Eau de Toilette 50ml 50ml". One size per name.
+        variant = []
+        if sizes and suffix_pool is DEFAULT_SUFFIXES:
+            variant.append(random.choice(sizes))
+        if colours and random.random() < 0.75:
+            variant.append(random.choice(colours))
+        variant_text = (" " + " ".join(variant)) if variant else ""
         suffix = random.choice(suffix_pool)
         # Add a random "#NNN" code on the unsuffixed default-pool path
         # ~10% of the time — gives the same realistic-SKU-name texture
@@ -806,9 +854,14 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
                              or [s.name for s in persona.suppliers]
         supplier = random.choice(sup_candidates)
 
+        # Brand first, the way a catalogue is actually written and the
+        # way a buyer searches it. It is also the strongest remaining
+        # discriminator between two otherwise identical rows.
+        brand = f"{supplier} " if random.random() < 0.7 else ""
+
         products.append({
             "sku": sku,
-            "name": name + suffix,
+            "name": brand + name + variant_text + suffix,
             "supplier": supplier if "supplier" not in dropped else None,
             "category": cat if "category" not in dropped else None,
             "unit_price": round(random.uniform(*spec["price"]), 2) if "unit_price" not in dropped else None,
@@ -2310,6 +2363,13 @@ def write_persona(persona: PersonaSpec) -> None:
     # / maintenance phase model the project-plan view depends on doesn't
     # apply directly to retail (Aurora) or services (Studio) personas.
     tasks = generate_metsa_tasks(persona, projects) if persona.tenant_id == "metsa" else []
+    # Aurora is the only persona with a retail catalogue big enough for
+    # line-to-product matching to be a real problem rather than a lookup.
+    invoice_lines: list[dict] = []
+    invoice_lines_test: list[dict] = []
+    if persona.tenant_id == "aurora":
+        from generate_invoice_lines import generate as generate_lines
+        invoice_lines, invoice_lines_test = generate_lines(products)
     quotes = generate_quotes(persona, projects) if persona.n_quotes else []
     absences = generate_absences(persona, people)
     proposals = generate_proposals(persona, people, projects)
@@ -2328,6 +2388,12 @@ def write_persona(persona: PersonaSpec) -> None:
         with open(out / "impressions.json", "w") as f: json.dump(impressions, f, indent=2, ensure_ascii=False)
     if tasks:
         with open(out / "tasks.json",     "w") as f: json.dump(tasks,        f, indent=2, ensure_ascii=False)
+    if invoice_lines:
+        with open(out / "invoice_lines.json", "w") as f:
+            json.dump(invoice_lines, f, indent=2, ensure_ascii=False)
+        # NOT loaded into Aito — the held-out half `./do match-eval` scores.
+        with open(out / "invoice_lines_test.json", "w") as f:
+            json.dump(invoice_lines_test, f, indent=2, ensure_ascii=False)
     if quotes:
         with open(out / "quotes.json",    "w") as f: json.dump(quotes,       f, indent=2, ensure_ascii=False)
 
@@ -2344,6 +2410,9 @@ def write_persona(persona: PersonaSpec) -> None:
         print(f"    success rate: {len(succ)}/{len(completed)} = "
               f"{len(succ)/len(completed):.0%}")
     print(f"  people:         {len(people)}")
+    if invoice_lines:
+        print(f"  invoice_lines:  {len(invoice_lines)} train "
+              f"+ {len(invoice_lines_test)} held out")
     print(f"  absences:       {len(absences)}")
     print(f"  proposals:      {len(proposals)} rows "
           f"({len({r['proposal_id'] for r in proposals})} open bids)")
