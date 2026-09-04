@@ -213,7 +213,11 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
           "x-aitoai-response-time is ~420 ms\n  against a ~1.6 s round trip "
           "from a laptop. Co-located, throughput is a worker-count question.")
 
-    dump = DATA / tenant / "match_eval_last_run.json"
+    # Named for the run that produced it. A 400-row spot check
+    # silently overwriting the full 2000-row dump is exactly the kind
+    # of quiet substitution that makes a number untraceable later.
+    dump = (DATA / tenant /
+            f"match_eval_{config.api_version}_n{len(test)}.json")
     with open(dump, "w") as f:
         json.dump([{"line_id": line["line_id"], "truth": line["sku"],
                     "supplier": line["billing_supplier"],

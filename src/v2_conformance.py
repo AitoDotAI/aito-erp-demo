@@ -70,6 +70,11 @@ class View:
     name: str
     endpoints: str
     run: Callable[[AitoClient, TenantId], Any]
+    # Tenants this view exists for. A view the nav hides for a persona
+    # has no data for it either, and reporting that as PARTIAL is a
+    # false alarm — which is the fastest way to teach everyone to skim
+    # past the partials that mean something. Empty = every tenant.
+    tenants: tuple[TenantId, ...] = ()
 
 
 def _planner_type(client) -> str:
@@ -112,7 +117,8 @@ VIEWS: tuple[View, ...] = (
     # Two lines is enough to prove the query shape survives; this view
     # is the only one whose probe cost scales with the batch size.
     View("matching", "_predict (link target)",
-         lambda c, t: match_batch(c, t, size=2, workers=2)),
+         lambda c, t: match_batch(c, t, size=2, workers=2),
+         tenants=("aurora",)),
     View("recommendations", "_recommend + _match",
          lambda c, t: get_recommendation_overview(c)),
     View("projects", "_predict + _relate",
@@ -179,6 +185,10 @@ def check_tenant(tenant: TenantId, api_version: ApiVersion, verbose: bool) -> li
     print(f"\n=== {tenant} · {api_version} · {creds.api_url} ===")
     rows: list[tuple[str, str, str]] = []
     for view in VIEWS:
+        if view.tenants and tenant not in view.tenants:
+            print(f"  [ skip ] {view.name:<17} {view.endpoints:<28} "
+                  f"not a {tenant} view")
+            continue
         try:
             result = view.run(client, tenant)
             all_empty, blank_parts = _emptiness(result)
