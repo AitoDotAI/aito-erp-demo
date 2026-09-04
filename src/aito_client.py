@@ -107,6 +107,28 @@ def _is_missing_table_error(exc: "AitoError", table: str) -> bool:
     return exc.status_code == 400 and f"failed to open '{table}'" in str(exc)
 
 
+def _assert_why_integrity(response: dict, table: str, field: str) -> dict:
+    """Every hit's `$why` must explain that hit.
+
+    Checked here because `predict` is the one place every prediction in
+    this repo passes through, so no view can add a ranked list with
+    explanations and forget to check. It costs a dict walk per hit and
+    it is the control that would have caught the 4.9 accounting-demo
+    defect, which an accuracy evaluation could not: the answer was
+    scored, the explanation was not.
+
+    See `why_processor.assert_why_belongs_to` and
+    org/demo-why-integrity-audit.md.
+    """
+    from src.why_processor import assert_why_belongs_to
+
+    for hit in response.get("hits") or []:
+        if isinstance(hit, dict) and hit.get("$why"):
+            assert_why_belongs_to(hit["$why"], hit.get("$value"),
+                                  f"_predict {field} on {table}")
+    return response
+
+
 def _canonical_predicted_values(response: dict, api_version: ApiVersion) -> dict:
     """Fold a legacy `feature` hit key into the canonical `$value`.
 
@@ -377,10 +399,12 @@ class AitoClient:
         why_select = {"$why": {"highlight": {"posPreTag": "«", "posPostTag": "»"}}}
 
         if self._v2 is not None:
-            return self._v2_result("predict", table, lambda: self._v2.predict(
-                from_table=table, where=where, predict=predict_field,
-                select=["$p", "$value", why_select, *(select_extra or [])],
-                limit=limit))
+            return _assert_why_integrity(
+                self._v2_result("predict", table, lambda: self._v2.predict(
+                    from_table=table, where=where, predict=predict_field,
+                    select=["$p", "$value", why_select, *(select_extra or [])],
+                    limit=limit)),
+                table, predict_field)
 
         # `$value` on BOTH versions. v1 also answers to `feature`, which
         # is what this used to send — but only for a plain column. Ask
@@ -402,7 +426,11 @@ class AitoClient:
             if self._tolerate_missing and _is_missing_table_error(exc, table):
                 return self._empty("predict")
             raise
-        return _canonical_predicted_values(response, self._api_version)
+        # Canonicalise first so `$value` is populated, then check that
+        # each hit's explanation belongs to it.
+        return _assert_why_integrity(
+            _canonical_predicted_values(response, self._api_version),
+            table, predict_field)
 
     def estimate(self, table: str, where: dict, estimate_field: str) -> dict:
         """Run an `_estimate` query — a numeric value from neighbours.

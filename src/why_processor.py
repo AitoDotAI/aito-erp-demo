@@ -17,6 +17,66 @@ Design notes:
 from typing import Any
 
 
+def why_target(why: dict | None) -> object | None:
+    """The value a `$why` tree is an explanation FOR.
+
+    Every explanation opens with a `baseP` factor whose proposition
+    names the candidate being explained — `{"sku": {"$has": "SKU-1234"}}`
+    on v1, or bare `{"sku": "SKU-1234"}` on v2. That target is what makes
+    the tree checkable against the row it is rendered under.
+
+    Returns None when there is no `$why` or no baseP in it; the caller
+    treats that as "nothing to check", not as a failure.
+    """
+    def walk(node: object) -> object | None:
+        if not isinstance(node, dict):
+            return None
+        if node.get("type") == "baseP":
+            proposition = node.get("proposition")
+            if isinstance(proposition, dict) and proposition:
+                matched = next(iter(proposition.values()))
+                # v1 wraps the value in the operator that matched it.
+                if isinstance(matched, dict) and matched:
+                    return next(iter(matched.values()))
+                return matched
+            return None
+        for child in node.get("factors") or []:
+            found = walk(child)
+            if found is not None:
+                return found
+        return None
+
+    return walk(why or {})
+
+
+def assert_why_belongs_to(why: dict | None, value: object, where: str) -> None:
+    """The invariant: a `$why` must explain the row it is shown under.
+
+    An explanation that describes a different row than the value beside
+    it is worse than no explanation. It is not caught by accuracy — the
+    answer can be right while the reasoning shown for it belongs to some
+    other candidate — so it needs its own check, and this is it.
+
+    The failure this guards against is real and shipped: the accounting
+    demo overrode Aito's ranking with an amount heuristic and carried the
+    discarded row's `$why` AND `$p` onto the substituted row, so a
+    prospect was shown authoritative-looking evidence for a match that
+    was never made. If a caller ever overrides a ranking here, it must
+    drop the explanation rather than move it.
+
+    See org/demo-why-integrity-audit.md.
+    """
+    target = why_target(why)
+    if target is None or value is None:
+        return
+    if str(target) != str(value):
+        raise ValueError(
+            f"$why integrity: explanation in {where} describes {target!r} "
+            f"but is attached to {value!r}. An explanation must belong to "
+            f"the row it is rendered under — drop it rather than move it."
+        )
+
+
 def process_factors(why: dict | None, final_p: float) -> dict:
     """Transform a $why object into a clean explanation payload.
 
