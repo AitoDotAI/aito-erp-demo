@@ -461,6 +461,57 @@ Rule Mining surfaces the same rules with the same supports; confidence
 and lift shift by ~1% and the ordering of near-ties changes
 (Konecranes sorts above Schneider on v2).
 
+### The gap is back on high-cardinality targets — core #1281
+
+The closed gap above was measured on 5-to-14-value categoricals. It does
+not hold once the target gets wide. The invoice-line matching case
+predicts `invoice_lines.sku`, a **3200-value** link into `products`,
+and on the same build the two engines come apart:
+
+| 400 paired held-out lines | v1 | v2 |
+|---|---|---|
+| top-1 | 26.8% | **16.8%** |
+| top-5 | 54.2% | **31.2%** |
+| top-1 `$p`, median | 0.2612 | **0.0179** |
+| the two engines pick the same top-1 | — | **27.8%** |
+
+The disagreement scales with how many values the target has — same
+table, same `where`, three targets:
+
+| predict target | distinct values | engines agree |
+|---|---|---|
+| `unit_of_measure` | ~5 | 59/60 |
+| `billing_supplier` | 14 | 41/60 |
+| `sku` (link → `products`) | 3200 | **25/60** |
+
+Which is why the section above reads clean: at five values there is
+nowhere for a ranking to go, so a scoring difference does not become a
+wrong answer. `$p` diverges at every cardinality — only 7-34 of 60 land
+within 0.01 even where the answer agrees.
+
+**Ruled out before filing**, because the interesting part of a report is
+what it is not:
+
+- Not #1062. Bare string and `$match` on the `Text` column are identical
+  *within* each engine, to the digit. Spelling changes nothing.
+- Not #1245. `optimize` was called by the loader; re-running it
+  explicitly and re-measuring gives the same numbers. This build carries
+  #1245 already.
+- Not the corpus. Both envs hold 10000 lines and 3200 products with
+  2094 distinct names, the same stored schema (`description` `Text` +
+  `analyzer: standard`, `sku` → `products.sku`), and the client sends
+  the same `where` / `predict` / `select` / `limit` on both branches.
+
+**What this means for the demo.** Invoice Matching's published numbers
+are the v1 ones, and they are the ones the view quotes. Run it on v2
+today and it shows roughly half the accuracy with confidences that
+never clear the pre-fill bar — 22% coverage on v1, **0.2%** on v2. The
+view is not wrong on v2, it is just much worse, and silently: 200 OK,
+five candidates, no signal that anything differs. That is the general
+hazard for any rep2 caller predicting something wide from text, and the
+only way to see it is to hold out a labelled split and score it, which
+is what `./do match-eval` is for.
+
 ### `optimize` still moves the confidence band (fresh evidence)
 
 R&D's note of 2026-08-31 (`rep2: optimize CHANGES predictions`) reports

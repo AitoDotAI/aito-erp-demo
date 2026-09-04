@@ -490,6 +490,17 @@ retail goods: the case this was drawn from is a flower wholesaler with
 no NDA in place and unconfirmed volumes, so nothing here is modelled
 on it. Generic transfers to every other line-matching prospect anyway.
 
+**The numbers are v1 numbers, and on v2 they are not the same.**
+Predicting a 3200-value link target is where the two engines come
+apart: 26.8% top-1 on rep1 against 16.8% on rep2, with confidences a
+median 11x lower, on the same fixtures and the same build. It is not
+the Text clause (`$match` changes nothing on either engine) and not
+segment structure (`optimize` changes nothing) — it is core #1281, and
+`docs/v2-migration.md` carries the isolation. The rest of the demo
+does not show it because every other prediction targets a 5-to-14-value
+categorical, where a scoring difference has nowhere to become a wrong
+answer. Do not requote this view's numbers off a v2 run.
+
 **The ceiling is in the data.** Around half the catalogue rows share a
 name with another row, and where two SKUs are called the same thing no
 matcher can separate them. The harness prints that alongside the
