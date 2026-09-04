@@ -20,6 +20,12 @@ half that was never loaded into Aito, and it reports:
   * **ambiguity** — how often the true SKU's name is shared by other
     catalogue rows. That is the ceiling on top-1, and it decides
     whether the honest output is an answer or a shortlist for a human.
+  * **coverage and precision at a confidence bar** — the number the
+    buying question is actually about. Not "how accurate is it" but
+    "how much of this comes off a clerk's desk, and how wrong is it
+    when it does". A matcher that is 25% accurate overall but 95%
+    accurate on the quarter it is confident about is a useful matcher;
+    a single blended figure hides exactly that.
   * **throughput** — rows per second at a given concurrency, because
     the delivery shape for this case is a queue and the constraint is
     throughput, not p50. Wall-clock per row from a laptop is mostly
@@ -40,18 +46,11 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from src.aito_client import AitoClient, AitoError
+from src.aito_client import AitoClient
 from src.config import TenantId, load_config
+from src.matching_service import Candidate, LINE_FEATURES, rank_line
 
 DATA = Path(__file__).resolve().parent.parent / "data"
-
-# The evidence a matcher actually has when a line arrives. Deliberately
-# not the SKU, obviously, and deliberately not `invoice_id` — grouping
-# would leak the answer from sibling lines on the same document, which
-# is a real technique but a different claim from the one being measured.
-LINE_FEATURES = ("description", "billing_supplier", "unit_of_measure",
-                 "unit_price_eur", "quantity")
-
 
 @dataclass
 class Bucket:
@@ -59,19 +58,29 @@ class Bucket:
     name: str
     n: int = 0
     top1: int = 0
+    top1_name: int = 0
     top5: int = 0
     no_answer: int = 0
     latencies_ms: list[float] = field(default_factory=list)
 
-    def add(self, ranked: list[str], truth: str, ms: float) -> None:
+    def add(self, ranked: list["Candidate"], truth: str, ms: float,
+            truth_name: str | None = None) -> None:
         self.n += 1
         self.latencies_ms.append(ms)
         if not ranked:
             self.no_answer += 1
             return
-        if ranked[0] == truth:
+        if ranked[0].sku == truth:
             self.top1 += 1
-        if truth in ranked[:5]:
+        # Half the catalogue shares a name with another row. When the
+        # top pick is one of those twins, the matcher did not fail —
+        # nothing in the data could have separated them, and a clerk
+        # looking at two rows with the same name would not have either.
+        # Scored separately, never blended into top-1: it is a weaker
+        # claim and it has to be labelled as one.
+        if truth_name and ranked[0].name == truth_name:
+            self.top1_name += 1
+        if truth in [c.sku for c in ranked[:5]]:
             self.top5 += 1
 
     def report(self) -> str:
@@ -80,28 +89,34 @@ class Bucket:
         ordered = sorted(self.latencies_ms)
         median = ordered[len(ordered) // 2]
         return (f"  {self.name:34} top-1 {self.top1 / self.n:6.1%}   "
+                f"(+name {self.top1_name / self.n:5.1%})   "
                 f"top-5 {self.top5 / self.n:6.1%}   "
                 f"n={self.n:<5} median {median:5.0f} ms"
                 + (f"   no answer {self.no_answer}" if self.no_answer else ""))
 
 
-def _rank(client: AitoClient, line: dict, limit: int = 5) -> tuple[list[str], float]:
-    """Rank catalogue SKUs for one invoice line.
+def _coverage_precision(scored: list[tuple[list[Candidate], str]]) -> list[str]:
+    """What auto-posting at each confidence bar would actually cost.
 
-    `sku` links to `products.sku`, so this traverses the link: Aito ranks
-    catalogue ROWS and hands back their columns. One query, no training
-    step, and the same call the view will make.
+    `coverage` is the share of lines whose top candidate clears the bar;
+    `precision` is how often that candidate is right. This is the table
+    the routing threshold is read off — raising the bar buys precision
+    and pays for it in coverage, and the trade is the product decision.
+    A demo that picks a threshold without printing this is picking one
+    by taste.
     """
-    where = {f: line[f] for f in LINE_FEATURES if line.get(f) is not None}
-    started = time.perf_counter()
-    try:
-        response = client.predict("invoice_lines", where, "sku", limit=limit)
-    except AitoError:
-        return [], (time.perf_counter() - started) * 1000
-    elapsed = (time.perf_counter() - started) * 1000
-    ranked = [str(hit.get("$value")) for hit in response.get("hits") or []
-              if hit.get("$value") is not None]
-    return ranked, elapsed
+    rows = ["  auto-post bar    coverage   precision   lines auto   wrong"]
+    total = len(scored)
+    for bar in (0.02, 0.05, 0.10, 0.20, 0.35, 0.50):
+        above = [(c, truth) for c, truth in scored if c and c[0].p >= bar]
+        if not above:
+            rows.append(f"  p ≥ {bar:<12.2f}      0.0%          —            0       0")
+            continue
+        right = sum(1 for c, truth in above if c[0].sku == truth)
+        rows.append(f"  p ≥ {bar:<12.2f} {len(above) / total:6.1%}   "
+                    f"{right / len(above):8.1%}   {len(above):9}   "
+                    f"{len(above) - right:5}")
+    return rows
 
 
 def _ambiguity(products: list[dict]) -> tuple[int, float]:
@@ -143,16 +158,21 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     print(f"  scoring {len(test)} lines at {workers} workers…", flush=True)
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda line: (_rank(client, line), line), test))
+        results = list(pool.map(lambda line: (rank_line(client, line), line), test))
     wall = time.perf_counter() - started
 
+    name_of = {p["sku"]: p.get("name") for p in products}
     for (ranked, ms), line in results:
         truth = line["sku"]
+        truth_name = name_of.get(truth)
         supplier = line["billing_supplier"]
-        overall.add(ranked, truth, ms)
-        (warm if supplier in seen_suppliers else cold).add(ranked, truth, ms)
-        by_supplier.setdefault(supplier, Bucket(supplier)).add(ranked, truth, ms)
+        overall.add(ranked, truth, ms, truth_name)
+        bucket = warm if supplier in seen_suppliers else cold
+        bucket.add(ranked, truth, ms, truth_name)
+        by_supplier.setdefault(supplier, Bucket(supplier)).add(
+            ranked, truth, ms, truth_name)
 
+    scored = [(ranked, line["sku"]) for (ranked, _), line in results]
     shared, shared_share = _ambiguity(products)
     baseline = 1 / catalogue_size
 
@@ -161,6 +181,10 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     print(f"  catalogue {catalogue_size} SKUs · "
           f"{len(train)} labelled lines loaded · {len(test)} held out")
     print(f"  random baseline: {baseline:.2%}")
+    print()
+    print("  top-1 is the exact SKU. (+name) also counts a pick whose "
+          "catalogue name is identical\n  to the right answer's — an "
+          "ambiguity in the data, not a match the ranker made.")
     print()
     print(overall.report())
     print(warm.report())
@@ -171,6 +195,9 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
                                key=lambda kv: -kv[1].top1 / max(kv[1].n, 1)):
         mark = " " if name in seen_suppliers else "*"
         print(f"  {mark}" + bucket.report()[2:])
+    print()
+    for row in _coverage_precision(scored):
+        print(row)
     print()
     print(f"  ceiling check: {shared} of {catalogue_size} catalogue rows "
           f"({shared_share:.1%}) share a name with another row — where two "
@@ -185,6 +212,16 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     print("  Per-row wall time here is mostly network: Aito's own "
           "x-aitoai-response-time is ~420 ms\n  against a ~1.6 s round trip "
           "from a laptop. Co-located, throughput is a worker-count question.")
+
+    dump = DATA / tenant / "match_eval_last_run.json"
+    with open(dump, "w") as f:
+        json.dump([{"line_id": line["line_id"], "truth": line["sku"],
+                    "supplier": line["billing_supplier"],
+                    "ranked": [{"sku": c.sku, "name": c.name, "p": c.p}
+                               for c in ranked], "ms": ms}
+                   for (ranked, ms), line in results], f)
+    print(f"  raw run written to {dump.relative_to(DATA.parent)} — "
+          f"a new metric should not cost another pass.")
 
     return {
         "overall_top1": overall.top1 / max(overall.n, 1),

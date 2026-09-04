@@ -37,6 +37,7 @@ other line-matching prospect, and a tulip does not.
 
 import json
 import random
+import zlib
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent
@@ -98,7 +99,13 @@ def _render(name: str, style: str, sku: str, hs_code: str,
         return " ".join(shuffled)
     if style == "article_prefix":
         # Their own article number in front, and only part of the name.
-        article = f"{sku.split('-')[-1]}{rng.randint(10, 99)}"
+        #
+        # Derived from a hash of the SKU rather than from its digits: an
+        # earlier version spliced the catalogue number straight into the
+        # text, which put the answer in the input. Nothing exploited it —
+        # this supplier still scores 5% — but a demo whose evidence
+        # contains the label is not a demo anyone should believe.
+        article = f"{zlib.crc32(sku.encode()) % 900000 + 100000}"
         return f"{article} {' '.join(words[:2])}"
     if style == "translate":
         out = [TRANSLATIONS.get(w.lower(), w) for w in words]

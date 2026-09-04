@@ -40,7 +40,7 @@ export const TENANTS: TenantProfile[] = [
     accent: "#6b4f0e",
     // Hide commerce-flavoured views (incl. recommendations) and
     // services-only views (utilization).
-    hideRoutes: ["/catalog", "/pricing", "/demand", "/recommendations", "/utilization"],
+    hideRoutes: ["/catalog", "/pricing", "/demand", "/recommendations", "/utilization", "/matching"],
     defaultRoute: "/po-queue",
   },
   {
@@ -62,7 +62,7 @@ export const TENANTS: TenantProfile[] = [
     // Services don't carry physical inventory; pricing data is too
     // thin (80 SKUs, 200 price rows) to make Pricing credible. The
     // construction-phased Project Plan view is Metsä-only too.
-    hideRoutes: ["/catalog", "/demand", "/inventory", "/pricing", "/recommendations", "/project-plan"],
+    hideRoutes: ["/catalog", "/demand", "/inventory", "/pricing", "/recommendations", "/project-plan", "/matching"],
     defaultRoute: "/projects",
   },
 ];

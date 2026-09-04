@@ -834,3 +834,104 @@ export interface PlannerOptions {
   domain_by_customer: Record<string, string>;
   domains: string[];
 }
+
+/* ── Invoice line matching ───────────────────────────────────── */
+
+/** One claim about a candidate, with who made it. `aito` came out of
+ *  the `$why` tree, `against` came out of it as evidence AGAINST,
+ *  `match` was computed in the service and argued by nobody. */
+export interface MatchReason {
+  kind: "aito" | "against" | "match";
+  text: string;
+  field: string;
+  lift: number | null;
+}
+
+export interface MatchCandidate {
+  sku: string;
+  name: string;
+  category: string | null;
+  supplier: string | null;
+  unit_price: number | null;
+  unit_of_measure: string | null;
+  p: number;
+  reasons: MatchReason[];
+}
+
+export interface MatchedLine {
+  line_id: string;
+  invoice_id: string;
+  billing_supplier: string;
+  description: string;
+  quantity: number;
+  unit_of_measure: string | null;
+  unit_price_eur: number | null;
+  line_amount_eur: number | null;
+  candidates: MatchCandidate[];
+  decision: "prefilled" | "open";
+  ms: number;
+  cold: boolean;
+  /** Held-out label. Present because these lines were never loaded —
+   *  a production queue has no truth column and a demo that hides it
+   *  is asking to be trusted. */
+  truth: string | null;
+  truth_name: string | null;
+  correct: boolean | null;
+  /** The pick is a different SKU the catalogue calls the same thing.
+   *  Not a miss the ranker could have avoided — nothing in the data
+   *  separates the two rows. Its own outcome, never counted correct. */
+  same_name: boolean;
+}
+
+export interface MatchBatchStats {
+  n: number;
+  wall_s: number;
+  workers: number;
+  rows_per_s: number;
+  rows_per_week: number;
+  server_ms_median: number;
+  prefilled: number;
+  open: number;
+  threshold: number;
+  top1: number | null;
+  top5: number | null;
+  prefill_precision: number | null;
+}
+
+/** One row of the coverage/precision curve: what pre-filling at this
+ *  confidence bar would cover, and how often it would be right. */
+export interface MatchCurvePoint {
+  bar: number;
+  coverage: number;
+  precision: number;
+}
+
+export interface MatchMeasured {
+  measured_on: string;
+  n: number;
+  catalogue_skus: number;
+  labelled_lines_loaded: number;
+  note: string;
+  overall_top1: number;
+  overall_top5: number;
+  warm_top1: number;
+  warm_top5: number;
+  cold_top1: number;
+  cold_top5: number;
+  baseline: number;
+  overall_top1_name: number;
+  warm_top1_name: number;
+  cold_top1_name: number;
+  throughput_rows_per_s: number;
+  throughput_workers: number;
+  shared_name_share: number;
+  curve: MatchCurvePoint[];
+}
+
+export interface MatchBatchResponse {
+  lines: MatchedLine[];
+  batch: MatchBatchStats | null;
+  measured: MatchMeasured;
+  available: number;
+  cold_suppliers: string[];
+}

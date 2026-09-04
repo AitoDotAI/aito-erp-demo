@@ -55,6 +55,7 @@ const SECTIONS: NavSection[] = [
       { label: "Price Intelligence", href: "/pricing" },
       { label: "Demand Forecast", href: "/demand" },
       { label: "Inventory Intelligence", href: "/inventory", badge: 2, badgeRed: true },
+      { label: "Invoice Matching", href: "/matching" },
       { label: "Recommendations", href: "/recommendations" },
     ],
   },

@@ -42,6 +42,7 @@ from src.anomaly_service import get_demo_anomalies
 from src.supplier_service import get_supplier_intelligence
 from src.rulemining_service import mine_rules, get_rule_summary
 from src.catalog_service import get_incomplete, predict_attributes
+from src.matching_service import batch as match_batch
 from src.pricing_service import get_pricing_overview
 from src.demand_service import get_demand_forecast
 from src.inventory_service import get_inventory_status
@@ -629,6 +630,22 @@ def catalog_predict(body: dict, request: Request):
     result = enrichment.to_dict()
     cache.set(cache_key, result, ttl=300)
     return result
+
+
+@app.get("/api/matching/batch")
+def matching_batch(request: Request, size: int = 40, workers: int = 8,
+                   offset: int = 0):
+    """One run of the invoice-line matching queue, live.
+
+    Not cached on purpose. The throughput on this response is a
+    measurement of the run that produced it, and a cached measurement
+    is a claim about a moment that has passed. The batch is capped so
+    a public visitor cannot turn the demo into a load generator; the
+    standing rate limits do the rest.
+    """
+    tenant, aito = client_from_request(request)
+    return match_batch(aito, tenant, size=min(max(size, 1), 60),
+                       workers=min(max(workers, 1), 12), offset=offset)
 
 
 @app.get("/api/pricing/estimate")

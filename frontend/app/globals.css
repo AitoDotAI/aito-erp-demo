@@ -4189,3 +4189,84 @@ body {
   color: var(--red);
   margin-top: 4px;
 }
+
+/* ── Invoice Matching ───────────────────────────────────────────
+   The queue view. Nothing here invents a colour: chips reuse the
+   planner's provenance palette (.pl-chip-*) so "teal means Aito
+   said it" holds across both views. */
+
+.mt-controls {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+.mt-ctl { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--mid); }
+.mt-ctl select {
+  font-family: 'DM Mono', monospace; font-size: 12px;
+  padding: 4px 8px; border: 1px solid var(--line);
+  border-radius: 4px; background: #fff; color: var(--ink);
+}
+.mt-rate { font-size: 12px; color: var(--mid); }
+
+.mt-note {
+  padding: 14px 20px; font-size: 12px; line-height: 1.65;
+  color: var(--mid); background: #fbfaf6;
+}
+
+.mt-desc { color: var(--ink); max-width: 320px; }
+.mt-cold { margin-left: 7px; }
+.mt-ok { color: var(--green); text-align: center; font-weight: 600; }
+.mt-bad { color: var(--red); text-align: center; font-weight: 600; }
+
+.mt-open-row td { background: #fbfaf6 !important; padding: 0 !important; }
+.mt-shortlist { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+
+.mt-cand {
+  padding: 9px 12px; background: #fff;
+  border: 1px solid var(--line); border-radius: 5px;
+}
+/* The held-out answer, marked wherever it landed in the ranking. When
+   it is second, that is the interesting case and it should be visible
+   without counting rows. */
+.mt-cand-truth { border-color: var(--green); background: #f6fbf7; }
+.mt-cand-top { display: flex; align-items: baseline; gap: 10px; }
+.mt-cand-rank {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  color: var(--mid); min-width: 12px;
+}
+.mt-cand-name { font-weight: 500; font-size: 13px; flex: 1; }
+.mt-cand-sku { color: var(--mid); }
+.mt-cand-p { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 600; }
+.mt-cand .pl-chips { margin-top: 7px; }
+
+.mt-miss {
+  padding: 10px 12px; font-size: 12px; line-height: 1.6;
+  color: var(--mid); border: 1px dashed var(--line); border-radius: 5px;
+}
+
+.mt-measured {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 1px; background: var(--line);
+}
+.mt-measure { background: #fff; padding: 18px 20px; }
+/* The cold-start number is the argument, so it is not one of three
+   equals. */
+.mt-measure-hero { background: var(--gold-light); }
+.mt-measure-val {
+  font-family: 'DM Serif Display', serif; font-size: 30px;
+  color: var(--ink); line-height: 1.1;
+}
+.mt-measure-label { font-size: 12px; color: var(--ink); margin-top: 5px; }
+.mt-measure-sub { font-size: 11px; color: var(--mid); margin-top: 3px; }
+
+@media (max-width: 760px) {
+  .mt-measured { grid-template-columns: 1fr; }
+  .mt-desc { max-width: none; }
+}
+
+/* The coverage/precision curve sits inside the measured card, so it
+   drops the table's own top border and picks up the card's padding. */
+.mt-curve { border-top: 1px solid var(--line); }
+.mt-curve td, .mt-curve th { padding-left: 20px; }
+/* Indistinguishable, not wrong: neither green nor red. */
+.mt-same { color: var(--gold-dark); text-align: center; font-weight: 600; }

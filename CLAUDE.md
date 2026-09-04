@@ -76,6 +76,8 @@ These never relax.
 │   ├── supplier_service.py            # Supplier Intel (_relate)
 │   ├── rulemining_service.py          # Rule Mining (_relate)
 │   ├── catalog_service.py             # Catalog Intelligence (_predict)
+│   ├── matching_service.py            # Invoice Matching (_predict on a link)
+│   ├── match_eval.py                  # `./do match-eval` — held-out accuracy
 │   ├── pricing_service.py             # Price Intelligence (_estimate)
 │   ├── demand_service.py              # Demand Forecast (_estimate)
 │   ├── inventory_service.py           # Inventory Intelligence
@@ -94,6 +96,7 @@ These never relax.
 │   │   ├── supplier/page.tsx
 │   │   ├── rules/page.tsx
 │   │   ├── catalog/page.tsx
+│   │   ├── matching/page.tsx
 │   │   ├── pricing/page.tsx
 │   │   ├── demand/page.tsx
 │   │   ├── inventory/page.tsx
@@ -193,6 +196,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 ./do load-data        # Upload fixtures to Aito
 ./do reset-data       # Drop and reload all Aito tables
 ./do clear-cache      # Clear prediction cache
+./do match-eval       # Score invoice-line matching on the held-out split
 ./do test             # Run pytest
 ./do setup            # Sync Python + npm dependencies
 ./do check            # Pre-merge gate (test + fmt)
@@ -205,7 +209,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 
 ---
 
-## The 16 views
+## The 17 views
 
 ### Procurement
 1. **PO Queue** — pending POs with predicted cost center, account, approver
@@ -222,12 +226,17 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 8. **Price Intelligence** — fair price estimation + quote scoring
 9. **Demand Forecast** — consumption prediction with seasonality
 10. **Inventory Intelligence** — stockout alerts + reorder recommendations
-11. **Recommendations** — cross-sell (`_search` co-occurrence) + similar
+11. **Invoice Matching** — a supplier's invoice lines matched to
+    catalogue SKUs (`_predict sku`, a link into `products`). Aurora-only:
+    it needs a catalogue with metadata worth matching against. See
+    "Invoice matching" below — the case has more constraints on it than
+    the others, and they are the interesting part.
+12. **Recommendations** — cross-sell (`_search` co-occurrence) + similar
     products (`_match` over attributes). Aurora-only; Aito's flagship
     retail capability.
 
 ### Operations
-12. **Project Portfolio** — predicted success for each active project
+13. **Project Portfolio** — predicted success for each active project
     (`_predict success=true` over `projects`, no `team_members` in the
     where clause) plus a broad **Success factors** panel discovered by
     `_relate`: people from `assignments.person` (String — one row per
@@ -237,11 +246,11 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     display-only String) and `assignments` (canonical project_id ×
     person × role, with `project_type` and `project_success`
     denormalised for direct `_predict` / `_relate` filters).
-13. **Utilization & Capacity** — per-person current load + at-risk
+14. **Utilization & Capacity** — per-person current load + at-risk
     allocation + historical norm; "what if" forecast uses
     `_predict assignments.role|allocation_pct` filtered by the
     denormalised `project_type` column. Studio-only.
-14. **Engagement Planner** — a proposal (customer, scope, quote,
+15. **Engagement Planner** — a proposal (customer, scope, quote,
     duration, team size, site) in; a staffed team, a price check,
     delivery risk and a predicted customer objection out. Roles from
     `_predict assignments.role` — the role vocabulary is DISCIPLINES
@@ -370,14 +379,14 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     three roles. `_fill_seats` is a deliberate, documented greedy pass
     over Aito's ranking (no double-booking, skip the overloaded) and
     every seat stays overridable.
-15. **Revenue Outlook** — the order book spread over the coming months
+16. **Revenue Outlook** — the order book spread over the coming months
     by percentage-of-completion, then risk-adjusted by
     `_predict on_time` / `on_budget` per in-flight project. Answers
     "when does sold work turn into cash, and how much of that date do
     we believe". Metsä + Studio (Aurora hides it with `/projects`).
 
 ### Overview
-16. **Automation Overview** — coverage stats + learning curve
+17. **Automation Overview** — coverage stats + learning curve
 
 ---
 
@@ -397,6 +406,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | inventory_service | demand + stock | Days of supply + reorder |
 | project_service | `_predict` + `_relate` | Project success forecast + broad success factors (people from `assignments`, categoricals from `projects`) |
 | forecast_service | `_predict` ×2 | `on_time` / `on_budget` per in-flight project → risk-adjusted revenue by month |
+| matching_service | `_predict` (link target) | Invoice line → catalogue SKU, run as a batch |
 | planner_service | `_predict` ×N + `_search` | Role mix + people per role; delivery risk; `quotes.won` / `loss_reason` for the predicted objection |
 
 ---
@@ -423,6 +433,68 @@ unclear-scope, new-stack, small-client proposal the planner reports
 money at 16% and team happiness at 76%, and says nailing the scope
 buys +29 points of on-time while three more weeks buys nothing —
 because the problem was never duration.
+
+### Invoice matching, and the constraints it was built under
+
+A purchase invoice arrives with one row per product and no product id.
+The supplier wrote each line their own way, and somebody has to say
+which catalogue row it means. It is the most universally requested
+case on the prospect list, and it is one `_predict` — `sku` is a link
+into `products`, so a single call ranks catalogue ROWS and returns
+their columns, which is what lets the shortlist argue for itself
+instead of showing five bare identifiers.
+
+**The order was prototype → evaluate → demo, not prototype → demo →
+fix.** The second order is how another demo shipped a confident number
+nobody had checked. `./do match-eval` scores 2000 held-out lines that
+were never loaded, and it existed before the view did.
+
+**The training and test halves are generated together and only one is
+loaded.** `data/generate_invoice_lines.py` renders each catalogue name
+through the billing supplier's own style — uppercased, reordered,
+prefixed with their article number, translated, abbreviated, or cut
+down to an HS code with none of the name left. If the description were
+the catalogue name this would be a string join and would prove nothing.
+
+**Three suppliers exist only in the test half**, so cold start is
+measurable rather than asserted. It is reported as its own number
+because it is the argument: any matcher does well on a supplier whose
+lines it has seen a thousand times, and the question a finance team
+asks is what happens the first time a new supplier invoices.
+
+**The unit of work is a batch.** Lines arrive as documents, overnight
+and in bulk. The view runs the queue at N workers and puts throughput
+on screen, because the constraint on this shape of work is rows per
+hour and not the latency of any one line.
+
+**Nothing posts unattended, and the measurement is why.** The obvious
+demo is an auto-post threshold. The coverage/precision table says that
+bar does not exist here: tightened as far as it goes, the top pick is
+right 59% of the time, and no AP team signs off on four wrong lines in
+ten. So the claim is the smaller, real one — the *search* goes away.
+A clerk gets five ranked rows with the evidence attached instead of
+hunting 3200 SKUs, and for a supplier already in the history the right
+one is among them 65% of the time. `PRESELECT_THRESHOLD` decides only
+whether the top row arrives pre-filled or open; both end in front of a
+human. The table is on screen so a reader picks their own bar, and a
+test fails if the threshold ever stops matching a measured row.
+
+**The held-out label is shown on screen.** A production queue has no
+truth column. A demo that has one and hides it is asking to be
+trusted, and the ✗ rows are the honest half of the pitch.
+
+**Two things it must not claim.** The catalogue is 3200 SKUs, not
+20 000 — a real catalogue of that size is a harder problem, and the
+difference gets stated rather than glossed. And the data is generic
+retail goods: the case this was drawn from is a flower wholesaler with
+no NDA in place and unconfirmed volumes, so nothing here is modelled
+on it. Generic transfers to every other line-matching prospect anyway.
+
+**The ceiling is in the data.** Around half the catalogue rows share a
+name with another row, and where two SKUs are called the same thing no
+matcher can separate them. The harness prints that alongside the
+accuracy so the number is read against its ceiling — and it is why the
+honest output is a ranked shortlist rather than a single answer.
 
 ### Why `proposals` is its own table
 

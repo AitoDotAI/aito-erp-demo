@@ -46,6 +46,7 @@ from src.catalog_service import get_incomplete
 from src.demand_service import get_demand_forecast
 from src.inventory_service import get_inventory_status
 from src.forecast_service import get_outlook
+from src.matching_service import batch as match_batch
 from src.planner_service import plan_engagement, planner_options
 from src.overview_service import get_overview
 from src.po_service import demo_pos_for, predict_batch as predict_po_batch
@@ -108,6 +109,10 @@ VIEWS: tuple[View, ...] = (
          lambda c, t: get_demand_forecast(c, tenant=t)),
     View("inventory", "demand + _search",
          lambda c, t: get_inventory_status(c, tenant=t)),
+    # Two lines is enough to prove the query shape survives; this view
+    # is the only one whose probe cost scales with the batch size.
+    View("matching", "_predict (link target)",
+         lambda c, t: match_batch(c, t, size=2, workers=2)),
     View("recommendations", "_recommend + _match",
          lambda c, t: get_recommendation_overview(c)),
     View("projects", "_predict + _relate",
