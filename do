@@ -46,6 +46,7 @@ Commands:
   env-drop-v2     Delete each tenant's v2 env.
   load-data-v2    Load the fixtures into the v2 envs as collections
                   (accepts --tenant=<id|all>).
+  match-eval      Score line->SKU matching on the held-out half
   v2-check        Run every view's query shape against v2 and report
                   which pass, which break, and how.
   dev-v2          Start both servers against /api/v2.
@@ -314,6 +315,13 @@ cmd_env_drop_v2() { _for_each_tenant _env_drop_v2_one; }
 cmd_load_data_v2() {
   cd "$SCRIPT_DIR"
   uv run python -m src.data_loader --api-version=v2 "$@"
+}
+
+cmd_match_eval() {
+  # Scores invoice-line -> catalogue-SKU matching against the held-out
+  # half that was never loaded. Run this BEFORE trusting the view.
+  cd "$SCRIPT_DIR"
+  uv run python -m src.match_eval "$@"
 }
 
 cmd_v2_check() {
@@ -611,6 +619,7 @@ case "${1:-help}" in
   env-drop-v2)     cmd_env_drop_v2 ;;
   load-data-v2)    shift; cmd_load_data_v2 "$@" ;;
   v2-check)        shift; cmd_v2_check "$@" ;;
+  match-eval)      shift; cmd_match_eval "$@" ;;
   dev-v2)          cmd_dev_v2 ;;
   backend-dev-v2)  cmd_backend_dev_v2 ;;
   test)            cmd_test ;;

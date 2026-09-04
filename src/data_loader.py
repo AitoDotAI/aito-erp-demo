@@ -68,6 +68,39 @@ SCHEMAS = {
             "tax_class": {"type": "String", "nullable": True},
         },
     },
+    # Purchase-invoice lines, each labelled to the catalogue item it
+    # refers to. The label is the whole point: `description` is what the
+    # SUPPLIER wrote, `sku` is what it turned out to mean, and the two
+    # rarely share a spelling.
+    #
+    # `sku` links to `products.sku`, so `_predict sku` traverses the link
+    # and ranks catalogue ROWS — name, category, HS code, unit, price
+    # come back on each hit. That link is what carries a first invoice
+    # from a supplier with no history: the identifier is useless, and
+    # only the description text against the product's own metadata is
+    # left to match on.
+    #
+    # Only the TRAINING half is loaded. `invoice_lines_test.json` is
+    # held out for `./do match-eval` — loading it would measure recall
+    # of rows Aito has already seen.
+    "invoice_lines": {
+        "type": "table",
+        "columns": {
+            "line_id": {"type": "String", "nullable": False},
+            "invoice_id": {"type": "String", "nullable": False},
+            "billing_supplier": {"type": "String", "nullable": False},
+            # Text, not String: this is prose written by a stranger, and
+            # matching it means matching its tokens against the
+            # catalogue's.
+            "description": {"type": "Text", "nullable": False},
+            "quantity": {"type": "Int", "nullable": False},
+            "unit_of_measure": {"type": "String", "nullable": False},
+            "unit_price_eur": {"type": "Decimal", "nullable": False},
+            "line_amount_eur": {"type": "Decimal", "nullable": False},
+            "invoice_month": {"type": "String", "nullable": False},
+            "sku": {"type": "String", "nullable": False, "link": "products.sku"},
+        },
+    },
     "orders": {
         "type": "table",
         "columns": {
@@ -372,7 +405,7 @@ SCHEMAS = {
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
 OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences",
-                   "proposals", "deliveries"}
+                   "proposals", "deliveries", "invoice_lines"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:
