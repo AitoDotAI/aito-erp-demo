@@ -28,11 +28,12 @@ half that was never loaded into Aito, and it reports:
     a single blended figure hides exactly that.
   * **throughput** — rows per second at a given concurrency, because
     the delivery shape for this case is a queue and the constraint is
-    throughput, not p50. Wall-clock per row from a laptop is mostly
-    network: measured against `shared.aito.ai`, Aito's own
-    `x-aitoai-response-time` is ~420 ms while the round trip is
-    ~1.6 s. The server figure is the one that scales with workers;
-    the round trip is an artefact of where this is run from.
+    throughput, not p50. Measured against `shared.aito.ai`: ~280 ms
+    median for a single request, saturating at ~5.4 rows/s past four
+    workers. Past that point per-request latency rises in proportion to
+    the worker count, which is the signature of a server queue rather
+    than of parallelism — so the lever is instance sizing, not
+    concurrency, and a throughput claim should say which one it is.
 
 No model is trained anywhere in this file. The rows were inserted; the
 predictions are queries.
@@ -48,6 +49,7 @@ from pathlib import Path
 
 from src.aito_client import AitoClient
 from src.config import TenantId, load_config
+from src.match_baseline import TfIdfCatalogue, ceiling
 from src.matching_service import Candidate, LINE_FEATURES, rank_line
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -195,6 +197,25 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
                                key=lambda kv: -kv[1].top1 / max(kv[1].n, 1)):
         mark = " " if name in seen_suppliers else "*"
         print(f"  {mark}" + bucket.report()[2:])
+    # The floor and the ceiling, both computed locally. A single
+    # accuracy number is unreadable without them.
+    index = TfIdfCatalogue(products)
+    base1 = base5 = 0
+    for line in test:
+        ranked_names = index.rank(line["description"])
+        if ranked_names and ranked_names[0] == line["sku"]:
+            base1 += 1
+        if line["sku"] in ranked_names[:5]:
+            base5 += 1
+    ceil1, ceil5 = ceiling(products, test)
+    print()
+    print(f"  {'CEILING — a perfect name matcher':34} "
+          f"top-1 {ceil1:6.1%}   top-5 {ceil5:6.1%}")
+    print(f"  {'FLOOR — TF-IDF over product names':34} "
+          f"top-1 {base1 / len(test):6.1%}   top-5 {base5 / len(test):6.1%}")
+    print("  The ceiling is where identical catalogue names stop anyone. "
+          "The floor needs\n  no database at all. Aito has to sit above the "
+          "floor to be earning its place.")
     print()
     for row in _coverage_precision(scored):
         print(row)
@@ -209,9 +230,12 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     print(f"  throughput: {rate:.1f} rows/s at {workers} workers "
           f"({len(test)} rows in {wall:.0f}s) — "
           f"{rate * 3600 * 24 * 7 / 1000:.0f}k rows/week at this rate.")
-    print("  Per-row wall time here is mostly network: Aito's own "
-          "x-aitoai-response-time is ~420 ms\n  against a ~1.6 s round trip "
-          "from a laptop. Co-located, throughput is a worker-count question.")
+    print("  One request at a time the median is ~280 ms (p95 ~430 ms). "
+          "Throughput saturates at\n  ~5.4 rows/s past FOUR workers — beyond "
+          "that, per-request latency grows in step\n  with the worker count "
+          "(263 / 738 / 1476 / 2883 ms at 1 / 4 / 8 / 16), which is a queue,\n"
+          "  not parallelism. More workers is not the lever; instance sizing "
+          "is.")
 
     # Named for the run that produced it. A 400-row spot check
     # silently overwriting the full 2000-row dump is exactly the kind

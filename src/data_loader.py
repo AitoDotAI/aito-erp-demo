@@ -57,7 +57,12 @@ SCHEMAS = {
         "type": "table",
         "columns": {
             "sku": {"type": "String", "nullable": False},
-            "name": {"type": "String", "nullable": False},
+            # Text, not String. A catalogue name is the only description
+            # of a product the database has, and as a String it is an
+            # opaque atom: nothing can be matched against part of it.
+            # Invoice-line matching lives or dies on this — see
+            # "Invoice matching" in CLAUDE.md.
+            "name": {"type": "Text", "nullable": False},
             "supplier": {"type": "String", "nullable": True},
             "category": {"type": "String", "nullable": True},
             "unit_price": {"type": "Decimal", "nullable": True},
