@@ -801,6 +801,31 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         "office supplies":       (["A4", "A5", "A3"], ["Black", "Blue"]),
     }
 
+    # Origin and grade — the two attributes a real catalogue carries
+    # that a WHOLESALER also has an opinion about. They are what make
+    # "Ruusu (Kouvola)" and "Kala (kotimainen)" different rows, and what
+    # lets a vendor's own profile argue for one of them: a Kouvola
+    # grower invoices Kouvola stock, a premium importer does not sell
+    # the budget line. Without something of this shape, `billing_supplier`
+    # can only ever narrow the category, never the row.
+    ORIGINS = ["kotimainen", "lähituote", "tuonti", "Kouvola", "Turku",
+               "Tampere", "Oulu"]
+    GRADES = ["premium", "standard", "budget"]
+
+    # Alternative phrasings for the size axis. The invoice says
+    # "ruusu 40cm"; the catalogue calls it "Ruusu Pitkä" and its
+    # DESCRIPTION says "ruusu 40cm tai 50cm". The line is then matchable
+    # through the description even though it shares no size token with
+    # the name — which is the third route in, and the one a catalogue
+    # with tags or a spec blurb really does provide.
+    # A word for each rung of a size axis, by POSITION — so "8m" (third
+    # of five) reads as "pitkä". This is the `Ruusu Pitkä` case: the
+    # catalogue names the rung in words, the invoice quotes the
+    # measurement, and only the DESCRIPTION connects the two.
+    SIZE_WORDS = ["pieni", "keskikoko", "pitkä", "suuri", "erikoissuuri"]
+
+    seen_names: set[tuple[str, str]] = set()
+
     while len(products) < persona.n_products:
         counter += 1
         sku = f"SKU-{counter}"
@@ -859,9 +884,55 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         # discriminator between two otherwise identical rows.
         brand = f"{supplier} " if random.random() < 0.7 else ""
 
+        origin = random.choice(ORIGINS)
+        grade = random.choice(GRADES)
+
+        # Identity, and why it is split this way.
+        #
+        # An invoice quotes the product but NOT its origin — the vendor
+        # supplies that. So the pair that has to be unique is
+        # (base name, origin): the text carries the first, the vendor
+        # the second, and between them exactly one row is left. That is
+        # what makes the corpus answerable rather than merely hard.
+        #
+        # It was not unique before. template x variant x suffix x brand
+        # ran out of combinations well before 3200 rows, so half the
+        # catalogue shared a name and top-1 could not exceed 63% however
+        # good the matcher was. No human clerk can pick between two rows
+        # spelled identically either.
+        #
+        # When a base name IS taken for this origin, the discriminator
+        # goes into the BASE — "Mk2", the way a catalogue really writes
+        # one — so it reaches the invoice text. Hiding it in a trailing
+        # "#2" the invoice never repeats just moves the ambiguity.
+        base = brand + name + variant_text + suffix
+        mark = 2
+        while (base, origin) in seen_names:
+            base = f"{brand}{name}{variant_text} Mk{mark}{suffix}"
+            mark += 1
+        seen_names.add((base, origin))
+        full = f"{base} ({origin})"
+
+        # A short spec line. It carries the size BOTH ways — the figure
+        # the invoice is likely to quote and the word the name is likely
+        # to use — because that is the only thing connecting a line
+        # reading "40cm" to a row called "Pitkä". Everything else here
+        # is what a catalogue blurb would say anyway.
+        size_token = variant[0] if (variant and sizes
+                                    and variant[0] in sizes) else ""
+        size_word = SIZE_WORDS[sizes.index(size_token) % len(SIZE_WORDS)] \
+            if size_token else ""
+        described = [w for w in (
+            f"{size_token} tai {size_word}" if size_word else size_token,
+            *(v for v in variant if v != size_token), origin, grade) if w]
+        description = ", ".join([name.lower()] + described)
+
         products.append({
             "sku": sku,
-            "name": brand + name + variant_text + suffix,
+            "name": full,
+            "origin": origin,
+            "grade": grade,
+            "description": description,
             "supplier": supplier if "supplier" not in dropped else None,
             "category": cat if "category" not in dropped else None,
             "unit_price": round(random.uniform(*spec["price"]), 2) if "unit_price" not in dropped else None,
@@ -2367,9 +2438,10 @@ def write_persona(persona: PersonaSpec) -> None:
     # line-to-product matching to be a real problem rather than a lookup.
     invoice_lines: list[dict] = []
     invoice_lines_test: list[dict] = []
+    vendor_rows: list[dict] = []
     if persona.tenant_id == "aurora":
         from generate_invoice_lines import generate as generate_lines
-        invoice_lines, invoice_lines_test = generate_lines(products)
+        invoice_lines, invoice_lines_test, vendor_rows = generate_lines(products)
     quotes = generate_quotes(persona, projects) if persona.n_quotes else []
     absences = generate_absences(persona, people)
     proposals = generate_proposals(persona, people, projects)
@@ -2394,6 +2466,8 @@ def write_persona(persona: PersonaSpec) -> None:
         # NOT loaded into Aito — the held-out half `./do match-eval` scores.
         with open(out / "invoice_lines_test.json", "w") as f:
             json.dump(invoice_lines_test, f, indent=2, ensure_ascii=False)
+        with open(out / "vendors.json", "w") as f:
+            json.dump(vendor_rows, f, indent=2, ensure_ascii=False)
     if quotes:
         with open(out / "quotes.json",    "w") as f: json.dump(quotes,       f, indent=2, ensure_ascii=False)
 

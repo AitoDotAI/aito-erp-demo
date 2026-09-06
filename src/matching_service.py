@@ -47,6 +47,15 @@ from src.why_processor import process_factors
 LINE_FEATURES = ("description", "billing_supplier", "unit_of_measure",
                  "unit_price_eur", "quantity")
 
+# The vendor's own attributes, reached through the link on
+# `billing_supplier`. They matter most exactly where the vendor name is
+# worthless: a vendor invoicing for the FIRST time has no history under
+# its own name, but its city and market position are known from the
+# vendor master and are shared with vendors that do have history. That
+# is what lets a cold vendor inherit "a premium importer in Tallinn
+# sells rows like these" instead of starting from the base rate.
+VENDOR_FEATURES = ("city", "position", "sells_origin", "sells_grade")
+
 # Catalogue columns worth carrying back with the ranking. `sku` links to
 # `products.sku`, so Aito returns the matched row's own columns — but
 # only when they are named, because naming any `select` (which this
@@ -211,8 +220,8 @@ def _reasons(hit: dict, line: dict) -> list[dict]:
     return out
 
 
-def rank_line(client: AitoClient, line: dict, limit: int = 5
-              ) -> tuple[list[Candidate], float]:
+def rank_line(client: AitoClient, line: dict, limit: int = 5,
+              vendor: dict | None = None) -> tuple[list[Candidate], float]:
     """Rank catalogue SKUs for one invoice line. One query, no training.
 
     This is the whole matcher. `sku` links to `products.sku`, so the
@@ -221,6 +230,12 @@ def rank_line(client: AitoClient, line: dict, limit: int = 5
     itself rather than showing five bare identifiers.
     """
     where = {f: line[f] for f in LINE_FEATURES if line.get(f) is not None}
+    # Linked-field clauses on the vendor. `billing_supplier` links to
+    # `vendors`, so these are properties of WHO IS INVOICING, not of the
+    # line — and they are the only thing a first-time vendor brings.
+    for field in VENDOR_FEATURES:
+        if vendor and vendor.get(field) is not None:
+            where[f"billing_supplier.{field}"] = vendor[field]
     started = time.perf_counter()
     try:
         response = client.predict("invoice_lines", where, "sku", limit=limit,
@@ -294,13 +309,17 @@ class BatchResult:
 
 def run_batch(client: AitoClient, lines: list[dict], workers: int = 8,
               cold_suppliers: frozenset[str] = frozenset(),
-              names: dict[str, str] | None = None) -> BatchResult:
+              names: dict[str, str] | None = None,
+              vendors: dict[str, dict] | None = None) -> BatchResult:
     """Run the queue. Concurrency is the lever, because the constraint
     on this shape of work is throughput and not the latency of any one
     line — nobody is waiting at a screen for an overnight invoice run."""
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        ranked = list(pool.map(lambda line: rank_line(client, line), lines))
+        ranked = list(pool.map(
+            lambda line: rank_line(
+                client, line,
+                vendor=(vendors or {}).get(line["billing_supplier"])), lines))
     wall = time.perf_counter() - started
 
     matched = [
@@ -328,11 +347,13 @@ def run_batch(client: AitoClient, lines: list[dict], workers: int = 8,
 # the database when the question was asked, which is the only way a
 # confidence number on a demo means anything.
 
-_QUEUE: dict[str, tuple[list[dict], frozenset[str], dict[str, str]]] = {}
+_QUEUE: dict[str, tuple[list[dict], frozenset[str], dict[str, str],
+                        dict[str, dict]]] = {}
 
 
-def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str]]:
-    """Held-out invoice lines, which suppliers are cold, and SKU names.
+def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str],
+                                    dict[str, dict]]:
+    """Held-out lines, which vendors are cold, SKU names, vendor master.
 
     "Cold" is derived by comparing the two halves rather than declared,
     so it cannot drift out of step with the data the way a copied
@@ -346,7 +367,7 @@ def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str]]:
             # This tenant has no invoice lines at all — the view does
             # not apply to it, and the nav hides it. A deep link should
             # get an empty queue, not a 500.
-            _QUEUE[tenant] = ([], frozenset(), {})
+            _QUEUE[tenant] = ([], frozenset(), {}, {})
             return _QUEUE[tenant]
         if not test.exists():
             # Training data without the held-out half is a broken
@@ -363,7 +384,9 @@ def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str]]:
         cold = frozenset({line["billing_supplier"] for line in held_out} - seen)
         products = load_fixture("products", tenant) or []
         names = {p["sku"]: p.get("name", "") for p in products}
-        _QUEUE[tenant] = (held_out, cold, names)
+        vendors = {v["vendor"]: v
+                   for v in (load_fixture("vendors", tenant) or [])}
+        _QUEUE[tenant] = (held_out, cold, names, vendors)
     return _QUEUE[tenant]
 
 
@@ -379,17 +402,17 @@ def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str]]:
 # all.
 _MEASURED_SHARED = {
     "measured_on": "2026-09-06",
-    "n": 800,
+    "n": 600,
     "catalogue_skus": 3200,
-    "labelled_lines_loaded": 10000,
+    "labelled_lines_loaded": 60000,
     "baseline": 1 / 3200,
-    "shared_name_share": 0.516,
-    # An oracle that always picks the right NAME, and a TF-IDF index
-    # over the catalogue. The result has to be read between them.
-    "ceiling_top1": 0.634,
-    "ceiling_top5": 0.961,
-    "floor_top1": 0.425,
-    "floor_top5": 0.739,
+    # Zero, now. Every catalogue row has a distinct name, so nothing is
+    # unanswerable by construction and the ceiling is 100%.
+    "shared_name_share": 0.0,
+    "ceiling_top1": 1.0,
+    "ceiling_top5": 1.0,
+    "floor_top1": 0.472,
+    "floor_top5": 0.782,
     "note": (
         "3200 catalogue SKUs, not 20 000 — a real catalogue of that size "
         "is a harder problem and this number should not be read as "
@@ -397,49 +420,47 @@ _MEASURED_SHARED = {
     ),
 }
 
-# Per engine: overall / seen-before / cold, then the coverage-precision
-# curve the pre-fill bar is read off, then accuracy per regime.
 MEASURED_BY_ENGINE: dict[str, dict] = {
     "v1": {
         "engine": "rep1 (v1)",
-        "overall_top1": 0.306, "overall_top5": 0.646, "overall_top1_name": 0.439,
-        "warm_top1": 0.308, "warm_top5": 0.636, "warm_top1_name": 0.437,
-        "cold_top1": 0.303, "cold_top5": 0.667, "cold_top1_name": 0.442,
+        "overall_top1": 0.793, "overall_top5": 0.953, "overall_top1_name": 0.793,
+        "warm_top1": 0.888, "warm_top5": 0.978, "warm_top1_name": 0.888,
+        "cold_top1": 0.605, "cold_top5": 0.905, "cold_top1_name": 0.605,
         "throughput_rows_per_s": 5.4, "throughput_workers": 4,
         "curve": [
-            {"bar": 0.05, "coverage": 0.990, "precision": 0.309},
-            {"bar": 0.10, "coverage": 0.895, "precision": 0.330},
-            {"bar": 0.20, "coverage": 0.792, "precision": 0.361},
-            {"bar": 0.35, "coverage": 0.641, "precision": 0.404},
-            {"bar": 0.50, "coverage": 0.475, "precision": 0.476},
+            {"bar": 0.05, "coverage": 0.992, "precision": 0.795},
+            {"bar": 0.10, "coverage": 0.957, "precision": 0.789},
+            {"bar": 0.20, "coverage": 0.943, "precision": 0.795},
+            {"bar": 0.35, "coverage": 0.905, "precision": 0.816},
+            {"bar": 0.50, "coverage": 0.835, "precision": 0.830},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.048, "aito": 0.158, "tfidf": 0.0},
-            {"overlap": "1-33%", "share": 0.008, "aito": 0.167, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.194, "aito": 0.135, "tfidf": 0.090},
-            {"overlap": "67-99%", "share": 0.232, "aito": 0.280, "tfidf": 0.269},
-            {"overlap": "100%", "share": 0.519, "aito": 0.398, "tfidf": 0.665},
+            {"overlap": "0%", "share": 0.065, "aito": 0.821, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.015, "aito": 0.778, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.218, "aito": 0.718, "tfidf": 0.122},
+            {"overlap": "67-99%", "share": 0.243, "aito": 0.705, "tfidf": 0.342},
+            {"overlap": "100%", "share": 0.458, "aito": 0.873, "tfidf": 0.789},
         ],
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.365, "overall_top5": 0.680, "overall_top1_name": 0.502,
-        "warm_top1": 0.381, "warm_top5": 0.681, "warm_top1_name": 0.518,
-        "cold_top1": 0.333, "cold_top5": 0.678, "cold_top1_name": 0.472,
+        "overall_top1": 0.698, "overall_top5": 0.832, "overall_top1_name": 0.698,
+        "warm_top1": 0.845, "warm_top5": 0.942, "warm_top1_name": 0.845,
+        "cold_top1": 0.405, "cold_top5": 0.610, "cold_top1_name": 0.405,
         "throughput_rows_per_s": 5.4, "throughput_workers": 4,
         "curve": [
-            {"bar": 0.05, "coverage": 0.822, "precision": 0.412},
-            {"bar": 0.10, "coverage": 0.685, "precision": 0.458},
-            {"bar": 0.20, "coverage": 0.468, "precision": 0.519},
-            {"bar": 0.35, "coverage": 0.239, "precision": 0.686},
-            {"bar": 0.50, "coverage": 0.128, "precision": 0.814},
+            {"bar": 0.05, "coverage": 0.998, "precision": 0.699},
+            {"bar": 0.10, "coverage": 0.988, "precision": 0.707},
+            {"bar": 0.20, "coverage": 0.950, "precision": 0.730},
+            {"bar": 0.35, "coverage": 0.853, "precision": 0.775},
+            {"bar": 0.50, "coverage": 0.758, "precision": 0.824},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.048, "aito": 0.237, "tfidf": 0.0},
-            {"overlap": "1-33%", "share": 0.008, "aito": 0.0, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.194, "aito": 0.329, "tfidf": 0.090},
-            {"overlap": "67-99%", "share": 0.232, "aito": 0.323, "tfidf": 0.269},
-            {"overlap": "100%", "share": 0.519, "aito": 0.414, "tfidf": 0.665},
+            {"overlap": "0%", "share": 0.065, "aito": 0.897, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.015, "aito": 0.556, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.218, "aito": 0.634, "tfidf": 0.122},
+            {"overlap": "67-99%", "share": 0.243, "aito": 0.514, "tfidf": 0.342},
+            {"overlap": "100%", "share": 0.458, "aito": 0.804, "tfidf": 0.789},
         ],
     },
 }
@@ -455,13 +476,13 @@ def batch(client: AitoClient, tenant: str, size: int = 40, workers: int = 8,
           offset: int = 0) -> dict:
     """One run of the queue, measured."""
     measured = measured_for(client.api_version)
-    lines, cold, names = queue_for(tenant)
+    lines, cold, names, vendors = queue_for(tenant)
     if not lines:
         return {"lines": [], "batch": None, "measured": measured,
                 "available": 0}
     window = lines[offset % max(len(lines), 1):][:size]
     result = run_batch(client, window, workers=workers, cold_suppliers=cold,
-                       names=names)
+                       names=names, vendors=vendors)
     payload = result.to_dict()
     payload["measured"] = measured
     payload["available"] = len(lines)

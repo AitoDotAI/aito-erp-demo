@@ -26,6 +26,19 @@ import re
 # Split on anything that is not a letter or digit, Nordic vowels kept.
 _TOKEN = re.compile(r"[^0-9a-zä-öA-ZÄ-Ö]+")
 
+# A catalogue name ends with the origin qualifier it is filed under —
+# "Marimekko Dress L Navy (Turku)". An invoice never repeats that: the
+# VENDOR is where the origin comes from. So anything comparing a line
+# against a name compares against the part an invoice could actually
+# quote, or every line looks like a partial match and the regime
+# buckets stop meaning anything.
+_QUALIFIER = re.compile(r"\s*\([^)]*\)$")
+
+
+def base_name(name: str) -> str:
+    """The catalogue name without its origin qualifier."""
+    return _QUALIFIER.sub("", name or "").strip()
+
 
 def tokens(text: str | None) -> list[str]:
     return [t for t in _TOKEN.split((text or "").lower()) if t]
@@ -78,7 +91,7 @@ REGIMES = ("0%", "1-33%", "34-66%", "67-99%", "100%")
 
 def overlap(description: str, name: str) -> float:
     """Share of the catalogue name's tokens present in the description."""
-    name_tokens = set(tokens(name))
+    name_tokens = set(tokens(base_name(name)))
     if not name_tokens:
         return 0.0
     return len(name_tokens & set(tokens(description))) / len(name_tokens)

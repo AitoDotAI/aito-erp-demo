@@ -63,6 +63,16 @@ SCHEMAS = {
             # Invoice-line matching lives or dies on this — see
             # "Invoice matching" in CLAUDE.md.
             "name": {"type": "Text", "nullable": False},
+            # What a catalogue says about a row beyond its name: the
+            # sizes it covers, in words and figures. An invoice quoting
+            # "40cm" can reach a row called "Pitkä" through this and
+            # through nothing else.
+            "description": {"type": "Text", "nullable": True},
+            # The two attributes a WHOLESALER also has an opinion about,
+            # which is what lets a vendor argue for a particular row
+            # rather than merely a category.
+            "origin": {"type": "String", "nullable": True},
+            "grade": {"type": "String", "nullable": True},
             "supplier": {"type": "String", "nullable": True},
             "category": {"type": "String", "nullable": True},
             "unit_price": {"type": "Decimal", "nullable": True},
@@ -88,12 +98,32 @@ SCHEMAS = {
     # Only the TRAINING half is loaded. `invoice_lines_test.json` is
     # held out for `./do match-eval` — loading it would measure recall
     # of rows Aito has already seen.
+    # Who is invoicing, and what that tells you about what they sell.
+    #
+    # `billing_supplier` as a bare string on the line could only ever
+    # narrow the category. A vendor has a CITY and a market position,
+    # and those map onto product `origin` and `grade` — a Kouvola grower
+    # invoices Kouvola stock, a premium importer does not sell the
+    # budget line. That is the second route from a line to a row, and it
+    # cannot exist while the vendor is an opaque name.
+    "vendors": {
+        "type": "table",
+        "columns": {
+            "vendor": {"type": "String", "nullable": False},
+            "city": {"type": "String", "nullable": False},
+            "country": {"type": "String", "nullable": False},
+            "position": {"type": "String", "nullable": False},
+            "sells_origin": {"type": "String", "nullable": True},
+            "sells_grade": {"type": "String", "nullable": True},
+        },
+    },
     "invoice_lines": {
         "type": "table",
         "columns": {
             "line_id": {"type": "String", "nullable": False},
             "invoice_id": {"type": "String", "nullable": False},
-            "billing_supplier": {"type": "String", "nullable": False},
+            "billing_supplier": {"type": "String", "nullable": False,
+                                 "link": "vendors.vendor"},
             # Text, not String: this is prose written by a stranger, and
             # matching it means matching its tokens against the
             # catalogue's.
@@ -410,7 +440,7 @@ SCHEMAS = {
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
 OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences",
-                   "proposals", "deliveries", "invoice_lines"}
+                   "proposals", "deliveries", "invoice_lines", "vendors"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:

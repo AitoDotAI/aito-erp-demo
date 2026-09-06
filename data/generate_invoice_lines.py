@@ -3,31 +3,31 @@
 A purchase invoice arrives with one row per product. Somebody has to say
 which catalogue item each row refers to, and the row does not say: the
 supplier writes the description in their own words, their own order,
-their own language and often their own article code. An ERP catalogue
-of a few thousand items and a few dozen suppliers each with their own
-rendering is a text→id mapping nobody can maintain by hand.
+their own language and often their own article code.
 
-`data/aurora/purchases.json` is invoice HEADERS — one row per purchase,
-with a short free-text description and no link to a product. So the
-labelled pairs this case needs do not exist and have to be generated.
+**The answer is always derivable.** That is the point of this corpus and
+it took a rewrite to get right. A clerk doing this by hand is not
+guessing — the invoice, the vendor and the catalogue between them
+contain enough to identify exactly one row, and a matcher that cannot
+reach 90% is leaving information on the table. An earlier version of
+this file had 51.6% of the catalogue sharing a name with another row,
+which capped ANY matcher at 63% and made the corpus a test of luck.
 
-What makes the generated data worth anything:
+Three routes from a line to a row, and every line has at least one:
 
-  * **The description is never the catalogue name.** Each billing
-    supplier renders it through its own style — uppercased, reordered,
-    prefixed with their article number, translated, abbreviated to a
-    code. If the description were the name, the task would be a string
-    join and would prove nothing.
-
-  * **Some suppliers appear only in the test half.** A supplier seen
-    for the first time has no history at all, so an id lookup is
-    worthless and only the description text and the product's own
-    metadata can carry the prediction. That is the number worth
-    quoting, and it cannot be measured unless the split is built in.
-
-  * **Difficulty varies.** A few styles keep most of the name; one
-    keeps almost none. Reporting a single blended accuracy over a
-    corpus that is uniformly easy is how a demo flatters itself.
+  1. **The words.** Exact, a synonym, or the other language. `rose` ->
+     `Ruusu`. Learnable from history and from nothing else.
+  2. **The vendor.** A vendor has a city and a market position, and
+     those map onto the product's `origin` and `grade` — a Kouvola
+     grower invoices Kouvola stock, a premium importer does not sell
+     the budget line. This is what turns `billing_supplier` from a
+     category hint into a discriminator between two otherwise identical
+     rows. When a vendor sells outside its usual profile, the LINE says
+     so, so the information never simply vanishes.
+  3. **The description.** The catalogue's spec line carries the sizes a
+     row covers, in words and figures. An invoice quoting `40cm` can
+     reach a row named `Pitkä` through the description and through
+     nothing else.
 
 Deliberately generic. The case this was drawn from is a flower
 wholesaler, and modelling it on their data would be both a disclosure
@@ -38,120 +38,67 @@ other line-matching prospect, and a tulip does not.
 import json
 import random
 import re
+import sys
 import zlib
-from collections.abc import Callable
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent
 
-# Billing suppliers are NOT the catalogue's brand names. A wholesaler
-# invoices for many brands, which is exactly why the invoice-side text
-# drifts from the catalogue-side name.
+# Vendors, with the details that let them argue for a row.
 #
-# `style` is how this supplier writes a line. `cold` holds the supplier
-# out of the training half entirely, so its accuracy is measurable on
-# its own — the first invoice from a new supplier is the hard case and
-# the one prospects ask about.
-BILLING_SUPPLIERS = [
-    ("Pohjola Tukku Oy",        "as_is",          False),
-    ("Nordkalk Distribution",   "upper",          False),
-    ("Suomen Väline Oy",        "reorder",        False),
-    ("Baltic Trade House",      "article_prefix", False),
-    ("Kaakon Tukkuliike",       "translate",      False),
-    ("Meridian Supply",         "abbreviate",     False),
-    ("Lahden Keskusvarasto",    "noisy",          False),
-    ("Vellamo Wholesale",       "packsize",       False),
-    ("Aurinko Import Oy",       "translate",      False),
-    ("Halla Logistics",         "upper",          False),
-    ("Itämeri Tuonti Oy",       "article_prefix", False),
-    # Writes the whole line in Finnish. `rose` -> `ruusu`: the words
-    # that carry the meaning are replaced, so token overlap with the
-    # catalogue name goes to nearly zero and the ONLY route to the
-    # answer is history. This is the case the demo exists for.
-    ("Kukkatukku Salo Oy",      "translate_all",  False),
-    # Their own article number and nothing else — no name text at all.
-    # Stable per SKU (see `_render`), so it is learnable from history
-    # and a text index is provably 0%. The pure-history showcase, and
-    # deliberately NOT cold: a code seen for the first time is
-    # unlearnable for a second, uninteresting reason.
-    ("Ranta Tukku",             "code_only",      False),
-    # Writes the same product a different way each time — `Episode 2`,
-    # `Episode II`, `Episode 02`, `Ep 2`. Each form Aito has SEEN is a
-    # token pointing at the SKU; a form it has not seen has nothing to
-    # look up, and the identity boost is lexical so it will not bridge
-    # `II` to `2`. A known engine gap, here so it is measurable.
-    ("Variantti Oy",            "numeral_variant", False),
+# `sells_origin` / `sells_grade` are what this vendor normally deals in.
+# `style` is how they write a line. `cold` holds them out of the
+# training half entirely, so cold start is measurable on its own.
+VENDORS = [
+    # vendor, city, country, position, origin, grade, style, cold
+    ("Pohjola Tukku Oy",      "Kouvola",  "FI", "wholesale", "Kouvola",    "standard", "as_is",         False),
+    ("Nordkalk Distribution", "Turku",    "FI", "wholesale", "Turku",      "standard", "upper",         False),
+    ("Suomen Väline Oy",      "Tampere",  "FI", "specialist", "Tampere",   "premium",  "reorder",       False),
+    ("Baltic Trade House",    "Tallinn",  "EE", "importer",  "tuonti",     "budget",   "article_prefix", False),
+    ("Kaakon Tukkuliike",     "Kouvola",  "FI", "wholesale", "lähituote",  "standard", "synonym",       False),
+    ("Meridian Supply",       "Oulu",     "FI", "wholesale", "Oulu",       "standard", "abbreviate",    False),
+    ("Lahden Keskusvarasto",  "Tampere",  "FI", "wholesale", "kotimainen", "budget",   "noisy",         False),
+    ("Vellamo Wholesale",     "Turku",    "FI", "specialist", "Turku",     "premium",  "size_word",     False),
+    ("Aurinko Import Oy",     "Riga",     "LV", "importer",  "tuonti",     "standard", "translate_all", False),
+    ("Halla Logistics",       "Oulu",     "FI", "wholesale", "Oulu",       "budget",   "upper",         False),
+    ("Itämeri Tuonti Oy",     "Tallinn",  "EE", "importer",  "tuonti",     "premium",  "article_prefix", False),
+    ("Kukkatukku Salo Oy",    "Kouvola",  "FI", "specialist", "lähituote", "premium",  "translate_all", False),
+    ("Ranta Tukku",           "Kouvola",  "FI", "wholesale", "kotimainen", "standard", "code_only",     False),
+    ("Variantti Oy",          "Tampere",  "FI", "wholesale", "Tampere",    "standard", "numeral_variant", False),
     # Never seen in training. Their lines exist only in the test half.
-    ("Uusi Kanava Oy",          "reorder",        True),
-    ("Frontier Goods Ltd",      "abbreviate",     True),
-    ("Pohjoinen Kauppa Oy",     "translate_all",  True),
+    ("Uusi Kanava Oy",        "Turku",    "FI", "wholesale", "Turku",      "standard", "reorder",       True),
+    ("Frontier Goods Ltd",    "Riga",     "LV", "importer",  "tuonti",     "budget",   "abbreviate",    True),
+    ("Pohjoinen Kauppa Oy",   "Oulu",     "FI", "wholesale", "kotimainen", "premium",  "translate_all", True),
 ]
 
-# Head-noun substitutions. The point is a description that shares few
-# or no tokens with the catalogue name, which is where an id lookup
-# dies and product metadata has to carry the match.
-TRANSLATIONS = {
-    "bag": "laukku", "tote": "kassi", "mug": "muki", "towel": "pyyhe",
-    "lamp": "valaisin", "chair": "tuoli", "table": "pöytä",
-    "knife": "veitsi", "pan": "pannu", "pot": "kattila",
-    "shirt": "paita", "socks": "sukat", "jacket": "takki",
-    "coffee": "kahvi", "tea": "tee", "soap": "saippua",
-    "brush": "harja", "cable": "johto", "drill": "pora",
-    "paint": "maali", "shelf": "hylly", "candle": "kynttilä",
-    "bowl": "kulho", "plate": "lautanen", "glass": "lasi",
-    "cream": "voide", "shampoo": "shampoo", "cloth": "liina",
+# How often a vendor invoices something from its usual origin/grade.
+# Not 1.0: a vendor that ALWAYS sold one origin would make the column a
+# lookup rather than evidence. When they sell outside it, the line says
+# which origin — see `_render` — so the answer stays derivable either
+# way. That is the difference between a hard problem and an impossible
+# one, and this corpus is meant to be the first.
+ON_PROFILE = 0.85
+
+# Head-noun synonyms. A different word for the same thing, in the same
+# language — the `rose` / `rose stem` case rather than the `rose` /
+# `ruusu` one.
+SYNONYMS = {
+    "bag": "holdall", "tote": "carryall", "mug": "beaker", "towel": "cloth",
+    "lamp": "light", "chair": "seat", "table": "desk", "knife": "blade",
+    "pan": "skillet", "pot": "saucepan", "shirt": "top", "socks": "hosiery",
+    "jacket": "coat", "soap": "cleanser", "brush": "broom", "cable": "lead",
+    "drill": "driver", "paint": "coating", "shelf": "rack", "candle": "taper",
+    "bowl": "dish", "plate": "platter", "glass": "tumbler", "cream": "balm",
+    "cloth": "wipe", "box": "crate", "set": "kit", "speaker": "monitor",
+    "earbuds": "headset", "laptop": "notebook", "juice": "cordial",
+    "bread": "loaf", "butter": "spread", "cheese": "curd",
 }
-
-
-# What each wholesaler actually deals in.
-#
-# Without this, `billing_supplier` carries NO product signal: every
-# supplier was drawn against a uniform sample of the catalogue, so
-# `P(category | supplier)` was flat at ~1/7 and the column could argue
-# nothing. Real wholesalers specialise, and that specialisation is one
-# of the most legible things a `$why` tree can show a human — "this
-# supplier invoices Groceries 80% of the time" is a sentence a finance
-# lead believes.
-#
-# `(predicate, share)` — that share of the supplier's lines are drawn
-# from products the predicate accepts, the rest from the whole
-# catalogue. Deliberately partial: a supplier at 1.0 would turn the
-# column into a lookup rather than evidence.
-#
-# A predicate rather than a field/value pair because one of these is not
-# an attribute at all — Variantti only makes sense on products whose
-# name carries a version number to re-spell.
-def _in(field: str, value: str):
-    return lambda p: p.get(field) == value
-
-
-SUPPLIER_BIAS: dict[str, tuple[Callable[[dict], bool], float]] = {
-    "Kukkatukku Salo Oy":    (_in("category", "Groceries"),   0.80),
-    "Pohjoinen Kauppa Oy":   (_in("category", "Groceries"),   0.75),
-    "Nordkalk Distribution": (_in("category", "DIY"),         0.70),
-    "Suomen Väline Oy":      (_in("category", "DIY"),         0.65),
-    "Halla Logistics":       (_in("category", "Electronics"), 0.70),
-    "Aurinko Import Oy":     (_in("category", "Beauty"),      0.70),
-    "Vellamo Wholesale":     (_in("supplier", "Marimekko"),   0.60),
-    "Baltic Trade House":    (_in("supplier", "Tikkurila"),   0.55),
-    # Only products whose name carries a version token — the whole point
-    # of this supplier is re-spelling a number the catalogue already has.
-    "Variantti Oy":          (lambda p: bool(_HAS_VERSION.search(p.get("name") or "")),
-                              1.00),
-}
-
 
 # A covering Finnish vocabulary for the catalogue's own words. There are
 # only ~165 distinct tokens across 3200 product names, so a supplier who
 # writes in Finnish can be made to translate essentially ALL of the
-# meaning-carrying ones — which is the point. `TRANSLATIONS` above swaps
-# head nouns and leaves 95% of the tokens intact; this leaves almost
-# none, so token overlap with the catalogue name collapses and history
-# is the only route to the answer.
-#
-# Brands are deliberately absent: a brand name does not translate, and
-# leaving `Marimekko` alone is both realistic and a small honest crumb
-# of signal.
+# meaning-carrying ones. Brands are deliberately absent: a brand name
+# does not translate.
 VOCABULARY = {
     "black": "musta", "blue": "sininen", "silver": "hopea",
     "yellow": "keltainen", "natural": "luonnonvalkoinen", "navy": "laivastonsininen",
@@ -184,46 +131,45 @@ VOCABULARY = {
     "sausage": "makkara", "apple": "omena", "sugar": "sokeri", "salt": "suola",
 }
 
-# The SAME number the catalogue name already carries, written four ways:
-# `v2` -> `v2` / `vII` / `v02` / `v 2`. This is the RPA case — `Episode 2`,
-# `Episode II`, `Episode 02`, `E02` all name one thing.
-#
-# Aito learns each form it has SEEN as a token pointing at the SKU. A
-# form it has never seen has nothing to look up, and the identity boost
-# is lexical, so it will not bridge `II` to `2`. Bridging those needs
-# character or subword features; that belongs in the engine. It is here
-# so the gap is measurable rather than anecdotal.
 _ROMAN = ("", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
           "XI", "XII")
 
+# The SAME number the catalogue name already carries, written four ways:
+# the RPA case — `Episode 2`, `Episode II`, `Episode 02`, `E02` all name
+# one thing. Aito learns each form it has SEEN; a form it has not seen
+# has nothing to look up, and a lexical boost will not bridge `II` to
+# `2`. That is an engine gap, here so it is measurable.
 NUMERAL_FORMS = (
-    lambda n: f"v{n}",                                     # v2  (as catalogued)
-    lambda n: f"v{_ROMAN[n]}" if n < len(_ROMAN) else f"v{n}",   # vII
-    lambda n: f"v{n:02d}",                                 # v02
-    lambda n: f"v {n}",                                    # v 2
+    lambda n: f"v{n}",
+    lambda n: f"v{_ROMAN[n]}" if n < len(_ROMAN) else f"v{n}",
+    lambda n: f"v{n:02d}",
+    lambda n: f"v {n}",
 )
 
-# The version token the catalogue actually uses, e.g. the `v2` in
-# "Marimekko T-shirt XL v2".
 _VERSION = re.compile(r"^v(\d+)$", re.IGNORECASE)
-_HAS_VERSION = re.compile(r"\bv\d+\b", re.IGNORECASE)
+
+# `base_name` is defined once, in the evaluation harness, and imported
+# here. It decides what an invoice could quote from a catalogue name, so
+# a second copy in the generator would eventually disagree with the one
+# the scoring uses — and the numbers would move for a reason nobody
+# could see. This file is a script rather than a package member, so the
+# repo root has to go on the path first.
+sys.path.insert(0, str(DATA.parent))
+from src.match_baseline import base_name  # noqa: E402
 
 
 def _stable_code(sku: str, width: int = 6) -> str:
     """An article number that is the SAME every time this SKU appears.
 
-    The first version drew `rng.randint(10000, 99999)` per LINE, which
-    made the code pure noise: nothing could ever learn it, and it was
-    10% of the test set holding every headline number down. A supplier's
-    article number is a property of the PRODUCT, so it has to be a
-    function of the SKU and nothing else.
+    A supplier's article number is a property of the PRODUCT. Drawing it
+    per line made it pure noise that nothing could ever learn.
     """
     return str(zlib.crc32(sku.encode()) % (10 ** width))
 
 
-def _render(name: str, style: str, sku: str, hs_code: str,
-            rng: random.Random) -> str:
-    """One supplier's way of writing a catalogue item on an invoice."""
+def _render(product: dict, style: str, rng: random.Random) -> str:
+    """One vendor's way of writing a catalogue item on an invoice."""
+    name = base_name(product["name"])
     words = name.split()
 
     if style == "as_is":
@@ -234,42 +180,36 @@ def _render(name: str, style: str, sku: str, hs_code: str,
         shuffled = words[:]
         rng.shuffle(shuffled)
         return " ".join(shuffled)
-    if style == "article_prefix":
-        # Their own article number in front, and only part of the name.
-        #
-        # Derived from a hash of the SKU rather than from its digits: an
-        # earlier version spliced the catalogue number straight into the
-        # text, which put the answer in the input. Nothing exploited it —
-        # this supplier still scores 5% — but a demo whose evidence
-        # contains the label is not a demo anyone should believe.
-        article = f"{zlib.crc32(sku.encode()) % 900000 + 100000}"
-        return f"{article} {' '.join(words[:2])}"
-    if style == "translate":
-        out = [TRANSLATIONS.get(w.lower(), w) for w in words]
-        return " ".join(out).lower()
+    if style == "synonym":
+        return " ".join(SYNONYMS.get(w.lower(), w) for w in words)
+    if style == "translate_all":
+        return " ".join(VOCABULARY.get(w.lower(), w) for w in words).lower()
     if style == "abbreviate":
-        # First word intact, the rest cut to stems — a common shorthand
-        # that keeps just enough to be matchable.
         head, rest = words[0], words[1:]
         return " ".join([head] + [w[:4] for w in rest])
     if style == "noisy":
         return (f"{name.lower()}, {rng.randint(1, 24)} kpl, "
                 f"alv {rng.choice(['25,5', '14', '10'])}%")
-    if style == "packsize":
-        return f"{name} {rng.choice([6, 12, 24, 48])}-pack"
-    if style == "translate_all":
-        # Every word this supplier has a Finnish word for. Brands and
-        # sizes survive; the meaning does not.
-        return " ".join(VOCABULARY.get(w.lower(), w) for w in words).lower()
+    if style == "size_word":
+        # Writes the size as a WORD where the catalogue name gives a
+        # measurement — "8m" invoiced as "pitkä". Only the product's
+        # `description`, which carries "8m tai pitkä", connects the two.
+        # That is the third route in, and the one a catalogue with tags
+        # or a spec blurb really does provide.
+        pair = re.search(r"([^\s,]+) tai (\w+)",
+                         product.get("description") or "")
+        if not pair:
+            return name
+        measurement, word = pair.group(1), pair.group(2)
+        return " ".join(word if w == measurement else w for w in words)
+    if style == "article_prefix":
+        return f"{_stable_code(product['sku'])} {' '.join(words[:2])}"
     if style == "code_only":
-        # No name text at all — their article number and the HS code.
-        # STABLE per SKU, so history can learn it and a text index
-        # provably cannot: the pure-history case.
-        return f"ART {_stable_code(sku)} / {hs_code}"
+        # No name text at all. Their article number and the HS code —
+        # stable, so history can learn it and a text index provably
+        # cannot. The pure-history case.
+        return f"ART {_stable_code(product['sku'])} / {product['hs_code']}"
     if style == "numeral_variant":
-        # Rewrite the version token the NAME already carries, leaving
-        # every other word alone. Names without one are written plainly:
-        # inventing a number would make this a different test.
         out, touched = [], False
         for word in words:
             m = _VERSION.match(word)
@@ -282,63 +222,61 @@ def _render(name: str, style: str, sku: str, hs_code: str,
     raise ValueError(f"unknown rendering style: {style!r}")
 
 
-def generate(products: list[dict], *, n_train: int = 10000,
-             n_test: int = 2000, seed: int = 20260904) -> tuple[list, list]:
-    """Labelled invoice lines, split into a training half and a test half.
+def generate(products: list[dict], *, n_train: int = 60000,
+             n_test: int = 2000, seed: int = 20260906) -> tuple[list, list, list]:
+    """Labelled invoice lines, split into a training and a held-out half.
 
-    The test half is NOT loaded into Aito — it is the held-out set the
-    evaluation harness scores against. Loading it would measure how well
-    the database remembers rather than how well it generalises, which is
-    the mistake that makes a demo number worthless.
+    Returns `(train, test, vendors)`. The test half is NOT loaded into
+    Aito — loading it would measure how well the database remembers
+    rather than how well it generalises.
     """
     rng = random.Random(seed)
-    warm = [s for s in BILLING_SUPPLIERS if not s[2]]
-    cold = [s for s in BILLING_SUPPLIERS if s[2]]
+    vendors = [
+        {"vendor": v, "city": c, "country": k, "position": pos,
+         "sells_origin": origin, "sells_grade": grade}
+        for v, c, k, pos, origin, grade, _, _ in VENDORS
+    ]
+    warm = [v for v in VENDORS if not v[7]]
+    cold = [v for v in VENDORS if v[7]]
 
-    # ~4% of the catalogue is missing a price, an HS code or a unit —
-    # deliberately, because Catalog Intelligence exists to predict them.
-    # A line cannot be invoiced without a price, so those SKUs are not
-    # drawn from. Filtering here rather than defaulting the values keeps
-    # the gap visible where it belongs instead of inventing data.
+    # A line cannot be invoiced without a price, a unit or an HS code.
     sellable = [p for p in products
                 if p.get("unit_price") and p.get("hs_code")
                 and p.get("unit_of_measure") and p.get("name")]
     if not sellable:
         raise ValueError("no catalogue rows carry price, HS code and unit")
 
-    # Pre-bucket the catalogue per bias so the draw stays O(1) rather
-    # than filtering 3200 rows per line.
-    biased: dict[str, list[dict]] = {}
-    for who, (predicate, _) in SUPPLIER_BIAS.items():
-        biased[who] = [p for p in sellable if predicate(p)]
-        if not biased[who]:
-            raise ValueError(
-                f"{who} is biased toward a product subset that is empty — "
-                "the bias would silently do nothing.")
+    by_profile: dict[tuple[str, str], list[dict]] = {}
+    for p in sellable:
+        by_profile.setdefault((p.get("origin"), p.get("grade")), []).append(p)
 
-    def pick(supplier: tuple) -> dict:
-        """A product this supplier plausibly deals in."""
-        bias = SUPPLIER_BIAS.get(supplier[0])
-        if bias and rng.random() < bias[1]:
-            return rng.choice(biased[supplier[0]])
+    def pick(vendor: tuple) -> dict:
+        """A product this vendor plausibly deals in."""
+        pool = by_profile.get((vendor[4], vendor[5]))
+        if pool and rng.random() < ON_PROFILE:
+            return rng.choice(pool)
         return rng.choice(sellable)
 
-    def line(index: int, supplier: tuple, product: dict, prefix: str) -> dict:
-        name, style, _ = supplier
+    def line(index: int, vendor: tuple, product: dict, prefix: str) -> dict:
+        name, _, _, _, sells_origin, sells_grade, style, _ = vendor
+        text = _render(product, style, rng)
+        # If this vendor is invoicing something OUTSIDE its usual
+        # origin, the line names the origin. Real invoices do this, and
+        # it is what keeps the answer derivable when the vendor's own
+        # profile would point at the wrong row.
+        if product.get("origin") and product["origin"] != sells_origin:
+            text = f"{text} {product['origin'].lower()}"
+        if product.get("grade") and product["grade"] != sells_grade:
+            text = f"{text} {product['grade']}"
+
         quantity = rng.choice([1, 1, 2, 4, 6, 12, 24])
-        # Invoiced prices drift from the list price; a demo where the
-        # amount divides exactly into the catalogue price turns the
-        # match into arithmetic.
         unit_price = round(float(product["unit_price"])
                            * rng.uniform(0.88, 1.14), 2)
         return {
             "line_id": f"{prefix}-{index:06d}",
-            # Lines group into invoices the way they arrive — several
-            # products from one supplier on one document.
             "invoice_id": f"INV-{prefix}-{index // 7:05d}",
             "billing_supplier": name,
-            "description": _render(product["name"], style, product["sku"],
-                                   product["hs_code"], rng),
+            "description": text,
             "quantity": quantity,
             "unit_of_measure": product["unit_of_measure"],
             "unit_price_eur": unit_price,
@@ -348,40 +286,63 @@ def generate(products: list[dict], *, n_train: int = 10000,
         }
 
     def draw(pool: list[tuple], index: int, prefix: str) -> dict:
-        supplier = rng.choice(pool)
-        return line(index, supplier, pick(supplier), prefix)
+        vendor = rng.choice(pool)
+        return line(index, vendor, pick(vendor), prefix)
 
-    train = [draw(warm, i, "TRN") for i in range(n_train)]
-
-    # The test half is deliberately mixed: two thirds from suppliers the
-    # training half knows, one third from suppliers it has never seen.
-    # Both numbers get reported, and they are not the same number.
+    # History has to EXIST before it can be learned from. At 10000
+    # lines over 3200 SKUs the corpus averaged 4.2 lines per product,
+    # 795 products were never invoiced at all, and most of the rest had
+    # been written in exactly one vendor's style — so a line arriving in
+    # Finnish had a 50% chance that its product had never been written
+    # in Finnish before. Half the measured cold-start failures were that
+    # and nothing else.
+    #
+    # A real wholesaler invoices the same product weekly. 60000 lines is
+    # ~19 per SKU, which is still a modest year for one mid-size
+    # customer, and it is what makes the corpus answerable FROM HISTORY
+    # rather than only in principle.
+    #
+    # The seeding pass guarantees every sellable product appears, each
+    # under a different vendor: a product nobody ever invoiced cannot be
+    # matched from history by anyone, and leaving a quarter of the
+    # catalogue in that state measured the sampling, not the matcher.
+    train: list[dict] = []
+    index = 0
+    for product in sellable:
+        for vendor in rng.sample(warm, min(3, len(warm))):
+            train.append(line(index, vendor, product, "TRN"))
+            index += 1
+    while len(train) < n_train:
+        train.append(draw(warm, index, "TRN"))
+        index += 1
+    rng.shuffle(train)
+    # Two thirds from vendors the training half knows, one third from
+    # vendors it has never seen. Both get reported, separately.
     test = [draw(cold if i % 3 == 0 else warm, i, "TST")
             for i in range(n_test)]
-    return train, test
+    return train, test, vendors
 
 
 def main() -> None:
     out = DATA / "aurora"
     products = json.load(open(out / "products.json"))
-    train, test = generate(products)
+    train, test, vendors = generate(products)
 
-    with open(out / "invoice_lines.json", "w") as f:
-        json.dump(train, f, indent=2, ensure_ascii=False)
-    with open(out / "invoice_lines_test.json", "w") as f:
-        json.dump(test, f, indent=2, ensure_ascii=False)
+    for name, rows in (("invoice_lines", train), ("invoice_lines_test", test),
+                       ("vendors", vendors)):
+        with open(out / f"{name}.json", "w") as f:
+            json.dump(rows, f, indent=2, ensure_ascii=False)
 
-    cold_names = {s[0] for s in BILLING_SUPPLIERS if s[2]}
+    cold_names = {v[0] for v in VENDORS if v[7]}
     cold_lines = sum(1 for line in test
                      if line["billing_supplier"] in cold_names)
+    print(f"  vendors:            {len(vendors)}")
     print(f"  invoice_lines:      {len(train)} train (loaded into Aito)")
     print(f"  invoice_lines_test: {len(test)} held out — "
-          f"{cold_lines} of them from {len(cold_names)} unseen suppliers")
-    sellable = sum(1 for p in products
-                   if p.get("unit_price") and p.get("hs_code")
-                   and p.get("unit_of_measure") and p.get("name"))
-    print(f"  catalogue:          {len(products)} SKUs "
-          f"({sellable} complete enough to invoice)")
+          f"{cold_lines} of them from {len(cold_names)} unseen vendors")
+    names = {p["name"] for p in products}
+    print(f"  catalogue:          {len(products)} SKUs, "
+          f"{len(names)} distinct names")
 
 
 if __name__ == "__main__":

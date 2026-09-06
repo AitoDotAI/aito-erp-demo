@@ -143,6 +143,8 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     test = json.load(open(DATA / tenant / "invoice_lines_test.json"))
     train = json.load(open(DATA / tenant / "invoice_lines.json"))
     products = json.load(open(DATA / tenant / "products.json"))
+    vendors = {v["vendor"]: v
+               for v in json.load(open(DATA / tenant / "vendors.json"))}
     if limit:
         test = test[:limit]
 
@@ -160,7 +162,10 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     print(f"  scoring {len(test)} lines at {workers} workers…", flush=True)
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda line: (rank_line(client, line), line), test))
+        results = list(pool.map(
+            lambda line: (rank_line(client, line,
+                                    vendor=vendors.get(line["billing_supplier"])),
+                          line), test))
     wall = time.perf_counter() - started
 
     name_of = {p["sku"]: p.get("name") for p in products}

@@ -525,11 +525,44 @@ rep1's 26.8% and that was filed as core #1281; the `nameBoost` work in
 build attached to it, and `./do v2-check` proves query SHAPE, not
 accuracy, which is why it reported all 17 views green throughout.
 
-**The ceiling is in the data.** Around half the catalogue rows share a
-name with another row, and where two SKUs are called the same thing no
-matcher can separate them. The harness prints that alongside the
-accuracy so the number is read against its ceiling — and it is why the
-honest output is a ranked shortlist rather than a single answer.
+**The answer is always derivable, and that is the design.** A clerk
+doing this by hand is not guessing: the invoice, the vendor master and
+the catalogue between them identify exactly one row. An earlier corpus
+had half the catalogue sharing a name, which capped ANY matcher at 63%
+and made the case a test of luck rather than of inference. Every
+catalogue row now has a distinct name and the ceiling is 100%.
+
+Three routes in, and every line has at least one:
+
+  1. **The words** — exact, a synonym, or the other language
+     (`VOCABULARY`, `SYNONYMS`). `rose` → `Ruusu`.
+  2. **The vendor** — `vendors` carries a city and a market position,
+     which map onto product `origin` and `grade`. That is what makes
+     `billing_supplier` a discriminator between two otherwise identical
+     rows rather than a category hint, and it is reached through a
+     LINKED clause (`billing_supplier.sells_origin`), so a vendor
+     invoicing for the FIRST time still inherits "a premium importer in
+     Tallinn sells rows like these". When a vendor sells off its usual
+     profile the LINE names the origin, so the information never simply
+     vanishes.
+  3. **The description** — `products.description` carries the sizes a
+     row covers in words AND figures ("8m tai pitkä"), so a line
+     quoting `40cm` reaches a row named `Pitkä` through that and
+     nothing else.
+
+The pair that must be unique is **(base name, origin)**: the text
+carries the first, the vendor the second. When a base name is taken for
+an origin the discriminator goes into the BASE ("Mk2"), because hiding
+it in a trailing qualifier the invoice never repeats just moves the
+ambiguity somewhere it cannot be seen.
+
+**History has to exist before it can be learned from.** At 10 000 lines
+over 3200 SKUs the corpus averaged 4.2 per product, 795 products had
+never been invoiced at all, and a line arriving in Finnish had a 50%
+chance its product had never been written in Finnish — which was half
+the measured cold-start failure and nothing to do with the engine. It
+is 60 000 lines now, ~19 per SKU, with a seeding pass that guarantees
+every sellable product appears under three different vendors.
 
 ### Why `proposals` is its own table
 
