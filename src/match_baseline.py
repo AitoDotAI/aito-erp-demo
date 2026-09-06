@@ -70,6 +70,42 @@ class TfIdfCatalogue:
         return [sku for sku, _ in ordered[:limit]]
 
 
+# How much of the catalogue name survives into the invoice description.
+# The boundaries are arbitrary; what matters is that the SAME ones are
+# used everywhere, because the whole point is comparing like with like.
+REGIMES = ("0%", "1-33%", "34-66%", "67-99%", "100%")
+
+
+def overlap(description: str, name: str) -> float:
+    """Share of the catalogue name's tokens present in the description."""
+    name_tokens = set(tokens(name))
+    if not name_tokens:
+        return 0.0
+    return len(name_tokens & set(tokens(description))) / len(name_tokens)
+
+
+def regime(description: str, name: str) -> str:
+    """Which matching problem this line actually poses.
+
+    A line that repeats the catalogue name verbatim is a LOOKUP, and a
+    text index should win it. A line that shares no words with the name
+    can only be answered from history. Blending the two into one
+    accuracy figure averages a task the database is not needed for
+    against the task it exists for — so every number this harness
+    reports is also broken out this way.
+    """
+    share = overlap(description, name)
+    if share == 0:
+        return "0%"
+    if share <= 0.33:
+        return "1-33%"
+    if share <= 0.66:
+        return "34-66%"
+    if share < 1.0:
+        return "67-99%"
+    return "100%"
+
+
 def ceiling(products: list[dict], test: list[dict]) -> tuple[float, float]:
     """What an oracle that always identifies the right NAME would score.
 

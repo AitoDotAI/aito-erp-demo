@@ -379,8 +379,9 @@ export default function MatchingPage() {
                     <div className="card-head">
                       <div className="card-title">Measured before it was demoed</div>
                       <div className="card-meta">
-                        {m.n} held-out lines, {m.measured_on}. Run it yourself
-                        with <span className="mono">./do match-eval</span>.
+                        {m.n} held-out lines, {m.measured_on}, on{" "}
+                        <strong>{m.engine}</strong>. Run it yourself with{" "}
+                        <span className="mono">./do match-eval</span>.
                       </div>
                     </div>
                     <div className="mt-measured">
@@ -419,6 +420,44 @@ export default function MatchingPage() {
                       actually asks is what happens the first time a new
                       supplier invoices, and an overall number that averages
                       that in is a number that flatters.
+                    </div>
+                    <table className="tbl mt-curve">
+                      <thead>
+                        <tr>
+                          <th>How much of the name survives</th>
+                          <th style={{ textAlign: "right" }}>Share of lines</th>
+                          <th style={{ textAlign: "right" }}>Aito</th>
+                          <th style={{ textAlign: "right" }}>Text index</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {m.regimes.map((r) => (
+                          <tr key={r.overlap}>
+                            <td className="mono">{r.overlap}</td>
+                            <td className="mono" style={{ textAlign: "right" }}>
+                              {pct(r.share, 1)}
+                            </td>
+                            <td className="mono" style={{ textAlign: "right" }}>
+                              <strong>{pct(r.aito, 1)}</strong>
+                            </td>
+                            <td className="mono" style={{ textAlign: "right" }}>
+                              {pct(r.tfidf, 1)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="mt-note">
+                      <strong>Two different problems, one table.</strong> A line
+                      that repeats the catalogue name is a <em>lookup</em>, and
+                      a text index should win it — it does, {pct(m.regimes[m.regimes.length - 1].tfidf, 1)}{" "}
+                      to {pct(m.regimes[m.regimes.length - 1].aito, 1)}. Where the
+                      supplier writes in different words, only history can
+                      answer, and there a text index scores{" "}
+                      {pct(m.regimes[0].tfidf, 1)} against Aito&apos;s{" "}
+                      {pct(m.regimes[0].aito, 1)}. The shares are published next
+                      to the scores because a blended figure over a corpus whose
+                      composition we chose is worth nothing without them.
                     </div>
                     <table className="tbl mt-curve">
                       <thead>

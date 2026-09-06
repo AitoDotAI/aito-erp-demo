@@ -452,9 +452,31 @@ were never loaded, and it existed before the view did.
 **The training and test halves are generated together and only one is
 loaded.** `data/generate_invoice_lines.py` renders each catalogue name
 through the billing supplier's own style — uppercased, reordered,
-prefixed with their article number, translated, abbreviated, or cut
-down to an HS code with none of the name left. If the description were
-the catalogue name this would be a string join and would prove nothing.
+prefixed with their article number, written in Finnish, abbreviated, or
+cut down to an article code with none of the name left. If the
+description were the catalogue name this would be a string join and
+would prove nothing.
+
+**The corpus declares its regime mix, and `./do match-eval` prints it.**
+Bucketed by how much of the catalogue name survives into the line, this
+corpus is ~52% verbatim, ~19% partial, ~5% nothing-shared. That matters
+because they are different problems: a verbatim line is a LOOKUP a text
+index should win, and it does (66.5% to 41.4%); a line sharing no words
+can only be answered from history, where the text index scores 0.0% and
+Aito 23.7%. A single blended number averages the task Aito is not needed
+for against the task it exists for. Never reweight the mix until the
+database wins — publish the shares and report per regime.
+
+**Three properties the corpus needs, each learned by getting it wrong.**
+A supplier's article code must be STABLE per SKU (`_stable_code`) — the
+first version drew a fresh random number per line, which made it
+unlearnable by construction and dragged every headline down. A
+translating supplier must translate the WHOLE name (`VOCABULARY`, which
+covers the catalogue's ~165 tokens) — swapping head nouns only left 95%
+token overlap and tested nothing. And `billing_supplier` must actually
+predict something about the product (`SUPPLIER_BIAS`) — drawn uniformly
+it carried no signal at all, so the most legible thing a `$why` tree
+could show a human was absent from the data.
 
 **Three suppliers exist only in the test half**, so cold start is
 measurable rather than asserted. It is reported as its own number
@@ -490,16 +512,18 @@ retail goods: the case this was drawn from is a flower wholesaler with
 no NDA in place and unconfirmed volumes, so nothing here is modelled
 on it. Generic transfers to every other line-matching prospect anyway.
 
-**The numbers are v1 numbers, and on v2 they are not the same.**
-Predicting a 3200-value link target is where the two engines come
-apart: 26.8% top-1 on rep1 against 16.8% on rep2, with confidences a
-median 11x lower, on the same fixtures and the same build. It is not
-the Text clause (`$match` changes nothing on either engine) and not
-segment structure (`optimize` changes nothing) — it is core #1281, and
-`docs/v2-migration.md` carries the isolation. The rest of the demo
-does not show it because every other prediction targets a 5-to-14-value
-categorical, where a scoring difference has nowhere to become a wrong
-answer. Do not requote this view's numbers off a v2 run.
+**The numbers are per engine, and the view says which it is quoting.**
+rep1 and rep2 answer this query differently and rep2 is ahead in every
+regime (36.5% overall against 30.6%, and 32.9% against 13.5% where the
+words genuinely differ), so `MEASURED_BY_ENGINE` holds both and
+`measured_for(api_version)` picks. A single shared block would be wrong
+for whichever engine the demo is not running.
+
+This reversed once already: on core `38a234a6` rep2 scored 16.8% against
+rep1's 26.8% and that was filed as core #1281; the `nameBoost` work in
+2.8.0 turned it around. Two lessons worth keeping — a number here has a
+build attached to it, and `./do v2-check` proves query SHAPE, not
+accuracy, which is why it reported all 17 views green throughout.
 
 **The ceiling is in the data.** Around half the catalogue rows share a
 name with another row, and where two SKUs are called the same thing no

@@ -49,7 +49,7 @@ from pathlib import Path
 
 from src.aito_client import AitoClient
 from src.config import TenantId, load_config
-from src.match_baseline import TfIdfCatalogue, ceiling
+from src.match_baseline import REGIMES, TfIdfCatalogue, ceiling, regime
 from src.matching_service import Candidate, LINE_FEATURES, rank_line
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -216,6 +216,28 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     print("  The ceiling is where identical catalogue names stop anyone. "
           "The floor needs\n  no database at all. Aito has to sit above the "
           "floor to be earning its place.")
+    # Per regime, because a blended figure over a corpus whose
+    # composition we chose is worthless whichever way it points.
+    names = {p["sku"]: p.get("name", "") for p in products}
+    per: dict[str, list[bool]] = {r: [] for r in REGIMES}
+    per_base: dict[str, list[bool]] = {r: [] for r in REGIMES}
+    for (ranked, _), line in results:
+        r = regime(line["description"], names.get(line["sku"], ""))
+        per[r].append(bool(ranked) and ranked[0].sku == line["sku"])
+        base = index.rank(line["description"])
+        per_base[r].append(bool(base) and base[0] == line["sku"])
+    print()
+    print("  by regime — how much of the catalogue name survives into the line:")
+    print(f"  {'overlap':10} {'n':>5} {'share':>7}   {'Aito':>7} {'TF-IDF':>7}")
+    for r in REGIMES:
+        hits = per[r]
+        if not hits:
+            continue
+        print(f"  {r:10} {len(hits):>5} {len(hits) / len(test):>7.1%}   "
+              f"{sum(hits) / len(hits):>7.1%} "
+              f"{sum(per_base[r]) / len(per_base[r]):>7.1%}")
+    print("  A 100% line is a LOOKUP and a text index should win it. The rows")
+    print("  above it are where history is the only route to the answer.")
     print()
     for row in _coverage_precision(scored):
         print(row)

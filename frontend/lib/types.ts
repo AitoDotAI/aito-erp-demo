@@ -906,7 +906,24 @@ export interface MatchCurvePoint {
   precision: number;
 }
 
+/** Accuracy in one matching regime, and how much of the corpus it is.
+ *  Published together on purpose: a blended figure over a corpus whose
+ *  composition we chose is meaningless without the shares. */
+export interface MatchRegime {
+  overlap: string;
+  share: number;
+  aito: number;
+  tfidf: number;
+}
+
 export interface MatchMeasured {
+  /** Which engine these numbers describe — rep1 and rep2 differ. */
+  engine: string;
+  ceiling_top1: number;
+  ceiling_top5: number;
+  floor_top1: number;
+  floor_top5: number;
+  regimes: MatchRegime[];
   measured_on: string;
   n: number;
   catalogue_skus: number;

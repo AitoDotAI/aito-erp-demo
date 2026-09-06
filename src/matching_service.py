@@ -367,43 +367,29 @@ def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str]]:
     return _QUEUE[tenant]
 
 
-# Measured by `./do match-eval` over the full 2000-line held-out split.
-# Restated here because the view quotes them and a screen quoting a
-# number with no provenance is how the 4.9 figure got quoted after the
-# thing it measured had changed. Re-run the harness and update this
-# block together, or not at all.
-MEASURED = {
-    "measured_on": "2026-09-04",
-    "n": 2000,
+# Measured by `./do match-eval` over the held-out split, 2026-09-06,
+# on the reformulated corpus. Restated here because the view quotes
+# them, and a screen quoting a number with no provenance is how a stale
+# figure gets requoted after the thing it measured has changed.
+#
+# Split by engine ON PURPOSE. rep1 and rep2 answer this query
+# differently — rep2 is ahead in every regime — so a single set of
+# numbers would be wrong for whichever engine the demo is not running.
+# Re-run the harness and update the matching block together, or not at
+# all.
+_MEASURED_SHARED = {
+    "measured_on": "2026-09-06",
+    "n": 800,
     "catalogue_skus": 3200,
     "labelled_lines_loaded": 10000,
-    "overall_top1": 0.286,
-    "overall_top5": 0.555,
-    "warm_top1": 0.343,
-    "warm_top5": 0.648,
-    "cold_top1": 0.174,
-    "cold_top5": 0.369,
-    # Exact SKU, or a SKU whose catalogue name is identical to the right
-    # answer's. Kept as a separate, weaker claim rather than folded into
-    # top-1: it counts picks the data could not have separated, which is
-    # a fact about the catalogue and not a match the ranker made.
-    "overall_top1_name": 0.415,
-    "warm_top1_name": 0.492,
-    "cold_top1_name": 0.262,
-    "throughput_rows_per_s": 3.1,
-    "throughput_workers": 12,
     "baseline": 1 / 3200,
     "shared_name_share": 0.516,
-    # Straight off the harness. On screen so a reader picks their own
-    # bar instead of being handed one — and so the reason nothing
-    # auto-posts is visible rather than asserted.
-    "curve": [
-        {"bar": 0.05, "coverage": 0.847, "precision": 0.336},
-        {"bar": 0.10, "coverage": 0.727, "precision": 0.371},
-        {"bar": 0.20, "coverage": 0.549, "precision": 0.433},
-        {"bar": 0.35, "coverage": 0.367, "precision": 0.505},
-        {"bar": 0.50, "coverage": 0.222, "precision": 0.593},
-    ],
+    # An oracle that always picks the right NAME, and a TF-IDF index
+    # over the catalogue. The result has to be read between them.
+    "ceiling_top1": 0.634,
+    "ceiling_top5": 0.961,
+    "floor_top1": 0.425,
+    "floor_top5": 0.739,
     "note": (
         "3200 catalogue SKUs, not 20 000 — a real catalogue of that size "
         "is a harder problem and this number should not be read as "
@@ -411,19 +397,73 @@ MEASURED = {
     ),
 }
 
+# Per engine: overall / seen-before / cold, then the coverage-precision
+# curve the pre-fill bar is read off, then accuracy per regime.
+MEASURED_BY_ENGINE: dict[str, dict] = {
+    "v1": {
+        "engine": "rep1 (v1)",
+        "overall_top1": 0.306, "overall_top5": 0.646, "overall_top1_name": 0.439,
+        "warm_top1": 0.308, "warm_top5": 0.636, "warm_top1_name": 0.437,
+        "cold_top1": 0.303, "cold_top5": 0.667, "cold_top1_name": 0.442,
+        "throughput_rows_per_s": 5.4, "throughput_workers": 4,
+        "curve": [
+            {"bar": 0.05, "coverage": 0.990, "precision": 0.309},
+            {"bar": 0.10, "coverage": 0.895, "precision": 0.330},
+            {"bar": 0.20, "coverage": 0.792, "precision": 0.361},
+            {"bar": 0.35, "coverage": 0.641, "precision": 0.404},
+            {"bar": 0.50, "coverage": 0.475, "precision": 0.476},
+        ],
+        "regimes": [
+            {"overlap": "0%", "share": 0.048, "aito": 0.158, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.008, "aito": 0.167, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.194, "aito": 0.135, "tfidf": 0.090},
+            {"overlap": "67-99%", "share": 0.232, "aito": 0.280, "tfidf": 0.269},
+            {"overlap": "100%", "share": 0.519, "aito": 0.398, "tfidf": 0.665},
+        ],
+    },
+    "v2": {
+        "engine": "rep2 (v2)",
+        "overall_top1": 0.365, "overall_top5": 0.680, "overall_top1_name": 0.502,
+        "warm_top1": 0.381, "warm_top5": 0.681, "warm_top1_name": 0.518,
+        "cold_top1": 0.333, "cold_top5": 0.678, "cold_top1_name": 0.472,
+        "throughput_rows_per_s": 5.4, "throughput_workers": 4,
+        "curve": [
+            {"bar": 0.05, "coverage": 0.822, "precision": 0.412},
+            {"bar": 0.10, "coverage": 0.685, "precision": 0.458},
+            {"bar": 0.20, "coverage": 0.468, "precision": 0.519},
+            {"bar": 0.35, "coverage": 0.239, "precision": 0.686},
+            {"bar": 0.50, "coverage": 0.128, "precision": 0.814},
+        ],
+        "regimes": [
+            {"overlap": "0%", "share": 0.048, "aito": 0.237, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.008, "aito": 0.0, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.194, "aito": 0.329, "tfidf": 0.090},
+            {"overlap": "67-99%", "share": 0.232, "aito": 0.323, "tfidf": 0.269},
+            {"overlap": "100%", "share": 0.519, "aito": 0.414, "tfidf": 0.665},
+        ],
+    },
+}
+
+
+def measured_for(api_version: str) -> dict:
+    """The measured block for the engine actually answering the queries."""
+    engine = MEASURED_BY_ENGINE.get(api_version) or MEASURED_BY_ENGINE["v1"]
+    return {**_MEASURED_SHARED, **engine}
+
 
 def batch(client: AitoClient, tenant: str, size: int = 40, workers: int = 8,
           offset: int = 0) -> dict:
     """One run of the queue, measured."""
+    measured = measured_for(client.api_version)
     lines, cold, names = queue_for(tenant)
     if not lines:
-        return {"lines": [], "batch": None, "measured": MEASURED,
+        return {"lines": [], "batch": None, "measured": measured,
                 "available": 0}
     window = lines[offset % max(len(lines), 1):][:size]
     result = run_batch(client, window, workers=workers, cold_suppliers=cold,
                        names=names)
     payload = result.to_dict()
-    payload["measured"] = MEASURED
+    payload["measured"] = measured
     payload["available"] = len(lines)
     payload["cold_suppliers"] = sorted(cold)
     return payload

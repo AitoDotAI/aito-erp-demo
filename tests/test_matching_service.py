@@ -8,8 +8,8 @@ held-out label is scored rather than assumed.
 """
 
 from src.matching_service import (
-    MEASURED, PRESELECT_THRESHOLD, BatchResult, Candidate, MatchedLine,
-    _reasons, _terms,
+    MEASURED_BY_ENGINE, PRESELECT_THRESHOLD, BatchResult, Candidate,
+    MatchedLine, _reasons, _terms, measured_for,
 )
 
 
@@ -98,11 +98,43 @@ def test_confidence_decides_whether_the_top_pick_is_pre_filled():
 def test_the_threshold_is_read_off_the_measured_curve():
     """The bar is not a taste decision. If someone moves it, the number
     the view quotes beside it has to still be a measured one — a
-    threshold with no row in the table is a threshold nobody checked."""
-    bars = [row["bar"] for row in MEASURED["curve"]]
-    assert PRESELECT_THRESHOLD in bars, (
-        f"PRESELECT_THRESHOLD={PRESELECT_THRESHOLD} has no measured row. "
-        f"Re-run `./do match-eval` and add it to MEASURED['curve'].")
+    threshold with no row in the table is a threshold nobody checked.
+    Both engines, because the view runs on either."""
+    for engine, block in MEASURED_BY_ENGINE.items():
+        bars = [row["bar"] for row in block["curve"]]
+        assert PRESELECT_THRESHOLD in bars, (
+            f"PRESELECT_THRESHOLD={PRESELECT_THRESHOLD} has no measured row "
+            f"for {engine}. Re-run `./do match-eval` on that engine and add "
+            f"it to MEASURED_BY_ENGINE['{engine}']['curve'].")
+
+
+def test_the_view_quotes_the_engine_it_is_actually_running_on():
+    """rep1 and rep2 answer this query differently — rep2 is ahead in
+    every regime. One shared set of numbers would be wrong for whichever
+    engine the demo is not running, so the block is selected by version
+    and says which one it describes."""
+    v1, v2 = measured_for("v1"), measured_for("v2")
+    assert v1["engine"] != v2["engine"]
+    assert v1["overall_top1"] != v2["overall_top1"]
+    # Shared facts about the DATA are the same on both — they are not
+    # a property of the engine.
+    assert v1["ceiling_top1"] == v2["ceiling_top1"]
+    assert v1["floor_top1"] == v2["floor_top1"]
+    # An unknown version must not silently return nothing.
+    assert measured_for("v9")["engine"] == v1["engine"]
+
+
+def test_every_regime_declares_its_share_of_the_corpus():
+    """The honesty constraint: a blended accuracy over a corpus whose
+    composition we chose is worthless without the shares it was blended
+    from, and reweighting until the database wins is exactly the failure
+    this guards against."""
+    for engine, block in MEASURED_BY_ENGINE.items():
+        shares = [r["share"] for r in block["regimes"]]
+        assert abs(sum(shares) - 1.0) < 0.02, (
+            f"{engine} regime shares sum to {sum(shares):.3f}, not 1.0")
+        for row in block["regimes"]:
+            assert {"overlap", "share", "aito", "tfidf"} <= set(row)
 
 
 def test_the_batch_scores_what_it_pre_filled():
