@@ -91,15 +91,65 @@ segment silently rewrites production and returns `200 OK`. The v2
 loader drops and recreates every table, so it refuses to run against a
 URL with no `/env/` segment (`data_loader._assert_env_scoped`).
 
-## Current state
+## Current state — readiness review, 2026-09-08, core 2.8.0
 
-`./do v2-check --tenant=all` → **42 ok · 0 empty · 0 broken**. All
-fourteen views work on all three personas, using every query type the
-demo exercises: `_predict`, `_evaluate`, `_relate`, `_search`,
-`_recommend`, `_query`.
+`./do v2-check --tenant=all` → **49 ok · 0 partial · 0 empty · 0
+broken**, and the v1 sweep is identical. All seventeen views work on
+all three personas, using every query type the demo exercises.
 
-The v1 sweep (`./do v2-check --api-version=v1`) is green too, so the
-shared service code runs on both surfaces.
+**But the sweep only proves query SHAPE.** It reported green throughout
+the week in which rep2 lost 10 points of matching accuracy and got it
+back again, so it cannot answer "can we deploy". Three things were
+measured that it does not cover.
+
+**Answers agree.** `_evaluate` over 200 held-out rows per tenant, the
+three fields the demo leads with:
+
+| tenant | field | v1 | v2 | Δ |
+|---|---|---|---|---|
+| metsä | cost_center / approver / account_code | 93.5 / 91.5 / 92.0 | 93.5 / 91.5 / 91.0 | ≤1pt |
+| aurora | cost_center / approver / account_code | 95.5 / 69.5 / 95.0 | 95.5 / 69.0 / 95.0 | ≤0.5pt |
+| studio | cost_center | 96.0 | **91.0** | **−5.0** |
+| studio | approver | 77.5 | **81.5** | **+4.0** |
+
+Seven of nine within two points. Both studio deltas are ten rows at
+n=200 on the smallest corpus in the demo (970 purchases), and they
+point in opposite directions, so this reads as sample noise rather than
+a regression — but it is the one thing to re-check before promoting,
+because studio is the persona a consultancy prospect sees.
+
+**Warm latency is a non-issue.** Every view, every tenant, both
+engines: **v2 totals 0.87× of v1**, per-view median 0.95×. Two first-run
+outliers (planner/studio 4.33×, approval/aurora 3.48×) disappear on a
+warm repeat — 1.11× and 1.15×.
+
+**Cold start is the real risk, and it is §9 again.** That planner/studio
+first touch was **29.6 s** against 5.4 s warm. Non-master envs are
+evictable, so a quiet demo on `/env/v2` pays that on the first click of
+a session. This is the argument for not lingering between steps 1 and 2
+below; it is not a v2 defect, it is where the data is parked.
+
+**One new operational hazard: core #1303.** 2.8.0 could not read rep2
+collections written by `38a234a6` — a plain `_search` answered 500 with
+a garbage index, empty collections included, and the only fix was to
+drop and reload. Every v2 env here has been rebuilt since, so the demo
+is clean. The lesson to carry: **a core upgrade may orphan a deployed
+v2 env with no warning**, and the recovery is a full reload. On
+`master` that is not a thing you want to discover live.
+
+**Where the two engines genuinely differ: Invoice Matching.** rep1 79.3%
+top-1 overall against rep2's 69.8%, and 60.5% vs 40.5% cold — but rep2
+wins the pure-history regime, 89.7% against rep1's 82.1% where no name
+text survives at all. `MEASURED_BY_ENGINE` holds both sets and the view
+labels which it is quoting, so this does not block a deploy; it just
+means the screenshot changes.
+
+### Verdict
+
+Functionally ready. `AITO_API_VERSION=v2` against the existing `/env/v2`
+URLs would work today on all three personas. Before promoting to
+`master`: re-check the studio `cost_center` delta on a larger sample,
+and be aware that #1303 makes a future core upgrade a reload event.
 
 ---
 
