@@ -345,6 +345,14 @@ cmd_test() {
   uv run pytest tests/ -v
 }
 
+cmd_booktest_matching() {
+  # Invoice-line matching quality. Offline tests protect the fixture
+  # properties that make the case answerable at all; live tests score
+  # the held-out half against the claims the view makes.
+  cd "$SCRIPT_DIR"
+  uv run pytest tests/test_matching_booktest.py -v "$@"
+}
+
 cmd_booktest() {
   # Project portfolio quality tests. Offline tests check the fixture
   # data carries the engineered signal; live tests (requires
@@ -624,6 +632,7 @@ case "${1:-help}" in
   backend-dev-v2)  cmd_backend_dev_v2 ;;
   test)            cmd_test ;;
   booktest)        shift; cmd_booktest "$@" ;;
+  booktest-matching) shift; cmd_booktest_matching "$@" ;;
   fmt)             cmd_fmt ;;
   check)           cmd_check ;;
   npm-install)     cmd_npm_install ;;

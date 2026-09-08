@@ -197,6 +197,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 ./do reset-data       # Drop and reload all Aito tables
 ./do clear-cache      # Clear prediction cache
 ./do match-eval       # Score invoice-line matching on the held-out split
+./do booktest-matching # Matching fixture-signal + live Aito backtest
 ./do test             # Run pytest
 ./do setup            # Sync Python + npm dependencies
 ./do check            # Pre-merge gate (test + fmt)
@@ -555,6 +556,17 @@ carries the first, the vendor the second. When a base name is taken for
 an origin the discriminator goes into the BASE ("Mk2"), because hiding
 it in a trailing qualifier the invoice never repeats just moves the
 ambiguity somewhere it cannot be seen.
+
+**`./do booktest-matching` guards all of the above.** Nine offline
+tests assert the properties that make the case answerable — distinct
+names, (base, origin) unique, every sellable product invoiced, article
+codes stable, the split genuinely held out, cold vendors absent from
+training, a real vendor→origin correlation, descriptions carrying both
+size forms, every style represented — and four live tests score the
+held-out half against the claims the view makes. Every one of those
+nine is a mistake this corpus actually shipped with at some point, and
+none of them looked like a bug from the outside: they all looked like a
+mediocre database.
 
 **History has to exist before it can be learned from.** At 10 000 lines
 over 3200 SKUs the corpus averaged 4.2 per product, 795 products had
