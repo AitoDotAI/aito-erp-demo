@@ -3555,13 +3555,16 @@ body {
 }
 @keyframes sf-fade { from { opacity: 0.4; } to { opacity: 1; } }
 
+/* Evidence that pushed the prediction DOWN. Struck through once, which
+   read as "this text was deleted" rather than "this factor argued
+   against it" — and on a term like a person's name or a project type
+   that is actively misleading. Red on a red wash carries the same
+   meaning without claiming the text is wrong. */
 .why-anti-highlight {
   background: var(--red-light);
   color: var(--red);
   padding: 0 2px;
   border-radius: 2px;
-  text-decoration: line-through;
-  text-decoration-color: rgba(192,57,43,0.4);
 }
 
 /* (Old bottom-left latency ticker dropped — the topbar LatencyBadge
@@ -3614,3 +3617,656 @@ body {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Revenue Outlook ──────────────────────────────────────────────
+   Two bars per month, overlaid rather than side by side: the
+   prediction is a restatement of the same schedule, not a second
+   independent series, and overlapping them makes the gap between
+   them the thing the eye lands on. */
+.fc-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 20px 18px 8px;
+  min-height: 200px;
+}
+
+.fc-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.fc-bars {
+  position: relative;
+  width: 100%;
+  height: 150px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.fc-bar {
+  position: absolute;
+  bottom: 0;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.25s ease;
+}
+
+/* The schedule sits behind, wider and muted — the baseline claim. */
+.fc-bar-sched {
+  width: 100%;
+  background: var(--blue-light);
+  border-top: 2px solid var(--blue);
+}
+
+/* The prediction sits in front, narrower and in the accent colour,
+   so a month where Aito disagrees with the schedule reads instantly. */
+.fc-bar-exp {
+  width: 52%;
+  background: var(--gold);
+}
+
+.fc-col-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--ink);
+  margin-top: 6px;
+  white-space: nowrap;
+}
+
+.fc-col-label {
+  font-size: 10.5px;
+  color: var(--mid);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.fc-legend {
+  display: flex;
+  gap: 20px;
+  padding: 4px 18px 16px;
+  font-size: 11px;
+  color: var(--mid);
+}
+
+.fc-legend span { display: flex; align-items: center; gap: 6px; }
+
+.fc-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.fc-p {
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.fc-p-high { background: var(--green-light); color: var(--green); }
+.fc-p-mid  { background: var(--gold-light);  color: var(--gold-dark); }
+.fc-p-low  { background: var(--red-light);   color: var(--red); }
+.fc-p-none { color: var(--mid); }
+
+.fc-overdue {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--red-light);
+  color: var(--red);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Engagement Planner ───────────────────────────────────────── */
+.pl-form {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px 16px;
+  padding: 18px;
+  align-items: end;
+}
+
+@media (max-width: 1100px) {
+  .pl-form { grid-template-columns: repeat(2, 1fr); }
+}
+
+.pl-field { display: flex; flex-direction: column; gap: 5px; }
+.pl-field-wide { grid-column: span 2; }
+
+.pl-field > span {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mid);
+}
+
+.pl-field input,
+.pl-field select {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.pl-field input:focus,
+.pl-field select:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.pl-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink);
+  padding-bottom: 8px;
+}
+
+.pl-go {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 4px;
+  background: var(--gold);
+  color: var(--gold-dark);
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+
+.pl-go:hover:not(:disabled) { filter: brightness(1.06); }
+.pl-go:disabled { opacity: 0.55; cursor: default; }
+
+.pl-role { border-top: 1px solid var(--border); }
+.pl-role:first-of-type { border-top: none; }
+
+.pl-role-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 12px 18px 4px;
+}
+
+.pl-role-name { font-size: 12px; font-weight: 600; color: var(--ink); }
+.pl-role-share { font-size: 10.5px; color: var(--mid); }
+
+/* Fit is shown relative to the strongest candidate for the role. The
+   absolute probability is small by construction — it is one name out of
+   a whole bench — so a raw-width bar would read as "nobody fits". */
+.pl-fit-track {
+  height: 6px;
+  background: var(--cream);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pl-fit-bar { height: 100%; background: var(--gold); border-radius: 3px; }
+
+.pl-load {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.pl-load-ok   { background: var(--green-light); color: var(--green); }
+.pl-load-warn { background: var(--gold-light);  color: var(--gold-dark); }
+.pl-load-bad  { background: var(--red-light);   color: var(--red); }
+
+.pl-obj { padding: 14px 18px 4px; }
+
+.pl-obj-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 44px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.pl-obj-label { font-size: 12px; color: var(--ink); }
+
+.pl-obj-track {
+  height: 8px;
+  background: var(--cream);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pl-obj-bar { height: 100%; background: var(--red); border-radius: 4px; }
+
+.pl-obj-p {
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  color: var(--mid);
+  text-align: right;
+}
+
+.pl-note {
+  font-size: 11px;
+  color: var(--mid);
+  padding: 4px 18px 14px;
+  line-height: 1.5;
+}
+
+.pl-person { font-size: 12px; color: var(--ink); font-weight: 600; }
+
+/* The match reasons: facts off the person's row, not a score. Kept as
+   discrete chips so a delivery lead can disagree with one of them. */
+.pl-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+.pl-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--cream);
+  border: 1px solid var(--border);
+  color: var(--mid);
+  white-space: nowrap;
+}
+
+.pl-chip-hit {
+  background: var(--green-light);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* ── Planner: the team, and the per-seat picker ────────────────── */
+.pl-role-cell { font-size: 12px; color: var(--ink); font-weight: 600; }
+.pl-role-sub { font-size: 10px; color: var(--mid); margin-top: 2px; }
+
+.pl-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.pl-pick:hover { border-color: var(--gold); }
+.pl-pick-sub { font-size: 10.5px; color: var(--mid); flex: 1; }
+.pl-caret { color: var(--mid); font-size: 10px; }
+
+/* The picker is the point of the screen: every candidate Aito ranked,
+   with the score and the reasons, not just the winning name. */
+.pl-menu {
+  position: absolute;
+  z-index: 40;
+  margin-top: 4px;
+  width: 420px;
+  max-height: 340px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.13);
+}
+
+.pl-menu-head {
+  font-size: 10.5px;
+  color: var(--mid);
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--border);
+  background: var(--cream);
+}
+
+.pl-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  padding: 8px 11px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  cursor: pointer;
+}
+
+.pl-opt:last-child { border-bottom: none; }
+.pl-opt:hover { background: #faf8f2; }
+.pl-opt-on { background: var(--gold-light); }
+
+.pl-opt-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.pl-opt-name { font-size: 12px; font-weight: 600; color: var(--ink); flex: 1; }
+
+.pl-opt-fit {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--gold-dark);
+}
+
+.pl-hint {
+  font-family: inherit;
+  font-size: 9.5px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--gold);
+  background: var(--gold-light);
+  color: var(--gold-dark);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* The picker is absolutely positioned against its cell. */
+.tbl td { position: relative; }
+
+/* The seat picker has to escape the card, which clips for its rounded
+   corners. Only this card opts out — the table inside has no rounded
+   edge of its own to protect. */
+.card-overflow { overflow: visible; }
+
+/* Role editing sits on the row rather than in a mode: the predicted
+   mix is a starting point, and disagreeing with it should cost one
+   click, not a trip back to the form. */
+.pl-role-edit { display: inline-flex; gap: 2px; margin-left: 6px; }
+
+.pl-role-edit button {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--mid);
+  cursor: pointer;
+}
+
+.pl-role-edit button:hover { border-color: var(--gold); color: var(--gold-dark); }
+
+.pl-add-role,
+.pl-reset {
+  font-family: inherit;
+  font-size: 10.5px;
+  margin-left: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--mid);
+  cursor: pointer;
+}
+
+.pl-add-role:hover,
+.pl-reset:hover { border-color: var(--gold); color: var(--gold-dark); }
+
+/* A seat's own requirement, next to the seat. */
+.pl-role-req { display: flex; gap: 4px; margin-top: 5px; }
+
+.pl-role-req input,
+.pl-role-req select {
+  font-family: inherit;
+  font-size: 10.5px;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--ink);
+  min-width: 0;
+}
+
+.pl-role-req input { flex: 1; }
+.pl-role-req input:focus,
+.pl-role-req select:focus { outline: none; border-color: var(--gold); }
+
+.pl-group {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--mid);
+  padding: 10px 18px 2px;
+}
+
+/* Three kinds of reason, shown differently, because they are different
+   claims. Teal is Aito's own `$why` evidence — the database used this
+   field. Gold is a client-side coincidence with the proposal. Grey is
+   context that argued nothing. Painting all three alike was the version
+   that implied the database had endorsed a person's certifications. */
+.pl-chip-aito {
+  background: rgba(18, 181, 173, 0.13);
+  border-color: var(--aito-teal);
+  color: #0b6f6a;
+  font-weight: 600;
+}
+
+.pl-chip-match {
+  background: var(--gold-light);
+  border-color: var(--gold);
+  color: var(--gold-dark);
+}
+
+.pl-chip-fact { /* inherits .pl-chip */ }
+
+.pl-hint-warn {
+  border-color: var(--red);
+  background: var(--red-light);
+  color: var(--red);
+}
+
+/* Contention: a claim on someone's time that is NOT a booking. Styled
+   as a warning rather than a load figure, because it does not reduce
+   capacity — it tells you someone else is counting on this person. */
+.pl-contend {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--blue-light);
+  color: var(--blue);
+  border: 1px solid var(--blue);
+  white-space: nowrap;
+}
+
+/* What moves it — the levers panel. */
+.pl-levers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px 18px 2px;
+}
+
+@media (max-width: 1400px) {
+  .pl-levers { grid-template-columns: 1fr; }
+}
+
+.pl-lever {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 9px;
+  background: var(--cream);
+}
+
+.pl-lever-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 5px;
+}
+
+.pl-lever-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--mid);
+  line-height: 1.7;
+}
+
+.pl-delta {
+  font-family: 'DM Mono', monospace;
+  font-size: 10.5px;
+  color: var(--mid);
+}
+
+.pl-delta-up { color: var(--green); font-weight: 600; }
+.pl-delta-down { color: var(--red); font-weight: 600; }
+
+/* Bid / Delivery. Two jobs on one screen, and each was crowding the
+   other: a lead staffing a team does not care which objection ranks
+   first, and a partner pricing the work does not care which QA
+   engineer is free in November. */
+.pl-views {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.pl-view {
+  font-family: inherit;
+  font-size: 11.5px;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--mid);
+  cursor: pointer;
+}
+
+.pl-view-on {
+  background: var(--gold-light);
+  border-color: var(--gold);
+  color: var(--gold-dark);
+  font-weight: 600;
+}
+
+.pl-views-note { font-size: 11px; color: var(--mid); margin-left: 6px; }
+
+.pl-chip-warn {
+  background: var(--red-light);
+  border-color: var(--red);
+  color: var(--red);
+  font-weight: 600;
+}
+
+.pl-opt-title { font-weight: 400; color: var(--mid); margin-left: 6px; font-size: 10.5px; }
+
+/* The drivers, inline. They were behind a `?` that opened a popover on
+   top of the candidate list — a dialog inside a dialog for two facts
+   that fit on one line. */
+.pl-opt-why {
+  font-family: 'DM Mono', monospace;
+  font-size: 9.5px;
+  color: var(--mid);
+  margin-top: 3px;
+}
+
+.pl-count { font-family: 'DM Mono', monospace; font-size: 11.5px; color: var(--mid); }
+
+/* A requirement this tenant has nobody for. Saying so beats showing an
+   empty shortlist and no reason. */
+.pl-unknown {
+  font-size: 10px;
+  color: var(--red);
+  margin-top: 4px;
+}
+
+/* ── Invoice Matching ───────────────────────────────────────────
+   The queue view. Nothing here invents a colour: chips reuse the
+   planner's provenance palette (.pl-chip-*) so "teal means Aito
+   said it" holds across both views. */
+
+.mt-controls {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+.mt-ctl { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--mid); }
+.mt-ctl select {
+  font-family: 'DM Mono', monospace; font-size: 12px;
+  padding: 4px 8px; border: 1px solid var(--line);
+  border-radius: 4px; background: #fff; color: var(--ink);
+}
+.mt-rate { font-size: 12px; color: var(--mid); }
+
+.mt-note {
+  padding: 14px 20px; font-size: 12px; line-height: 1.65;
+  color: var(--mid); background: #fbfaf6;
+}
+
+.mt-desc { color: var(--ink); max-width: 320px; }
+.mt-cold { margin-left: 7px; }
+.mt-ok { color: var(--green); text-align: center; font-weight: 600; }
+.mt-bad { color: var(--red); text-align: center; font-weight: 600; }
+
+.mt-open-row td { background: #fbfaf6 !important; padding: 0 !important; }
+.mt-shortlist { padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+
+.mt-cand {
+  padding: 9px 12px; background: #fff;
+  border: 1px solid var(--line); border-radius: 5px;
+}
+/* The held-out answer, marked wherever it landed in the ranking. When
+   it is second, that is the interesting case and it should be visible
+   without counting rows. */
+.mt-cand-truth { border-color: var(--green); background: #f6fbf7; }
+.mt-cand-top { display: flex; align-items: baseline; gap: 10px; }
+.mt-cand-rank {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  color: var(--mid); min-width: 12px;
+}
+.mt-cand-name { font-weight: 500; font-size: 13px; flex: 1; }
+.mt-cand-sku { color: var(--mid); }
+.mt-cand-p { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 600; }
+.mt-cand .pl-chips { margin-top: 7px; }
+
+.mt-miss {
+  padding: 10px 12px; font-size: 12px; line-height: 1.6;
+  color: var(--mid); border: 1px dashed var(--line); border-radius: 5px;
+}
+
+.mt-measured {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 1px; background: var(--line);
+}
+.mt-measure { background: #fff; padding: 18px 20px; }
+/* The cold-start number is the argument, so it is not one of three
+   equals. */
+.mt-measure-hero { background: var(--gold-light); }
+.mt-measure-val {
+  font-family: 'DM Serif Display', serif; font-size: 30px;
+  color: var(--ink); line-height: 1.1;
+}
+.mt-measure-label { font-size: 12px; color: var(--ink); margin-top: 5px; }
+.mt-measure-sub { font-size: 11px; color: var(--mid); margin-top: 3px; }
+
+@media (max-width: 760px) {
+  .mt-measured { grid-template-columns: 1fr; }
+  .mt-desc { max-width: none; }
+}
+
+/* The coverage/precision curve sits inside the measured card, so it
+   drops the table's own top border and picks up the card's padding. */
+.mt-curve { border-top: 1px solid var(--line); }
+.mt-curve td, .mt-curve th { padding-left: 20px; }
+/* Indistinguishable, not wrong: neither green nor red. */
+.mt-same { color: var(--gold-dark); text-align: center; font-weight: 600; }

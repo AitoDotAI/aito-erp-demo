@@ -646,3 +646,309 @@ export interface Alternative {
   confidence: number;
   why?: WhyExplanation | WhyFactor[];
 }
+
+/* ─── Revenue Outlook (forecast_service) ─── */
+export interface ForecastMonth {
+  month: string;
+  scheduled_eur: number;
+  expected_eur: number;
+  slipped_eur: number;
+}
+
+export interface ProjectOutlook {
+  project_id: string;
+  name: string;
+  customer: string;
+  project_type: string;
+  manager: string;
+  status: string;
+  budget_eur: number;
+  start_month: string;
+  scheduled_end_month: string;
+  months_total: number;
+  months_remaining: number;
+  remaining_eur: number;
+  overdue: boolean;
+  on_time_p: number | null;
+  on_budget_p: number | null;
+  at_risk_eur: number;
+  on_time_why: WhyExplanation | Record<string, never>;
+  on_budget_why: WhyExplanation | Record<string, never>;
+}
+
+export interface OutlookKPIs {
+  active_count: number;
+  order_book_eur: number;
+  next_quarter_eur: number;
+  at_risk_eur: number;
+  overdue_count: number;
+  overdue_eur: number;
+}
+
+export interface OutlookResponse {
+  as_of: string;
+  kpis: OutlookKPIs;
+  months: ForecastMonth[];
+  projects: ProjectOutlook[];
+}
+
+/* ─── Engagement Planner (planner_service) ─── */
+/** A reason shown next to a candidate, tagged with what KIND of claim
+ *  it is: `aito` = Aito's `$why` named this field as evidence,
+ *  `match` = it coincides with the proposal (client-side), `fact` =
+ *  context that argued nothing, `warn` = something to look at. */
+export interface PlannerChip {
+  label: string;
+  kind: "aito" | "match" | "fact" | "warn";
+  field: string;
+}
+
+export interface PlannerCandidate {
+  person: string;
+  fit: number;
+  current_load_pct: number;
+  status: string;
+  title: string;
+  discipline: string;
+  skills: string[];
+  certifications: string;
+  site: string;
+  seniority: string;
+  domains: string[];
+  years_experience: number;
+  matches: PlannerChip[];
+  booked_pct: number;
+  free_pct: number;
+  available: boolean;
+  absent_months: string[];
+  absence_kind: string;
+  contention: number;
+  contention_pct: number;
+  quality_p: number | null;
+  quality_why: WhyExplanation | Record<string, never>;
+  history_count: number;
+  why: WhyExplanation | Record<string, never>;
+}
+
+export interface PlannerRoleSlot {
+  role: string;
+  count: number;
+  share: number;
+  skills: string;
+  unknown_skills: string[];
+  seniority: string;
+  from_month: string;
+  to_month: string;
+  candidates: PlannerCandidate[];
+  assignees: string[];
+}
+
+export interface PlannerLeverDelta {
+  field: string;
+  label: string;
+  before: number;
+  after: number;
+  delta: number;
+}
+
+export interface PlannerLever {
+  label: string;
+  detail: string;
+  deltas: PlannerLeverDelta[];
+}
+
+export interface PlannerOutcome {
+  field: string;
+  label: string;
+  p: number | null;
+  why: WhyExplanation | Record<string, never>;
+}
+
+export interface PlannerDeliveryRisk {
+  success_p: number | null;
+  core: PlannerOutcome[];
+  qualifying: PlannerOutcome[];
+  success_why: WhyExplanation | Record<string, never>;
+}
+
+export interface PlannerPriceCheck {
+  comparable_count: number;
+  median_eur: number;
+  low_eur: number;
+  high_eur: number;
+  quoted_eur: number;
+  ratio: number;
+  band: string;
+}
+
+export interface PlannerObjection {
+  reason: string;
+  p: number;
+}
+
+export interface PlannerSalesRisk {
+  win_p: number | null;
+  win_why: WhyExplanation | Record<string, never>;
+  objections: PlannerObjection[];
+  quote_history: number;
+}
+
+export interface EngagementPlan {
+  customer: string;
+  scope: string;
+  project_type: string;
+  quoted_eur: number;
+  duration_days: number;
+  team_size: number;
+  priority: string;
+  site: string;
+  technology: string;
+  domain: string;
+  contract_type: string;
+  scope_clarity: string;
+  novelty: string;
+  customer_size: string;
+  team_seniority: string;
+  required_skills: string;
+  seniority: string;
+  local_only: boolean;
+  start_month: string;
+  window_months: number;
+  shape: { suggested_size: number | null; size_p: number | null };
+  levers: PlannerLever[];
+  roles: PlannerRoleSlot[];
+  delivery: PlannerDeliveryRisk;
+  price: PlannerPriceCheck | null;
+  sales: PlannerSalesRisk | null;
+}
+
+export interface PlannerOptions {
+  project_types: string[];
+  customers_by_type: Record<string, string[]>;
+  sites: string[];
+  site_by_customer: Record<string, string>;
+  roles: string[];
+  seniorities: string[];
+  technologies_by_type: Record<string, string[]>;
+  drivers: Record<string, string[]>;
+  domain_by_customer: Record<string, string>;
+  domains: string[];
+}
+
+/* ── Invoice line matching ───────────────────────────────────── */
+
+/** One claim about a candidate, with who made it. `aito` came out of
+ *  the `$why` tree, `against` came out of it as evidence AGAINST,
+ *  `match` was computed in the service and argued by nobody. */
+export interface MatchReason {
+  kind: "aito" | "against" | "match";
+  text: string;
+  field: string;
+  lift: number | null;
+}
+
+export interface MatchCandidate {
+  sku: string;
+  name: string;
+  category: string | null;
+  supplier: string | null;
+  unit_price: number | null;
+  unit_of_measure: string | null;
+  p: number;
+  reasons: MatchReason[];
+}
+
+export interface MatchedLine {
+  line_id: string;
+  invoice_id: string;
+  billing_supplier: string;
+  description: string;
+  quantity: number;
+  unit_of_measure: string | null;
+  unit_price_eur: number | null;
+  line_amount_eur: number | null;
+  candidates: MatchCandidate[];
+  decision: "prefilled" | "open";
+  ms: number;
+  cold: boolean;
+  /** Held-out label. Present because these lines were never loaded —
+   *  a production queue has no truth column and a demo that hides it
+   *  is asking to be trusted. */
+  truth: string | null;
+  truth_name: string | null;
+  correct: boolean | null;
+  /** The pick is a different SKU the catalogue calls the same thing.
+   *  Not a miss the ranker could have avoided — nothing in the data
+   *  separates the two rows. Its own outcome, never counted correct. */
+  same_name: boolean;
+}
+
+export interface MatchBatchStats {
+  n: number;
+  wall_s: number;
+  workers: number;
+  rows_per_s: number;
+  rows_per_week: number;
+  server_ms_median: number;
+  prefilled: number;
+  open: number;
+  threshold: number;
+  top1: number | null;
+  top5: number | null;
+  prefill_precision: number | null;
+}
+
+/** One row of the coverage/precision curve: what pre-filling at this
+ *  confidence bar would cover, and how often it would be right. */
+export interface MatchCurvePoint {
+  bar: number;
+  coverage: number;
+  precision: number;
+}
+
+/** Accuracy in one matching regime, and how much of the corpus it is.
+ *  Published together on purpose: a blended figure over a corpus whose
+ *  composition we chose is meaningless without the shares. */
+export interface MatchRegime {
+  overlap: string;
+  share: number;
+  aito: number;
+  tfidf: number;
+}
+
+export interface MatchMeasured {
+  /** Which engine these numbers describe — rep1 and rep2 differ. */
+  engine: string;
+  ceiling_top1: number;
+  ceiling_top5: number;
+  floor_top1: number;
+  floor_top5: number;
+  regimes: MatchRegime[];
+  measured_on: string;
+  n: number;
+  catalogue_skus: number;
+  labelled_lines_loaded: number;
+  note: string;
+  overall_top1: number;
+  overall_top5: number;
+  warm_top1: number;
+  warm_top5: number;
+  cold_top1: number;
+  cold_top5: number;
+  baseline: number;
+  overall_top1_name: number;
+  warm_top1_name: number;
+  cold_top1_name: number;
+  throughput_rows_per_s: number;
+  throughput_workers: number;
+  shared_name_share: number;
+  curve: MatchCurvePoint[];
+}
+
+export interface MatchBatchResponse {
+  lines: MatchedLine[];
+  batch: MatchBatchStats | null;
+  measured: MatchMeasured;
+  available: number;
+  cold_suppliers: string[];
+}

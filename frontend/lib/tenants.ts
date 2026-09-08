@@ -40,7 +40,7 @@ export const TENANTS: TenantProfile[] = [
     accent: "#6b4f0e",
     // Hide commerce-flavoured views (incl. recommendations) and
     // services-only views (utilization).
-    hideRoutes: ["/catalog", "/pricing", "/demand", "/recommendations", "/utilization"],
+    hideRoutes: ["/catalog", "/pricing", "/demand", "/recommendations", "/utilization", "/matching"],
     defaultRoute: "/po-queue",
   },
   {
@@ -50,19 +50,19 @@ export const TENANTS: TenantProfile[] = [
     audience: "Commerce (Oscar / ERPly-style)",
     accent: "#1a4a7a",
     // Hide projects + heavy approval routing — retail leans on stock + price.
-    hideRoutes: ["/projects", "/project-plan", "/approval", "/utilization"],
+    hideRoutes: ["/projects", "/project-plan", "/approval", "/utilization", "/forecast", "/planner"],
     defaultRoute: "/inventory",
   },
   {
     id: "studio",
-    name: "Helsinki Studio",
-    tagline: "Professional services · 42 consultants",
-    audience: "Services / professional (horizontal SaaS)",
+    name: "Vire Consulting Oy",
+    tagline: "Software consultancy · 42 consultants",
+    audience: "Software consultancies (Futurice / Reaktor / Solita-style)",
     accent: "#2d7a4f",
     // Services don't carry physical inventory; pricing data is too
     // thin (80 SKUs, 200 price rows) to make Pricing credible. The
     // construction-phased Project Plan view is Metsä-only too.
-    hideRoutes: ["/catalog", "/demand", "/inventory", "/pricing", "/recommendations", "/project-plan"],
+    hideRoutes: ["/catalog", "/demand", "/inventory", "/pricing", "/recommendations", "/project-plan", "/matching"],
     defaultRoute: "/projects",
   },
 ];

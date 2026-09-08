@@ -17,6 +17,66 @@ Design notes:
 from typing import Any
 
 
+def why_target(why: dict | None) -> object | None:
+    """The value a `$why` tree is an explanation FOR.
+
+    Every explanation opens with a `baseP` factor whose proposition
+    names the candidate being explained — `{"sku": {"$has": "SKU-1234"}}`
+    on v1, or bare `{"sku": "SKU-1234"}` on v2. That target is what makes
+    the tree checkable against the row it is rendered under.
+
+    Returns None when there is no `$why` or no baseP in it; the caller
+    treats that as "nothing to check", not as a failure.
+    """
+    def walk(node: object) -> object | None:
+        if not isinstance(node, dict):
+            return None
+        if node.get("type") == "baseP":
+            proposition = node.get("proposition")
+            if isinstance(proposition, dict) and proposition:
+                matched = next(iter(proposition.values()))
+                # v1 wraps the value in the operator that matched it.
+                if isinstance(matched, dict) and matched:
+                    return next(iter(matched.values()))
+                return matched
+            return None
+        for child in node.get("factors") or []:
+            found = walk(child)
+            if found is not None:
+                return found
+        return None
+
+    return walk(why or {})
+
+
+def assert_why_belongs_to(why: dict | None, value: object, where: str) -> None:
+    """The invariant: a `$why` must explain the row it is shown under.
+
+    An explanation that describes a different row than the value beside
+    it is worse than no explanation. It is not caught by accuracy — the
+    answer can be right while the reasoning shown for it belongs to some
+    other candidate — so it needs its own check, and this is it.
+
+    The failure this guards against is real and shipped: the accounting
+    demo overrode Aito's ranking with an amount heuristic and carried the
+    discarded row's `$why` AND `$p` onto the substituted row, so a
+    prospect was shown authoritative-looking evidence for a match that
+    was never made. If a caller ever overrides a ranking here, it must
+    drop the explanation rather than move it.
+
+    See org/demo-why-integrity-audit.md.
+    """
+    target = why_target(why)
+    if target is None or value is None:
+        return
+    if str(target) != str(value):
+        raise ValueError(
+            f"$why integrity: explanation in {where} describes {target!r} "
+            f"but is attached to {value!r}. An explanation must belong to "
+            f"the row it is rendered under — drop it rather than move it."
+        )
+
+
 def process_factors(why: dict | None, final_p: float) -> dict:
     """Transform a $why object into a clean explanation payload.
 
@@ -122,6 +182,13 @@ def _proposition_to_string(prop: Any) -> str:
     The proposition is a structured form like
         {"$and": [{"supplier": {"$has": "Telia"}}, {"category": {"$is": "telecom"}}]}
     We render it as 'supplier has Telia AND category is telecom'.
+
+    v2 introduces `$group` — a set of correlated signals that vote as
+    one theme rather than as independent evidence. Rendering it as
+    `AND` would overstate what the engine did, so it gets its own
+    joiner. It has no v1 equivalent, and before it was handled here a
+    v2 `$why` fell through to `str(prop)` and put a raw Python dict in
+    the explanation tooltip.
     """
     if prop is None:
         return ""
@@ -133,6 +200,9 @@ def _proposition_to_string(prop: Any) -> str:
         if "$or" in prop and isinstance(prop["$or"], list):
             parts = [_proposition_to_string(p) for p in prop["$or"]]
             return " OR ".join(p for p in parts if p)
+        if "$group" in prop and isinstance(prop["$group"], list):
+            parts = [_proposition_to_string(p) for p in prop["$group"]]
+            return " + ".join(p for p in parts if p)
         if "$not" in prop:
             inner = _proposition_to_string(prop["$not"])
             return f"NOT ({inner})" if inner else ""
@@ -145,6 +215,7 @@ def _proposition_to_string(prop: Any) -> str:
                     op_human = {
                         "$has": "has",
                         "$is": "is",
+                        "$match": "matches",
                         "$gt": ">",
                         "$lt": "<",
                         "$gte": "≥",
@@ -170,7 +241,7 @@ def extract_alternatives(hits: list[dict], skip_top: bool = True, limit: int = 3
             continue
         p = hit.get("$p", 0.0)
         alts.append({
-            "value": str(hit.get("feature", "")),
+            "value": str(hit.get("$value", "")),
             "confidence": round(p, 4),
             "why": process_factors(hit.get("$why"), p),
         })

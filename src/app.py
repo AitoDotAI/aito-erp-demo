@@ -42,6 +42,7 @@ from src.anomaly_service import get_demo_anomalies
 from src.supplier_service import get_supplier_intelligence
 from src.rulemining_service import mine_rules, get_rule_summary
 from src.catalog_service import get_incomplete, predict_attributes
+from src.matching_service import batch as match_batch
 from src.pricing_service import get_pricing_overview
 from src.demand_service import get_demand_forecast
 from src.inventory_service import get_inventory_status
@@ -69,10 +70,19 @@ def _build_clients() -> dict[TenantId, AitoClient]:
     been loaded for a tenant (e.g. Studio's `purchases`/`products`
     before `./do load-data --tenant=studio` runs) render an empty
     state instead of crashing the request with a 500.
+
+    `creds_for()` — not `config.tenants` — is what picks between the v1
+    and v2 credential sets, so `AITO_API_VERSION=v2` moves every tenant
+    onto its `v2` environment with no other change here.
     """
     return {
-        t: AitoClient.from_creds(c.api_url, c.api_key, tolerate_missing=True)
-        for t, c in config.tenants.items()
+        t: AitoClient.from_creds(
+            config.creds_for(t).api_url,
+            config.creds_for(t).api_key,
+            tolerate_missing=True,
+            api_version=config.api_version,
+        )
+        for t in config.tenants
     }
 
 
@@ -393,6 +403,10 @@ def tenants_list():
     base = {
         "default": DEFAULT_TENANT,
         "multi_tenant": config.is_multi_tenant,
+        # Which Aito REST surface every query goes to. Safe to expose
+        # publicly — it's a property of this deployment, not a secret,
+        # and it's the first thing to check when v2 output looks off.
+        "api_version": config.api_version,
     }
     if _PUBLIC:
         base["tenants"] = [{"id": t} for t in TENANT_IDS]
@@ -618,6 +632,22 @@ def catalog_predict(body: dict, request: Request):
     return result
 
 
+@app.get("/api/matching/batch")
+def matching_batch(request: Request, size: int = 40, workers: int = 8,
+                   offset: int = 0):
+    """One run of the invoice-line matching queue, live.
+
+    Not cached on purpose. The throughput on this response is a
+    measurement of the run that produced it, and a cached measurement
+    is a claim about a moment that has passed. The batch is capped so
+    a public visitor cannot turn the demo into a load generator; the
+    standing rate limits do the rest.
+    """
+    tenant, aito = client_from_request(request)
+    return match_batch(aito, tenant, size=min(max(size, 1), 60),
+                       workers=min(max(workers, 1), 12), offset=offset)
+
+
 @app.get("/api/pricing/estimate")
 def pricing_estimate(request: Request):
     tenant, aito = client_from_request(request)
@@ -752,6 +782,102 @@ def projects_portfolio(request: Request):
         return cached
     overview = get_portfolio(aito)
     result = overview.to_dict()
+    cache.set(cache_key, result)
+    return result
+
+
+@app.post("/api/planner/estimate")
+def planner_estimate(body: dict, request: Request):
+    """What work of this shape actually cost, took and needed.
+
+    Separate from /plan because it answers a question that comes
+    BEFORE the plan: you describe the job, this says how big it is.
+    """
+    from src.planner_service import estimate_effort
+    _, aito = client_from_request(request)
+    if not body.get("project_type"):
+        return {"error": "project_type is required"}
+    return estimate_effort(
+        aito,
+        project_type=str(body["project_type"]),
+        scope_clarity=str(body.get("scope_clarity", "")),
+        contract_type=str(body.get("contract_type", "")),
+        novelty=str(body.get("novelty", "")),
+        customer_size=str(body.get("customer_size", "")),
+        technology=str(body.get("technology", "")),
+        domain=str(body.get("domain", "")),
+    ).to_dict()
+
+
+@app.post("/api/planner/plan")
+def planner_plan(body: dict, request: Request):
+    """Staff, price and sales-risk a proposed engagement.
+
+    POST rather than GET: the whole proposal is the query, and it is a
+    dozen fields the user is editing on screen. Not cached for the same
+    reason — every submission is a different question.
+    """
+    from src.planner_service import plan_engagement
+    _, aito = client_from_request(request)
+    # `team_size` is deliberately not required — 0 or absent means
+    # "plan it for me", and the planner predicts it.
+    required = ("customer", "project_type", "quoted_eur", "duration_days")
+    missing = [f for f in required if body.get(f) in (None, "")]
+    if missing:
+        return {"error": f"missing required field(s): {', '.join(missing)}"}
+    return plan_engagement(
+        aito,
+        customer=str(body["customer"]),
+        scope=str(body.get("scope", "")),
+        project_type=str(body["project_type"]),
+        quoted_eur=float(body["quoted_eur"]),
+        duration_days=int(body["duration_days"]),
+        team_size=int(body.get("team_size") or 0),
+        priority=str(body.get("priority", "medium")),
+        site=str(body.get("site", "")),
+        technology=str(body.get("technology", "")),
+        domain=str(body.get("domain", "")),
+        contract_type=str(body.get("contract_type", "")),
+        scope_clarity=str(body.get("scope_clarity", "")),
+        novelty=str(body.get("novelty", "")),
+        customer_size=str(body.get("customer_size", "")),
+        team_seniority=str(body.get("team_seniority", "")),
+        start_month=str(body.get("start_month", "")),
+        required_skills=str(body.get("required_skills", "")),
+        seniority=str(body.get("seniority", "")),
+        local_only=bool(body.get("local_only", False)),
+        roles_override=body.get("roles") or None,
+        competing_bid=bool(body.get("competing_bid", False)),
+        existing_customer=bool(body.get("existing_customer", True)),
+    ).to_dict()
+
+
+@app.get("/api/planner/options")
+def planner_options(request: Request):
+    """Project types and customers this tenant actually has history for,
+    so the form offers real choices rather than free text."""
+    from src.planner_service import planner_options as options
+    tenant, aito = client_from_request(request)
+    cache_key = _tk(tenant, "planner_options")
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+    result = options(aito, tenant)
+    cache.set(cache_key, result)
+    return result
+
+
+@app.get("/api/forecast/outlook")
+def forecast_outlook(request: Request):
+    """Revenue outlook — the order book spread over the coming months,
+    risk-adjusted by a per-project `_predict on_time`."""
+    from src.forecast_service import get_outlook
+    tenant, aito = client_from_request(request)
+    cache_key = _tk(tenant, "forecast_outlook")
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+    result = get_outlook(aito).to_dict()
     cache.set(cache_key, result)
     return result
 

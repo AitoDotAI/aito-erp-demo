@@ -10,8 +10,8 @@ def _make_client(predict_response=None):
     if predict_response is None:
         predict_response = {
             "hits": [
-                {"$p": 0.88, "feature": "Production", "$why": {}},
-                {"$p": 0.08, "feature": "Facilities", "$why": {}},
+                {"$p": 0.88, "$value": "Production", "$why": {}},
+                {"$p": 0.08, "$value": "Facilities", "$why": {}},
             ]
         }
     client.predict.return_value = predict_response
@@ -47,8 +47,8 @@ def test_aito_prediction_high_confidence():
     """Non-rule supplier should fall back to Aito prediction."""
     client = _make_client({
         "hits": [
-            {"$p": 0.91, "feature": "Logistics", "$why": {}},
-            {"$p": 0.05, "feature": "Production", "$why": {}},
+            {"$p": 0.91, "$value": "Logistics", "$why": {}},
+            {"$p": 0.05, "$value": "Production", "$why": {}},
         ]
     })
     inv = {"purchase_id": "PO-003", "supplier": "Neste Oyj",
@@ -63,7 +63,7 @@ def test_aito_prediction_low_confidence_flagged_for_review():
     """Low confidence predictions should be flagged for review."""
     client = _make_client({
         "hits": [
-            {"$p": 0.35, "feature": "Unknown", "$why": {}},
+            {"$p": 0.35, "$value": "Unknown", "$why": {}},
         ]
     })
     inv = {"purchase_id": "PO-004", "supplier": "Berner Oy",

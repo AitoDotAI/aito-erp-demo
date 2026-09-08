@@ -136,7 +136,7 @@ def forecast_demand(
         pred_hits = pred_result.get("hits", [])
         if pred_hits and pred_hits[0].get("$p", 0.0) > 0.30:
             top = pred_hits[0]
-            predicted = top.get("feature", 0)
+            predicted = top.get("$value", 0)
             if isinstance(predicted, (int, float)) and predicted > 0:
                 # Blend Aito prediction with seasonal estimate
                 aito_conf = top.get("$p", 0.0)

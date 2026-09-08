@@ -99,7 +99,7 @@ def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag |
         p = 0.0
         found = False
         for hit in hits:
-            if str(hit.get("feature", "")) == str(actual_value):
+            if str(hit.get("$value", "")) == str(actual_value):
                 p = hit.get("$p", 0.0)
                 found = True
                 break

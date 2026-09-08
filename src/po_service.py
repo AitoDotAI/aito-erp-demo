@@ -182,7 +182,7 @@ def _extract_alternatives(hits: list[dict]) -> list[dict]:
     alts = []
     for hit in hits[:3]:
         alts.append({
-            "value": str(hit.get("feature", "")),
+            "value": str(hit.get("$value", "")),
             "confidence": hit.get("$p", 0.0),
             "why": _extract_why(hit),
         })
@@ -250,11 +250,11 @@ def predict_single(
         supplier=invoice["supplier"],
         description=invoice["description"],
         amount=invoice["amount_eur"],
-        cost_center=str(cc_top.get("feature", "")),
+        cost_center=str(cc_top.get("$value", "")),
         cost_center_confidence=cc_conf,
-        account_code=str(ac_top.get("feature", "")),
+        account_code=str(ac_top.get("$value", "")),
         account_code_confidence=ac_conf,
-        approver=str(ap_top.get("feature", "")),
+        approver=str(ap_top.get("$value", "")),
         approver_confidence=ap_conf,
         source=source,
         confidence=overall,

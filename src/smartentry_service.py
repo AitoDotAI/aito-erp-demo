@@ -133,7 +133,7 @@ def _extract_alternatives(hits: list[dict]) -> list[dict]:
     alts = []
     for hit in hits[:3]:
         alts.append({
-            "value": str(hit.get("feature", "")),
+            "value": str(hit.get("$value", "")),
             "confidence": hit.get("$p", 0.0),
         })
     return alts
@@ -167,7 +167,7 @@ def predict_fields(client: AitoClient, known: dict) -> SmartEntryResult:
 
         predictions.append(FieldPrediction(
             field_name=field_name,
-            predicted_value=str(top.get("feature", "")),
+            predicted_value=str(top.get("$value", "")),
             confidence=top_p,
             alternatives=alts,
             why_factors=why or {},

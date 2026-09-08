@@ -7,8 +7,8 @@ TopBar profiles:
                     Lemonsoft-style buyer)
   data/aurora/    → Aurora Retail Oy    (multi-channel retail,
                     Oscar / ERPly-style buyer)
-  data/studio/    → Helsinki Studio     (professional services,
-                    horizontal SaaS buyer)
+  data/studio/    → Vire Consulting Oy  (full-service software
+                    consultancy, Futurice / Reaktor-style buyer)
 
 Every persona produces the full table set (purchases / products /
 orders / price_history / projects / assignments) so the schemas in
@@ -21,10 +21,13 @@ Run with:  python data/generate_personas.py
 
 import json
 import random
+import sys
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent
+sys.path.insert(0, str(DATA))
 
 # Months 2022-06 through 2026-03 (46 months) — wider window than
 # before so per-supplier _relate has enough samples even on the
@@ -35,6 +38,77 @@ MONTHS = [
     for m in range(1, 13)
     if (y, m) >= (2022, 6) and (y, m) <= (2026, 3)
 ]
+
+# The month the generated world considers "now". Purchases, orders and
+# price history are undated history and keep using MONTHS above; only
+# PROJECTS need an anchor, because a project is the one entity here
+# with a lifespan — it starts, runs, and is either finished or still
+# running *as of some date*.
+#
+# Anchoring on the generation date rather than a constant is deliberate.
+# A fixed anchor silently rots: it stays correct for a month and then
+# every "active" project is one whose scheduled end is in the past,
+# which is what the previous `random.choice(MONTHS)` produced for both
+# statuses alike — 95 in-flight projects, none ending later than four
+# months ago. Regenerating re-anchors the world.
+#
+# The cost is that a loaded database ages between regenerations (the
+# fixtures themselves are gitignored build output, so there is nothing
+# committed to go stale — but Aito holds whatever was last loaded). The
+# forecast view surfaces that instead of hiding it: a project past its
+# scheduled end shows as overdue, which is an honest ERP state and the
+# thing a delivery lead actually wants flagged.
+TODAY = date.today()
+TODAY_MONTH = f"{TODAY.year}-{TODAY.month:02d}"
+
+
+def _month_index(month: str) -> int:
+    """`"2026-09"` → months since year 0. Lets months be compared and
+    shifted with plain integer arithmetic."""
+    year, mon = month.split("-")
+    return int(year) * 12 + int(mon) - 1
+
+
+def _month_from_index(index: int) -> str:
+    return f"{index // 12}-{index % 12 + 1:02d}"
+
+
+def shift_month(month: str, months: int) -> str:
+    return _month_from_index(_month_index(month) + months)
+
+
+# Deliverable staff beyond each persona's named core. The core names
+# carry the hand-tuned success effects (`project_reliable` /
+# `project_chaotic` / `manager_fit`); these are the rest of the bench,
+# and exist so headcount matches the number of projects in flight.
+#
+# Without them the arithmetic was absurd: 95 concurrent Studio projects
+# staffed from a pool of 15 put every consultant at ~1800% allocated,
+# and the capacity view — whose entire job is to answer "who is free" —
+# could only ever answer "nobody".
+MORE_PROJECT_PEOPLE = [
+    "R. Aalto", "T. Nieminen", "M. Virtanen", "J. Laine", "A. Koskinen",
+    "P. Heikkilä", "S. Järvinen", "K. Lehtonen", "E. Anttila", "V. Rantanen",
+    "H. Kinnunen", "O. Savolainen", "N. Hämäläinen", "L. Nurmi", "T. Väisänen",
+    "M. Peltola", "J. Hiltunen", "A. Toivonen", "S. Manninen", "K. Kallio",
+    "E. Turunen", "P. Leppänen", "R. Sipilä", "V. Ahonen", "N. Räsänen",
+    "H. Laitinen", "O. Kettunen", "M. Pitkänen", "J. Mustonen", "A. Ojala",
+    "L. Halme", "T. Kauppinen", "S. Vainio", "K. Ranta", "E. Salminen",
+    "P. Mäkinen", "V. Karppinen", "H. Tuominen", "O. Lahtinen", "N. Jokela",
+    "M. Sillanpää", "J. Vuorinen", "A. Rissanen", "S. Kokkonen", "K. Määttä",
+    "E. Hakala", "P. Autio", "R. Koivisto", "V. Niskanen", "N. Seppälä",
+    "H. Pesonen", "O. Rautio", "M. Lehto", "J. Riihimäki", "A. Suominen",
+    "L. Immonen", "T. Kärkkäinen", "S. Haapala", "K. Tolonen", "E. Moilanen",
+]
+
+
+def month_span(duration_days: int) -> int:
+    """How many whole months a duration covers, minimum one.
+
+    Projects are scheduled in days but recognised in months, so this is
+    the bridge between the two. 30.44 is the mean Gregorian month.
+    """
+    return max(1, round(duration_days / 30.44))
 
 
 # ── Persona spec ────────────────────────────────────────────────────
@@ -80,6 +154,19 @@ class PersonaSpec:
     # Description vocabularies — used to build readable purchase descriptions.
     descriptions: dict[str, list[str]]
     # Product catalog (commerce-oriented persona only — others get a thin set)
+    # Who is on the bench and what they do. `disciplines` maps a
+    # discipline (which is also the assignment ROLE) to the title and
+    # skills a person of that discipline carries. `lead_discipline` is
+    # the one the project's named lead always gets.
+    disciplines: dict[str, dict] = field(default_factory=dict)
+    lead_discipline: str = "lead"
+    # Quote pipeline — bids sent, won and lost. Defaults to none so a
+    # persona that doesn't sell project work simply has no `quotes`
+    # fixture and the table stays empty (see OPTIONAL_TABLES).
+    n_quotes: int = 0
+    # Bids in flight with a team pencilled onto them.
+    n_open_proposals: int = 8
+    quote_scopes: dict[str, list[str]] = field(default_factory=dict)
     product_categories: dict[str, dict] = field(default_factory=dict)
     product_name_templates: dict[str, list[str]] = field(default_factory=dict)
 
@@ -126,13 +213,59 @@ METSA = PersonaSpec(
     n_orders=1400,
     n_price_history=900,
     n_completed_projects=220,
-    n_active_projects=65,
+    n_active_projects=18,
     project_types={
-        "maintenance":  {"budget": (8000, 60000),  "duration": (10, 60),  "team": (2, 5), "weight": 40},
-        "construction": {"budget": (40000, 280000),"duration": (60, 240), "team": (5, 12),"weight": 25},
-        "rollout":      {"budget": (15000, 80000), "duration": (20, 90),  "team": (3, 6), "weight": 15},
-        "audit":        {"budget": (4000, 25000),  "duration": (5, 25),   "team": (1, 3), "weight": 10},
-        "rd":           {"budget": (20000, 120000),"duration": (30, 150), "team": (2, 5), "weight": 10},
+        "maintenance":  {"budget": (8000, 60000),  "duration": (10, 60),  "team": (2, 5), "weight": 40,
+                          "roles": {'mechanical': 40, 'electrical': 25, 'hvac': 20, 'automation': 15}},
+        "construction": {"budget": (40000, 280000),"duration": (60, 240), "team": (5, 12),"weight": 25,
+                          "roles": {'civil': 35, 'electrical': 20, 'hvac': 20, 'mechanical': 15, 'quality': 10}},
+        "rollout":      {"budget": (15000, 80000), "duration": (20, 90),  "team": (3, 6), "weight": 15,
+                          "roles": {'automation': 40, 'electrical': 25, 'mechanical': 20, 'quality': 15}},
+        "audit":        {"budget": (4000, 25000),  "duration": (5, 25),   "team": (1, 3), "weight": 10,
+                          "roles": {'quality': 55, 'electrical': 25, 'hvac': 20}},
+        "rd":           {"budget": (20000, 120000),"duration": (30, 150), "team": (2, 5), "weight": 10,
+                          "roles": {'mechanical': 40, 'automation': 30, 'quality': 15, 'electrical': 15}},
+    },
+    n_quotes=520,
+    quote_scopes={
+        "maintenance":  ["Annual service contract for the Tampere line",
+                          "Preventive maintenance, two shifts, spare parts included",
+                          "Breakdown cover with four-hour response"],
+        "construction": ["New assembly hall foundation and frame",
+                          "Site extension including MEP and commissioning",
+                          "Warehouse rebuild, phased over two quarters"],
+        "rollout":      ["Fleet telematics rollout across three sites",
+                          "Machine monitoring sensors and dashboard",
+                          "Depot scheduling system deployment"],
+        "audit":        ["Compliance audit against the machinery directive",
+                          "Energy efficiency survey of the Oulu plant",
+                          "Safety audit and remediation plan"],
+        "rd":           ["Prototype hydraulic assembly and test rig",
+                          "Materials trial for the seal kit redesign"],
+    },
+    lead_discipline="site manager",
+    disciplines={
+        "site manager":      {"title": "Site Manager",
+                              "skills": ['site management', 'scheduling', 'subcontractors', 'safety permits', 'cost control', 'handover', 'surveying', 'logistics'],
+                              "certifications": "SFS 6002, occupational safety card"},
+        "mechanical":        {"title": "Mechanical Engineer",
+                              "skills": ['hydraulics', 'gearboxes', 'bearings', 'CAD', 'alignment', 'vibration analysis', 'pneumatics', 'welding', 'lubrication', 'thermography'],
+                              "certifications": "hot work permit"},
+        "automation":        {"title": "Automation Engineer",
+                              "skills": ['PLC', 'SCADA', 'Siemens S7', 'instrumentation', 'commissioning', 'Beckhoff', 'robotics', 'fieldbus', 'HMI', 'safety PLC'],
+                              "certifications": "SFS 6002"},
+        "electrical":        {"title": "Electrical Engineer",
+                              "skills": ['switchgear', 'cabling', 'motor drives', 'earthing', 'inspections', 'thermal imaging', 'UPS', 'lighting design', 'arc flash'],
+                              "certifications": "SFS 6002, electrical work licence"},
+        "hvac":              {"title": "HVAC Technician",
+                              "skills": ['ventilation', 'heat recovery', 'refrigeration', 'ductwork', 'balancing', 'building automation', 'heat pumps', 'commissioning'],
+                              "certifications": "refrigerant handling"},
+        "civil":             {"title": "Civil Engineer",
+                              "skills": ['foundations', 'concrete', 'steel frame', 'structural', 'surveying', 'drainage', 'groundworks', 'formwork', 'rebar'],
+                              "certifications": "occupational safety card"},
+        "quality":           {"title": "Quality Inspector",
+                              "skills": ['auditing', 'tolerances', 'documentation', 'ISO 9001', 'non-conformance', 'metrology', 'root cause analysis', 'supplier audits'],
+                              "certifications": "ISO 9001 lead auditor"},
     },
     project_managers=["M. Hakala", "T. Virtanen", "K. Mäkinen", "J. Lehtinen"],
     project_leads={
@@ -146,6 +279,7 @@ METSA = PersonaSpec(
         "A. Lindgren", "K. Saari", "L. Aho", "P. Korhonen", "S. Niemi",
         "M. Salo", "E. Heikkinen", "H. Mattila", "V. Jokinen", "T. Rinne",
         "O. Halonen", "I. Pulkkinen", "N. Forsberg", "J. Karjalainen",
+        *MORE_PROJECT_PEOPLE[:46],
     ],
     project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
     project_chaotic={"V. Jokinen", "T. Rinne"},
@@ -240,13 +374,50 @@ AURORA = PersonaSpec(
     n_orders=18000,
     n_price_history=6500,
     # Smaller project tier — retail does fewer formal projects than maintenance.
-    n_completed_projects=70,
-    n_active_projects=22,
+    # 70 completed projects made the success rate swing six points
+    # between regenerations on sampling noise alone, which read as
+    # the fixture breaking. More history, same shape.
+    n_completed_projects=170,
+    n_active_projects=9,
     project_types={
-        "store-fitout":   {"budget": (40000, 200000),"duration": (30, 90),  "team": (3, 7), "weight": 40},
-        "ecom-launch":    {"budget": (60000, 300000),"duration": (60, 180), "team": (4, 9), "weight": 25},
-        "marketing-camp": {"budget": (15000, 90000), "duration": (15, 60),  "team": (2, 5), "weight": 25},
-        "audit":          {"budget": (4000, 20000),  "duration": (5, 20),   "team": (1, 3), "weight": 10},
+        "store-fitout":   {"budget": (40000, 200000),"duration": (30, 90),  "team": (3, 7), "weight": 40,
+                          "roles": {'visual': 45, 'supply': 25, 'ecommerce': 20, 'marketing': 10}},
+        "ecom-launch":    {"budget": (60000, 300000),"duration": (60, 180), "team": (4, 9), "weight": 25,
+                          "roles": {'ecommerce': 50, 'marketing': 20, 'supply': 20, 'visual': 10}},
+        "marketing-camp": {"budget": (15000, 90000), "duration": (15, 60),  "team": (2, 5), "weight": 25,
+                          "roles": {'marketing': 55, 'visual': 25, 'ecommerce': 20}},
+        "audit":          {"budget": (4000, 20000),  "duration": (5, 20),   "team": (1, 3), "weight": 10,
+                          "roles": {'supply': 45, 'ecommerce': 30, 'visual': 25}},
+    },
+    n_quotes=240,
+    quote_scopes={
+        "store-fitout": ["Full refit of the Tampere flagship",
+                          "Shelving and lighting refresh, six stores",
+                          "Checkout zone rebuild over one weekend"],
+        "ecom-launch":  ["New webstore front end and payment integration",
+                          "Marketplace channel launch with feed sync"],
+        "marketing-camp": ["Autumn homeware campaign across all channels",
+                          "Loyalty push with personalised offers"],
+        "audit":        ["Store compliance audit across the Nordic range",
+                          "Supplier onboarding review"],
+    },
+    lead_discipline="store lead",
+    disciplines={
+        "store lead":   {"title": "Store Project Lead",
+                         "skills": ['store operations', 'rollout planning', 'staffing', 'merchandising', 'scheduling', 'training', 'openings'],
+                         "certifications": "retail operations"},
+        "visual":       {"title": "Visual Merchandiser",
+                         "skills": ['planograms', 'display design', 'signage', 'lighting', 'fixtures', 'window design', 'seasonal campaigns'],
+                         "certifications": ""},
+        "ecommerce":    {"title": "Ecommerce Specialist",
+                         "skills": ['Shopify', 'product feeds', 'SEO', 'conversion', 'analytics', 'PIM', 'marketplace integrations', 'A/B testing'],
+                         "certifications": "Google Analytics"},
+        "supply":       {"title": "Supply Planner",
+                         "skills": ['replenishment', 'forecasting', 'slotting', 'supplier onboarding', 'demand planning', 'logistics', 'inventory'],
+                         "certifications": ""},
+        "marketing":    {"title": "Campaign Manager",
+                         "skills": ['campaign planning', 'CRM', 'segmentation', 'loyalty', 'copywriting', 'email automation', 'paid social'],
+                         "certifications": ""},
     },
     project_managers=["M. Eronen", "A. Niemi", "R. Salonen"],
     project_leads={
@@ -259,6 +430,7 @@ AURORA = PersonaSpec(
         "A. Lindgren", "K. Saari", "L. Aho", "P. Korhonen", "S. Niemi",
         "M. Salo", "H. Mattila", "V. Jokinen", "T. Rinne",
         "O. Halonen", "N. Forsberg",
+        *MORE_PROJECT_PEOPLE[:13],
     ],
     project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
     project_chaotic={"V. Jokinen", "T. Rinne"},
@@ -311,12 +483,12 @@ AURORA = PersonaSpec(
 )
 
 
-# ── Helsinki Studio — professional services ─────────────────────────
+# ── Vire Consulting Oy — full-service software consultancy ──────────
 
 
 STUDIO = PersonaSpec(
     tenant_id="studio",
-    name="Helsinki Studio",
+    name="Vire Consulting Oy",
     suppliers=[
         # Frequencies bumped ~2× from the original — services firms
         # have many small, recurring SaaS / subscription line items.
@@ -354,14 +526,68 @@ STUDIO = PersonaSpec(
     n_orders=900,
     n_price_history=700,
     # Project-heavy persona — billable client engagements.
+    #
+    # `team` EXCLUDES the lead, so the crew on the ground is one larger.
+    # Sized for the Finnish consultancy landscape rather than for a
+    # systems integrator: five people is a moderately large engagement
+    # here, not a starting point. The previous implementation band
+    # (4-9, so 5-10 on the ground, median 7) read as a different
+    # industry.
     n_completed_projects=340,
-    n_active_projects=95,
+    n_active_projects=14,
     project_types={
-        "design":         {"budget": (8000, 80000),  "duration": (15, 90),  "team": (2, 5),  "weight": 30},
-        "implementation": {"budget": (30000, 200000),"duration": (45, 180), "team": (4, 9),  "weight": 25},
-        "strategy":       {"budget": (15000, 90000), "duration": (20, 60),  "team": (2, 4),  "weight": 20},
-        "discovery":      {"budget": (4000, 20000),  "duration": (5, 25),   "team": (1, 3),  "weight": 15},
-        "retainer":       {"budget": (12000, 60000), "duration": (90, 365), "team": (1, 3),  "weight": 10},
+        "design":         {"budget": (8000, 80000),  "duration": (15, 90),  "team": (1, 3),  "weight": 16,
+                          "roles": {'ux design': 55, 'frontend': 20, 'qa': 15, 'data': 10}},
+        "implementation": {"budget": (25000, 160000),"duration": (45, 180), "team": (2, 5),  "weight": 34,
+                          "roles": {'backend': 26, 'frontend': 20, 'architect': 15, 'qa': 15, 'devops': 12, 'data': 7, 'ux design': 5}},
+        "strategy":       {"budget": (15000, 90000), "duration": (20, 60),  "team": (1, 3),  "weight": 20,
+                          "roles": {'architect': 35, 'ux design': 30, 'data': 20, 'backend': 15}},
+        "discovery":      {"budget": (4000, 20000),  "duration": (5, 25),   "team": (1, 2),  "weight": 18,
+                          "roles": {'ux design': 40, 'architect': 30, 'data': 18, 'backend': 12}},
+        "retainer":       {"budget": (12000, 60000), "duration": (90, 365), "team": (1, 3),  "weight": 14,
+                          "roles": {'backend': 28, 'frontend': 24, 'devops': 20, 'qa': 16, 'ux design': 12}},
+    },
+    n_quotes=610,
+    quote_scopes={
+        "design":         ["Brand identity refresh and design system",
+                            "Mobile app redesign, six key flows",
+                            "Marketing site art direction and build"],
+        "implementation": ["Headless commerce build with CMS migration",
+                            "Design system implementation in React",
+                            "Customer portal rebuild and SSO integration"],
+        "strategy":       ["Digital strategy and roadmap to 2028",
+                            "Service blueprint for the onboarding journey"],
+        "discovery":      ["Two-week discovery sprint with user interviews",
+                            "Technical feasibility review"],
+        "retainer":       ["Ongoing design retainer, two days a week",
+                            "Embedded product team for two quarters"],
+    },
+    lead_discipline="project manager",
+    disciplines={
+        "project manager": {"title": "Project Manager",
+                            "skills": ['agile coaching', 'stakeholder management', 'roadmapping', 'budgeting', 'facilitation', 'risk management', 'vendor management', 'OKRs', 'discovery workshops'],
+                            "certifications": "Scrum Master, SAFe"},
+        "frontend":        {"title": "Frontend Developer",
+                            "skills": ['React', 'TypeScript', 'JavaScript', 'CSS', 'accessibility', 'Next.js', 'Vue', 'design systems', 'performance', 'testing-library', 'animation', 'SSR'],
+                            "certifications": ""},
+        "backend":         {"title": "Backend Developer",
+                            "skills": ['Python', 'Node', 'PostgreSQL', 'API design', 'integrations', 'AWS', 'Kafka', 'Django', 'FastAPI', 'GraphQL', 'Docker', 'Kubernetes', 'Redis'],
+                            "certifications": "AWS Solutions Architect"},
+        "ux design":       {"title": "UX Designer",
+                            "skills": ['UI design', 'Figma', 'prototyping', 'user research', 'design systems', 'accessibility', 'service design', 'workshops', 'interaction design', 'illustration'],
+                            "certifications": ""},
+        "data":            {"title": "Data Engineer",
+                            "skills": ['SQL', 'dbt', 'pipelines', 'analytics', 'warehousing', 'Python', 'Airflow', 'Snowflake', 'BigQuery', 'visualisation', 'experimentation'],
+                            "certifications": ""},
+        "architect":       {"title": "Solution Architect",
+                            "skills": ['architecture', 'integration', 'cloud', 'domain-driven design', 'security', 'API design', 'migration', 'event-driven'],
+                            "certifications": "AWS Solutions Architect, Azure Architect"},
+        "devops":          {"title": "DevOps Engineer",
+                            "skills": ['Kubernetes', 'Terraform', 'CI/CD', 'observability', 'AWS', 'Azure', 'Docker', 'platform engineering'],
+                            "certifications": "CKA"},
+        "qa":              {"title": "QA Engineer",
+                            "skills": ['test automation', 'Playwright', 'regression', 'accessibility audits', 'Cypress', 'performance testing', 'API testing', 'exploratory testing', 'CI'],
+                            "certifications": "ISTQB"},
     },
     project_managers=["A. Lahti", "J. Mäkelä", "K. Saarinen", "L. Lounela"],
     project_leads={
@@ -376,15 +602,20 @@ STUDIO = PersonaSpec(
         "M. Salo", "E. Heikkinen", "H. Mattila", "V. Jokinen", "T. Rinne",
         "O. Halonen", "I. Pulkkinen", "N. Forsberg", "J. Karjalainen",
         "L. Lounela",
+        *MORE_PROJECT_PEOPLE[:27],
     ],
     project_reliable={"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"},
     project_chaotic={"V. Jokinen", "T. Rinne"},
     project_customers={
-        "design":         ["Wolt Enterprises", "Reaktor", "Nordea Brand", "Marimekko"],
+        "design":         ["Wolt Enterprises", "Reaktor", "Nordea Brand", "Marimekko",
+                            "Framery", "Varusteleka", "Swappie"],
         "implementation": ["Telia Finland", "Posti Group", "Fortum", "S-Group"],
-        "strategy":       ["Sanoma Media", "Stora Enso", "Internal — Strategy"],
-        "discovery":      ["Sanoma Media", "Wärtsilä", "Internal — R&D"],
-        "retainer":       ["Telia Finland", "Marimekko", "Wolt Enterprises"],
+        "strategy":       ["Sanoma Media", "Stora Enso", "Internal — Strategy",
+                            "Framery", "Solar Foods"],
+        "discovery":      ["Sanoma Media", "Wärtsilä", "Internal — R&D",
+                            "Solar Foods", "Meru Health", "Kyrö Distillery"],
+        "retainer":       ["Telia Finland", "Marimekko", "Wolt Enterprises",
+                            "Swappie", "Meru Health"],
     },
     manager_fit={
         ("A. Lahti",    "design"):         1.30,
@@ -536,6 +767,65 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
     }
     DEFAULT_SUFFIXES = ["", " v2", " HD", " Pro", " 10pk"]
 
+    # Variant axes — the part of a catalogue name that says WHICH one.
+    #
+    # Without these, `template + suffix` gave 241 distinct names across
+    # 3200 SKUs: thirty-three different products all called "Tape
+    # Measure 10pk". That is fine for a view that only ever shows a name
+    # beside its own row, and fatal for line matching, where the whole
+    # task is recovering a SKU from a description — no matcher can pick
+    # between thirty-three rows that are called the same thing, and the
+    # measured top-1 was 1.7%.
+    #
+    # Real catalogue names carry the discriminator: "tulppaani punainen
+    # 40cm" is species, colour and length precisely so a human can tell
+    # two rows apart. Size and colour pools are per category because a
+    # yoghurt has no colour and a t-shirt has no litre capacity.
+    VARIANT_AXES: dict[str, tuple[list[str], list[str]]] = {
+        "diy":                   (["3m", "5m", "8m", "25mm", "50mm"],
+                                  ["Yellow", "Black", "Chrome", "Blue"]),
+        "homeware":              (["20cm", "30cm", "40cm", "1.5L"],
+                                  ["White", "Black", "Natural", "Terracotta"]),
+        "fashion":               (["S", "M", "L", "XL"],
+                                  ["Black", "Navy", "Beige", "Olive", "Rust"]),
+        "electronics":           (["64GB", "128GB", "256GB", '13"', '15"'],
+                                  ["Black", "Silver", "Graphite"]),
+        "groceries":             (["250g", "500g", "1kg", "1L"], []),
+        "household":             (["750ml", "1L", "2L", "5L"], []),
+        "beauty":                (["30ml", "50ml", "100ml"], []),
+        "spare parts":           (["DN25", "DN40", "DN50", "M8", "M12"],
+                                  ["Steel", "Brass"]),
+        "electrical components": (["6A", "10A", "16A", "25A"], []),
+        "ppe & workwear":        (["S", "M", "L", "XL"],
+                                  ["Hi-Vis", "Navy", "Black"]),
+        "office supplies":       (["A4", "A5", "A3"], ["Black", "Blue"]),
+    }
+
+    # Origin and grade — the two attributes a real catalogue carries
+    # that a WHOLESALER also has an opinion about. They are what make
+    # "Ruusu (Kouvola)" and "Kala (kotimainen)" different rows, and what
+    # lets a vendor's own profile argue for one of them: a Kouvola
+    # grower invoices Kouvola stock, a premium importer does not sell
+    # the budget line. Without something of this shape, `billing_supplier`
+    # can only ever narrow the category, never the row.
+    ORIGINS = ["kotimainen", "lähituote", "tuonti", "Kouvola", "Turku",
+               "Tampere", "Oulu"]
+    GRADES = ["premium", "standard", "budget"]
+
+    # Alternative phrasings for the size axis. The invoice says
+    # "ruusu 40cm"; the catalogue calls it "Ruusu Pitkä" and its
+    # DESCRIPTION says "ruusu 40cm tai 50cm". The line is then matchable
+    # through the description even though it shares no size token with
+    # the name — which is the third route in, and the one a catalogue
+    # with tags or a spec blurb really does provide.
+    # A word for each rung of a size axis, by POSITION — so "8m" (third
+    # of five) reads as "pitkä". This is the `Ruusu Pitkä` case: the
+    # catalogue names the rung in words, the invoice quotes the
+    # measurement, and only the DESCRIPTION connects the two.
+    SIZE_WORDS = ["pieni", "keskikoko", "pitkä", "suuri", "erikoissuuri"]
+
+    seen_names: set[tuple[str, str]] = set()
+
     while len(products) < persona.n_products:
         counter += 1
         sku = f"SKU-{counter}"
@@ -544,7 +834,19 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         templates = persona.product_name_templates.get(cat, ["Item"])
         name = random.choice(templates)
 
+        # Variant tokens go between the template and the suffix, the way
+        # a real catalogue reads: "Tape Measure 5m Yellow 10pk".
+        sizes, colours = VARIANT_AXES.get(cat.lower(), ([], []))
         suffix_pool = SUFFIX_POOL.get(cat.lower(), DEFAULT_SUFFIXES)
+        # Beauty and groceries already carry their size in the SUFFIX
+        # pool (" 50ml", " 6-pack"), so adding a size variant too
+        # produced "Eau de Toilette 50ml 50ml". One size per name.
+        variant = []
+        if sizes and suffix_pool is DEFAULT_SUFFIXES:
+            variant.append(random.choice(sizes))
+        if colours and random.random() < 0.75:
+            variant.append(random.choice(colours))
+        variant_text = (" " + " ".join(variant)) if variant else ""
         suffix = random.choice(suffix_pool)
         # Add a random "#NNN" code on the unsuffixed default-pool path
         # ~10% of the time — gives the same realistic-SKU-name texture
@@ -577,9 +879,60 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
                              or [s.name for s in persona.suppliers]
         supplier = random.choice(sup_candidates)
 
+        # Brand first, the way a catalogue is actually written and the
+        # way a buyer searches it. It is also the strongest remaining
+        # discriminator between two otherwise identical rows.
+        brand = f"{supplier} " if random.random() < 0.7 else ""
+
+        origin = random.choice(ORIGINS)
+        grade = random.choice(GRADES)
+
+        # Identity, and why it is split this way.
+        #
+        # An invoice quotes the product but NOT its origin — the vendor
+        # supplies that. So the pair that has to be unique is
+        # (base name, origin): the text carries the first, the vendor
+        # the second, and between them exactly one row is left. That is
+        # what makes the corpus answerable rather than merely hard.
+        #
+        # It was not unique before. template x variant x suffix x brand
+        # ran out of combinations well before 3200 rows, so half the
+        # catalogue shared a name and top-1 could not exceed 63% however
+        # good the matcher was. No human clerk can pick between two rows
+        # spelled identically either.
+        #
+        # When a base name IS taken for this origin, the discriminator
+        # goes into the BASE — "Mk2", the way a catalogue really writes
+        # one — so it reaches the invoice text. Hiding it in a trailing
+        # "#2" the invoice never repeats just moves the ambiguity.
+        base = brand + name + variant_text + suffix
+        mark = 2
+        while (base, origin) in seen_names:
+            base = f"{brand}{name}{variant_text} Mk{mark}{suffix}"
+            mark += 1
+        seen_names.add((base, origin))
+        full = f"{base} ({origin})"
+
+        # A short spec line. It carries the size BOTH ways — the figure
+        # the invoice is likely to quote and the word the name is likely
+        # to use — because that is the only thing connecting a line
+        # reading "40cm" to a row called "Pitkä". Everything else here
+        # is what a catalogue blurb would say anyway.
+        size_token = variant[0] if (variant and sizes
+                                    and variant[0] in sizes) else ""
+        size_word = SIZE_WORDS[sizes.index(size_token) % len(SIZE_WORDS)] \
+            if size_token else ""
+        described = [w for w in (
+            f"{size_token} tai {size_word}" if size_word else size_token,
+            *(v for v in variant if v != size_token), origin, grade) if w]
+        description = ", ".join([name.lower()] + described)
+
         products.append({
             "sku": sku,
-            "name": name + suffix,
+            "name": full,
+            "origin": origin,
+            "grade": grade,
+            "description": description,
             "supplier": supplier if "supplier" not in dropped else None,
             "category": cat if "category" not in dropped else None,
             "unit_price": round(random.uniform(*spec["price"]), 2) if "unit_price" not in dropped else None,
@@ -667,20 +1020,45 @@ def _project_success_p(
         p *= 0.85
     else:
         p *= 1.10
-    p *= 1.0 + 0.08 * sum(1 for m in members if m in persona.project_reliable)
-    p *= 1.0 - 0.18 * sum(1 for m in members if m in persona.project_chaotic)
+    # Reliable and chaotic people are a small, distinctive minority —
+    # five and two per persona. Scaling that ROSTER with the bench (an
+    # earlier attempt) made a third of everyone "reliable", so almost
+    # every team was high-reliability and the contrast disappeared.
+    # Scale the per-member EFFECT instead: one standout on a team of
+    # five should still move the number.
+    p *= 1.0 + 0.16 * sum(1 for m in members if m in persona.project_reliable)
+    # Same reasoning: a bigger per-member drag, not a bigger roster.
+    p *= 1.0 - 0.30 * sum(1 for m in members if m in persona.project_chaotic)
     if budget / max(duration, 1) > 2500:
         p *= 0.80
     if priority == "high":
         p *= 0.95
-    return max(0.05, min(0.97, p))
+    # Ceiling at 0.78, not 0.97. `success` is now 2-of-3 independent
+    # core outcomes, and a composite SATURATES: at p=0.90 the three
+    # outcomes land at 0.97/0.99/0.95 and two-of-three is 0.998, so a
+    # team of reliable people and a team of nobodies both score ~100%
+    # and the engineered people-signal — the thing the portfolio's
+    # success-factor panel exists to surface — compresses to nothing.
+    # The composite is only responsive while the underlying p stays
+    # off its ceiling, so the ceiling comes down and the per-outcome
+    # multipliers no longer inflate above p.
+    return max(0.05, min(0.78, p))
 
 
-def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict], list[dict]]:
+def generate_projects_and_assignments(
+    persona: PersonaSpec, people: list[dict],
+) -> tuple[list[dict], list[dict], list[dict]]:
     projects: list[dict] = []
     assignments: list[dict] = []
+    deliveries: list[dict] = []
     types = list(persona.project_types.keys())
     weights = [persona.project_types[t]["weight"] for t in types]
+    by_name = {p["person"]: p for p in people}
+    by_discipline: dict[str, list[str]] = {}
+    for p in people:
+        by_discipline.setdefault(p["discipline"], []).append(p["person"])
+    ordinary_disciplines = [d for d in persona.disciplines
+                            if d != persona.lead_discipline]
 
     def make_one(idx: int, completed: bool) -> None:
         ptype = random.choices(types, weights=weights, k=1)[0]
@@ -688,34 +1066,195 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
         manager = random.choice(persona.project_managers)
         lead = random.choice(persona.project_leads[ptype])
         team_size = random.randint(*spec["team"])
-        pool = [p for p in persona.project_team_pool if p != lead]
-        members = random.sample(pool, k=min(team_size, len(pool)))
+        customer_for_site = random.choice(persona.project_customers[ptype])
+        site = site_for(customer_for_site) or random.choices(
+            SITES, weights=SITE_WEIGHTS, k=1)[0]
+
+        # Staff by DISCIPLINE, not at random: pick which roles this job
+        # needs, then fill each from the people who do that work,
+        # preferring the ones already at the site. This is the
+        # correlation the planner has to rediscover — if members were
+        # sampled uniformly, `role` would predict nothing about `person`
+        # and the match would be an accident of frequency.
+        # Which disciplines this KIND of work needs. Picking uniformly
+        # across every discipline — the previous behaviour — staffed a
+        # design project with backend developers and QA, and made
+        # `_predict role` return the same near-flat mix for every
+        # project type, because that is genuinely what the data said.
+        # The mix has to vary by project type or the planner has
+        # nothing to learn and every proposal gets the same team.
+        role_mix = spec.get("roles") or {d: 1 for d in ordinary_disciplines}
+        mix_roles = [r for r in role_mix if r in ordinary_disciplines]
+        mix_weights = [role_mix[r] for r in mix_roles]
+        member_roles = random.choices(mix_roles, weights=mix_weights,
+                                      k=team_size)
+        members = []
+        for role_needed in member_roles:
+            bench = [n for n in by_discipline.get(role_needed, [])
+                     if n != lead and n not in members]
+            if not bench:
+                bench = [n for n in persona.project_team_pool
+                         if n != lead and n not in members]
+            if not bench:
+                break
+            local = [n for n in bench if by_name.get(n, {}).get("site") == site]
+            # Site is a strong preference, not a rule — real projects
+            # pull in a remote specialist when nobody local fits.
+            pick_from = local if (local and random.random() < 0.75) else bench
+            members.append(random.choice(pick_from))
+        member_roles = member_roles[:len(members)]
         budget = round(random.uniform(*spec["budget"]), -2)
         duration = random.randint(*spec["duration"])
         priority = random.choices(["low", "medium", "high"], weights=[25, 50, 25], k=1)[0]
-        customer = random.choice(persona.project_customers[ptype])
-        start_month = random.choice(MONTHS)
+        customer = customer_for_site
 
+        # Schedule the project relative to TODAY_MONTH, by status.
+        # A completed project must have finished before now; an
+        # in-flight one must still be running, i.e. it started within
+        # its own duration of now. Picking a start month at random
+        # across the whole history for both — the previous behaviour —
+        # produced "active" projects whose scheduled end was years in
+        # the past, which makes any forward revenue view empty and any
+        # capacity view meaningless.
+        contract = random.choices(CONTRACT_TYPES, weights=CONTRACT_WEIGHTS, k=1)[0]
+        clarity = random.choices(SCOPE_CLARITY, weights=CLARITY_WEIGHTS, k=1)[0]
+        novelty = random.choices(NOVELTY, weights=NOVELTY_WEIGHTS, k=1)[0]
+        customer_size = customer_size_of(customer_for_site)
+        technology = random.choice(TECHNOLOGIES.get(ptype, ["general"]))
+        domain = _domain_for(customer_for_site, random)
+        span = month_span(duration)
+        now = _month_index(TODAY_MONTH)
+        earliest = _month_index(MONTHS[0])
+        if completed:
+            # Finished, so its scheduled end is strictly before this
+            # month — a project ending this month is still in flight.
+            latest_start = now - span - 1
+            start_month = _month_from_index(
+                random.randint(earliest, max(earliest, latest_start))
+            )
+        else:
+            # Still running: started within `span` months of now, and
+            # not in the future. Long retainers therefore reach further
+            # back than a two-week discovery, which is correct.
+            start_month = _month_from_index(
+                random.randint(max(earliest, now - span + 1), now)
+            )
+
+        # The LEAD counts. They were excluded here, which mattered more
+        # than it looks: four of the five people the fixture marks as
+        # standouts are named in `project_leads`, so most projects
+        # "with a reliable person" got no boost at all — the engineered
+        # effect measured as NEGATIVE, and `_relate` over
+        # `assignments.person` (which does include the lead) was mining
+        # a signal the generator never put there. The person running the
+        # project is the last one whose effect should be dropped.
+        all_people = [lead] + members
         p_succ = _project_success_p(
-            persona, ptype, manager, team_size, members, budget, duration, priority,
+            persona, ptype, manager, team_size, all_people, budget, duration,
+            priority,
         )
 
         if completed:
-            success = random.random() < p_succ
-            on_time = success or (random.random() < 0.35)
-            on_budget = success or (random.random() < 0.30)
-            if not success and on_time and on_budget:
-                if random.random() < 0.5:
-                    on_time = False
-                else:
-                    on_budget = False
+            # Futurice's 3+3, each outcome driven by its OWN factors —
+            # see `_outcomes`. A single score would average "the team
+            # loved the new stack" against "the new stack cost us the
+            # margin" into nothing, and those are the two facts a
+            # delivery organisation most needs separated.
+            seniority = _team_seniority(by_name, all_people)
+            probs = _outcomes(
+                p_succ, contract=contract, clarity=clarity, novelty=novelty,
+                customer_size=customer_size, seniority=seniority,
+                oversized=team_size > spec["team"][1],
+            )
+            financial_ok = random.random() < probs["financial_ok"]
+            team_happy = random.random() < probs["team_happy"]
+            on_time = random.random() < probs["on_time"]
+
+            # WHAT IT ACTUALLY COST, which is the only thing worth
+            # estimating from. `budget_eur` and `duration_days` are what
+            # was SOLD; estimating a new proposal off them is estimating
+            # from other people's optimism, and it bakes the same
+            # overrun into the next quote. The overrun is driven by the
+            # same factors as everything else, so an unclear scope on a
+            # fixed price does not merely score badly — it costs more.
+            cost_overrun = 1.0
+            if clarity == "unclear":
+                cost_overrun *= random.uniform(1.15, 1.6)
+            elif clarity == "evolving":
+                cost_overrun *= random.uniform(1.0, 1.25)
+            if novelty == "new_stack":
+                cost_overrun *= random.uniform(1.1, 1.45)
+            if seniority == "junior_heavy":
+                cost_overrun *= random.uniform(1.05, 1.3)
+            elif seniority == "senior_heavy":
+                cost_overrun *= random.uniform(0.9, 1.02)
+            cost_overrun *= random.uniform(0.92, 1.08)
+            actual_cost_eur = round(budget * max(0.75, cost_overrun), -2)
+
+            time_overrun = 1.0
+            if clarity != "clear":
+                time_overrun *= random.uniform(1.0, 1.25)
+            if novelty == "new_stack":
+                time_overrun *= random.uniform(1.0, 1.2)
+            time_overrun *= random.uniform(0.92, 1.06)
+            actual_duration_days = max(1, round(duration * time_overrun))
+
+            # Derived from the actuals rather than drawn separately, so
+            # "on budget" and "cost 40% more than we sold it for" can
+            # never disagree in the same row.
+            # A few points of tolerance: nobody calls a 3% overrun
+            # a budget failure.
+            on_budget = actual_cost_eur <= budget * 1.06
+            on_time = actual_duration_days <= duration * 1.10
+            # A late project tries the client's patience on top of
+            # whatever else is going on — computed after the actuals,
+            # because lateness is now a fact about them.
+            customer_happy = random.random() < (
+                probs["customer_happy"] * (1.0 if on_time else 0.72))
+            outcome_ok = random.random() < probs["outcome_ok"]
+            # Follow-on work comes from a happy client and a thing that
+            # worked — and small customers rarely have a second project.
+            doors_opened = (customer_happy and outcome_ok
+                            and random.random() < {"small": 0.3, "mid": 0.55,
+                                                   "enterprise": 0.7}[customer_size])
+            success = sum([financial_ok, team_happy, customer_happy]) >= 2
             status = "complete"
         else:
             success = on_time = on_budget = None
+            financial_ok = team_happy = customer_happy = None
+            outcome_ok = doors_opened = None
+            actual_cost_eur = actual_duration_days = None
+            seniority = _team_seniority(by_name, all_people)
             status = random.choices(["active", "at_risk", "delayed"], weights=[60, 25, 15], k=1)[0]
 
         pid = f"PRJ-{1000 + idx}"
-        all_people = [lead] + members
+        if completed:
+            # A delivery record, which exists only once work is done.
+            # Its own table rather than nullable columns on `projects`
+            # for two reasons: it is what an ERP actually does (the
+            # costing record is not the sales record), and `_estimate`
+            # cannot read a nullable numeric column at all — it fails
+            # with `None (of class scala.None$)` even when the `where`
+            # excludes every null. Non-nullable columns in a table of
+            # finished work sidestep that and model it better.
+            deliveries.append({
+                "delivery_id": f"DLV-{pid}",
+                "project_id": pid,
+                "project_type": ptype,
+                "customer": customer,
+                "technology": technology,
+                "domain": domain,
+                "contract_type": contract,
+                "scope_clarity": clarity,
+                "novelty": novelty,
+                "customer_size": customer_size,
+                "team_seniority": seniority,
+                "team_size": team_size,
+                "quoted_eur": budget,
+                "actual_cost_eur": actual_cost_eur,
+                "quoted_days": duration,
+                "actual_duration_days": actual_duration_days,
+            })
         projects.append({
             "project_id": pid,
             "name": f"{ptype.capitalize()} — {customer.split('—')[-1].strip()} #{idx}",
@@ -729,18 +1268,46 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
             "duration_days": duration,
             "priority": priority,
             "status": status,
+            "site": site,
+            "technology": technology,
+            "domain": domain,
+            # Commercial and shape drivers. These are the columns the
+            # six outcome predictions actually turn on.
+            "contract_type": contract,
+            "scope_clarity": clarity,
+            "novelty": novelty,
+            "customer_size": customer_size,
+            "team_seniority": seniority,
             "start_month": start_month,
             "on_time": on_time,
             "on_budget": on_budget,
+            # Sold vs delivered. Estimation reads the actuals.
+            "actual_cost_eur": actual_cost_eur,
+            "actual_duration_days": actual_duration_days,
+            # Futurice 3+3 — the core three first.
+            "financial_ok": financial_ok,
+            "team_happy": team_happy,
+            "customer_happy": customer_happy,
+            "outcome_ok": outcome_ok,
+            "doors_opened": doors_opened,
             "success": success,
         })
+        roles = [persona.lead_discipline] + member_roles
         for i, person in enumerate(all_people):
-            role = "lead" if i == 0 else ("senior" if person in persona.project_reliable else "engineer")
+            # The role a person is booked into is their discipline —
+            # which is exactly what makes `_predict person` given
+            # `{project_type, role, site}` a real match rather than a
+            # popularity contest.
+            role = roles[i] if i < len(roles) else by_name.get(
+                person, {}).get("discipline", persona.lead_discipline)
             allocation = random.choice([60, 80, 100]) if i == 0 else random.choice([20, 25, 40, 50, 75, 100])
             # `project_type` is denormalised onto the assignment so
             # `_predict` queries can filter by it without needing a
             # cross-table join. Production ERPs typically do the same
             # for query performance on timesheet/assignment tables.
+            seat_first, seat_last = phase_window(
+                role, _month_index(start_month), span)
+            discipline = by_name.get(person, {}).get("discipline", role)
             assignments.append({
                 "assignment_id": f"ASG-{pid}-{i:02d}",
                 "project_id": pid,
@@ -748,7 +1315,22 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
                 "role": role,
                 "allocation_pct": allocation,
                 "project_type": ptype,
+                "site": site,
+                "technology": technology,
+                "domain": domain,
+                # The window this booking occupies, denormalised off the
+                # project. Availability is a question about a DATE
+                # RANGE, and answering it by joining every assignment
+                # back to its project in Python is the kind of thing
+                # that makes a demo look slow for no reason.
+                "start_month": _month_from_index(seat_first),
+                "end_month": _month_from_index(seat_last),
                 "project_success": success,  # nullable mirror of projects.success
+                # Whether THIS person did well in THIS seat — related to
+                # the project's outcome but not the same question.
+                "went_well": (None if not completed else
+                              _went_well(persona, person, role, discipline,
+                                         bool(success))),
             })
 
     for i in range(persona.n_completed_projects):
@@ -756,10 +1338,574 @@ def generate_projects_and_assignments(persona: PersonaSpec) -> tuple[list[dict],
     for i in range(persona.n_active_projects):
         make_one(persona.n_completed_projects + i, completed=False)
     random.shuffle(projects)
-    return projects, assignments
+    return projects, assignments, deliveries
 
 
 # ── Driver ──────────────────────────────────────────────────────────
+
+
+# What a customer says when they say no. Ordered roughly by how often
+# a delivery organisation actually hears it.
+LOSS_REASONS = ["price", "timing", "scope_fit", "incumbent", "budget_frozen"]
+
+# Price relative to the going rate for that project_type and size. The
+# bands are the feature the sales conversation is actually about, and
+# bucketing them lets `_relate` and `_predict` treat "we quoted 30%
+# over" as one thing rather than as a thousand distinct Decimals.
+PRICE_BANDS = ["under", "at_market", "over", "well_over"]
+
+
+# Where each persona's people and projects sit. Site is a real staffing
+# constraint — a Tampere job is usually staffed from Tampere — and it is
+# the kind of fact that lives in an HR table and never reaches the
+# scheduling spreadsheet.
+SITES = ["Helsinki", "Tampere", "Oulu", "Turku"]
+SITE_WEIGHTS = [45, 25, 18, 12]
+
+# Customers whose name says where the work is. Everything else is
+# assigned a site at random from the weights above.
+SITE_HINTS = {
+    "Tampere": "Tampere",
+    "Oulu": "Oulu",
+    "Turku": "Turku",
+    "Helsinki": "Helsinki",
+}
+
+
+def site_for(text: str) -> str | None:
+    for needle, site in SITE_HINTS.items():
+        if needle.lower() in text.lower():
+            return site
+    return None
+
+
+# What a project is built WITH and who it is built FOR. Both are
+# staffing signals a skills list misses — "has done React" and "has
+# done React for a municipality" are different people — and both move
+# outcomes, because an unfamiliar stack or an unfamiliar sector is
+# where estimates go wrong.
+TECHNOLOGIES = {
+    # studio
+    "design":         ["Figma", "design-system", "Framer"],
+    "implementation": ["React", "Node", "Python", "AWS", "Azure", "Kubernetes"],
+    "strategy":       ["architecture-review", "cloud-migration", "workshops"],
+    "discovery":      ["research", "prototyping"],
+    "retainer":       ["React", "Node", "AWS", "Kubernetes"],
+    # metsa
+    "maintenance":    ["Siemens-S7", "hydraulics", "condition-monitoring"],
+    "construction":   ["concrete", "steel-frame", "MEP"],
+    "rollout":        ["telematics", "SCADA", "IoT-sensors"],
+    "audit":          ["ISO-9001", "energy-audit", "safety-audit"],
+    "rd":             ["prototyping", "materials", "CAD"],
+    # aurora
+    "store-fitout":   ["fixtures", "lighting", "POS"],
+    "ecom-launch":    ["Shopify", "PIM", "payment-integration"],
+    "marketing-camp": ["CRM", "email-automation", "paid-social"],
+}
+
+DOMAINS = ["public sector", "telecom", "retail", "energy", "industrial",
+           "media", "finance", "logistics"]
+
+
+def _domain_for(customer: str, rng: random.Random) -> str:
+    """A customer's sector. Stable per customer within a persona, so a
+    given account always reads as the same industry."""
+    lowered = customer.lower()
+    for needle, domain in (
+        ("city of", "public sector"), ("kaupunki", "public sector"),
+        ("internal", "industrial"), ("telia", "telecom"), ("elisa", "telecom"),
+        ("posti", "logistics"), ("fortum", "energy"), ("nordea", "finance"),
+        ("sanoma", "media"), ("marimekko", "retail"), ("s-group", "retail"),
+        ("stora", "industrial"), ("wärtsilä", "industrial"),
+    ):
+        if needle in lowered:
+            return domain
+    return rng.choice(DOMAINS)
+
+
+# When in a project each discipline is actually needed, as a fraction
+# of its span. Booking everyone for the whole project — the previous
+# model — holds a designer for four months when they are wanted for
+# one, which makes capacity read pessimistic everywhere and is simply
+# not how delivery works.
+ROLE_PHASE = {
+    # studio / consultancy
+    "project manager": (0.0, 1.0),
+    "ux design":       (0.0, 0.45),
+    "architect":       (0.0, 0.55),
+    "data":            (0.15, 0.85),
+    "backend":         (0.15, 0.95),
+    "frontend":        (0.25, 1.0),
+    "qa":              (0.5, 1.0),
+    "devops":          (0.6, 1.0),
+    # metsa
+    "site manager":    (0.0, 1.0),
+    "civil":           (0.0, 0.5),
+    "mechanical":      (0.2, 0.8),
+    "electrical":      (0.35, 0.9),
+    "automation":      (0.45, 0.95),
+    "hvac":            (0.5, 1.0),
+    "quality":         (0.7, 1.0),
+    # aurora
+    "store lead":      (0.0, 1.0),
+    "supply":          (0.0, 0.6),
+    "visual":          (0.3, 0.9),
+    "ecommerce":       (0.2, 0.9),
+    "marketing":       (0.6, 1.0),
+}
+
+
+def phase_window(role: str, start_index: int, span: int) -> tuple[int, int]:
+    """The months a role is actually needed, inside a project's span.
+
+    Clamped so every seat occupies at least one month — a two-month
+    project still needs its QA engineer for some of it, and a zero-width
+    booking would vanish from the capacity view entirely.
+    """
+    lo, hi = ROLE_PHASE.get(role, (0.0, 1.0))
+    first = start_index + int(span * lo)
+    last = start_index + max(int(span * hi) - 1, int(span * lo))
+    return first, max(first, min(last, start_index + span - 1))
+
+
+def _went_well(persona: PersonaSpec, person: str, role: str,
+               discipline: str, project_success: bool) -> bool:
+    """Did this person, in this seat, do a good job?
+
+    Deliberately NOT a restatement of whether the project succeeded.
+    A good person on a doomed project still did their bit, and a
+    project can land despite someone: the correlation is strong but
+    the two are separable, which is the entire reason this column is
+    worth having next to "who usually does this".
+
+    Working outside your own discipline is the biggest single drag —
+    it is what the planner is trying to help a lead avoid.
+    """
+    p = 0.72 if project_success else 0.45
+    if role != discipline:
+        p *= 0.62
+    if person in persona.project_reliable:
+        p *= 1.25
+    if person in persona.project_chaotic:
+        p *= 0.6
+    return random.random() < max(0.05, min(0.95, p))
+
+
+# Commercial and shape attributes that drive outcomes DIFFERENTLY.
+#
+# From a real software-project post-mortem, and the reason they are
+# worth having is that their effects diverge: a single "success" score
+# averages them into nothing, while the 3+3 shows the shape. Trying a
+# new stack makes the team happy and the numbers bad. Fixed price on an
+# unclear scope is where money goes to die but the crew may still enjoy
+# it. That divergence is what `_relate` and the six `_predict`s have to
+# find, and it cannot be found if every outcome is a copy of one prior.
+CONTRACT_TYPES = ["fixed_price", "capped", "time_and_materials"]
+CONTRACT_WEIGHTS = [40, 25, 35]
+
+SCOPE_CLARITY = ["clear", "evolving", "unclear"]
+CLARITY_WEIGHTS = [45, 35, 20]
+
+NOVELTY = ["proven", "some_new", "new_stack"]
+NOVELTY_WEIGHTS = [50, 32, 18]
+
+CUSTOMER_SIZE = ["small", "mid", "enterprise"]
+
+# Size is a property of the CUSTOMER, not of the project. Drawing it
+# per project made Fortum a small client on one job and an enterprise
+# on the next, which is both wrong and unlearnable — `_predict` would
+# see the same account carrying every size. Semi-real too: these are
+# roughly where these companies sit in the Finnish landscape, because a
+# demo that calls Fortum a small customer loses the room.
+CUSTOMER_SIZES = {
+    # Enterprise
+    "Fortum": "enterprise", "Telia Finland": "enterprise",
+    "Telia Finland Oyj": "enterprise", "Posti Group": "enterprise",
+    "S-Group": "enterprise", "Stora Enso": "enterprise",
+    "Nordea Brand": "enterprise", "Wärtsilä": "enterprise",
+    "Wärtsilä Oy": "enterprise", "Elisa": "enterprise",
+    "Neste Oyj": "enterprise", "ABB Service": "enterprise",
+    "Siemens Finland": "enterprise", "Caverion Suomi": "enterprise",
+    "NCC Suomi": "enterprise",
+    # Mid
+    "Sanoma Media": "mid", "Marimekko": "mid", "Reaktor": "mid",
+    "Wolt Enterprises": "mid", "City of Tampere": "mid",
+    "Lemminkäinen": "mid", "Iittala": "mid", "Fiskars": "mid",
+    # Small — a consultancy's long tail, and where the pattern lives
+    "Framery": "small", "Varusteleka": "small", "Solar Foods": "small",
+    "Swappie": "small", "Kyrö Distillery": "small",
+    "Meru Health": "small",
+}
+
+
+def customer_size_of(customer: str) -> str:
+    """A client's size. Internal work counts as the parent company."""
+    if customer.lower().startswith("internal"):
+        return "enterprise"
+    return CUSTOMER_SIZES.get(customer, "mid")
+
+
+def _team_seniority(people_by_name: dict, team: list[str]) -> str:
+    """How senior the crew is, as a bucket.
+
+    Derived from who is actually on it rather than drawn at random, so
+    "senior team → everything goes better" is a real relationship
+    between two columns and not two independent dice.
+    """
+    ranks = [people_by_name.get(n, {}).get("seniority", "mid") for n in team]
+    if not ranks:
+        return "mixed"
+    senior = sum(1 for r in ranks if r == "senior") / len(ranks)
+    junior = sum(1 for r in ranks if r == "junior") / len(ranks)
+    if senior >= 0.5:
+        return "senior_heavy"
+    if junior >= 0.5:
+        return "junior_heavy"
+    return "mixed"
+
+
+def _outcomes(base: float, *, contract: str, clarity: str, novelty: str,
+              customer_size: str, seniority: str, oversized: bool) -> dict:
+    """The six outcomes, each with its OWN drivers.
+
+    Everything here is a claim about software projects that someone
+    learned the expensive way:
+
+      * fixed price on an unclear scope destroys margin, and it barely
+        touches whether the team enjoyed it;
+      * an unclear scope hurts the schedule and the client's patience
+        before it hurts the build;
+      * a senior crew improves everything, which is the one factor that
+        moves all six the same way;
+      * a new stack makes people happy and the numbers bad — the
+        clearest case for scoring more than one thing;
+      * small customers churn scope and pay late, and rarely open a
+        second door.
+    """
+    def clamp(x):
+        return max(0.05, min(0.95, x))
+
+    senior_boost = {"senior_heavy": 1.18, "mixed": 1.0, "junior_heavy": 0.86}[seniority]
+
+    money = base * senior_boost
+    money *= {
+        "fixed_price":      {"clear": 1.02, "evolving": 0.72, "unclear": 0.48},
+        "capped":           {"clear": 1.0,  "evolving": 0.85, "unclear": 0.68},
+        "time_and_materials": {"clear": 1.06, "evolving": 1.0, "unclear": 0.92},
+    }[contract][clarity]
+    money *= {"proven": 1.05, "some_new": 0.92, "new_stack": 0.70}[novelty]
+    money *= {"small": 0.82, "mid": 1.0, "enterprise": 1.05}[customer_size]
+
+    on_time = base * senior_boost
+    on_time *= {"clear": 1.05, "evolving": 0.86, "unclear": 0.68}[clarity]
+    on_time *= {"proven": 1.04, "some_new": 0.94, "new_stack": 0.78}[novelty]
+    on_time *= 0.9 if oversized else 1.0
+
+    # People are happiest doing interesting work with people who know
+    # what they are doing. Commercial pain barely registers.
+    team_happy = base * senior_boost
+    team_happy *= {"proven": 0.94, "some_new": 1.08, "new_stack": 1.22}[novelty]
+    team_happy *= {"clear": 1.02, "evolving": 1.0, "unclear": 0.86}[clarity]
+    team_happy *= 0.85 if oversized else 1.0
+
+    customer_happy = base * senior_boost
+    customer_happy *= {"clear": 1.05, "evolving": 0.92, "unclear": 0.76}[clarity]
+    customer_happy *= {"small": 0.86, "mid": 1.0, "enterprise": 1.0}[customer_size]
+
+    outcome_ok = base * senior_boost
+    outcome_ok *= {"proven": 1.02, "some_new": 1.0, "new_stack": 0.9}[novelty]
+    outcome_ok *= {"clear": 1.04, "evolving": 0.95, "unclear": 0.84}[clarity]
+
+    return {
+        "financial_ok": clamp(money),
+        "on_time": clamp(on_time),
+        "team_happy": clamp(team_happy),
+        "customer_happy": clamp(customer_happy),
+        "outcome_ok": clamp(outcome_ok),
+    }
+
+
+def _sample_skills(pool: list[str]) -> list[str]:
+    """A personal subset of a discipline's skill pool.
+
+    Kept in the pool's own order so a skill list reads like a CV rather
+    than a shuffled bag, and always includes the first few terms — the
+    ones that define the discipline — so a frontend developer never
+    comes back without React.
+
+    A LIST of skills, not a string of them. `people.skills` is a
+    `String[]` column, which both API versions support, so "UI design"
+    stays one skill instead of becoming "UI" and "design". Storing it
+    as whitespace-joined Text turned every multi-word skill into
+    fragments and made "management" appear three times in one person's
+    list — which React reported as duplicate keys, and which made the
+    chips read as nonsense.
+    """
+    assert len(pool) == len(set(pool)), f"duplicate skill in pool: {pool}"
+    core, rest = pool[:3], pool[3:]
+    extra = set(random.sample(rest, k=min(len(rest), random.randint(2, 5))))
+    return core + [t for t in pool if t in extra]
+
+
+def generate_people(persona: PersonaSpec) -> list[dict]:
+    """The bench, with the metadata that actually decides a staffing call.
+
+    `assignments` records who worked on what. It does not record *why*
+    they were the right person — that is their discipline, their title,
+    their skills and where they are based, and in a real company that
+    lives in an HR system the scheduler never queries. Putting it in its
+    own table and linking `assignments.person` to it is what lets a
+    match be explained in the terms a delivery lead actually uses:
+    "React and TypeScript, based in Tampere", not "worked on 41 of
+    these before".
+
+    Each person gets one discipline, which fixes their title and skill
+    set. `generate_projects_and_assignments` then staffs a role from
+    the people whose discipline matches it, so the correlation Aito
+    has to rediscover is really in the data rather than asserted here.
+    """
+    people: list[dict] = []
+    disciplines = persona.disciplines
+    names = persona.project_team_pool
+    lead_discipline = persona.lead_discipline
+
+    # Leads named in `project_leads` are the persona's managers, so they
+    # get the lead discipline regardless of where they fall in the pool.
+    leads = {name for names_ in persona.project_leads.values() for name in names_}
+
+    ordinary = [d for d in disciplines if d != lead_discipline]
+    for index, person in enumerate(names):
+        if person in leads:
+            discipline = lead_discipline
+        else:
+            # Round-robin rather than random, so every discipline is
+            # staffed even on the smaller benches.
+            discipline = ordinary[index % len(ordinary)]
+        spec = disciplines[discipline]
+
+        seniority = random.choices(
+            ["junior", "mid", "senior"], weights=[25, 45, 30], k=1)[0]
+        if person in persona.project_reliable:
+            seniority = "senior"
+        years = {"junior": (1, 3), "mid": (3, 8), "senior": (8, 20)}[seniority]
+
+        people.append({
+            "person": person,
+            "discipline": discipline,
+            "title": spec["title"],
+            # `String[]` — a set of discrete skills. See _sample_skills.
+            #
+            # SAMPLED per person, not copied from the discipline. Giving
+            # every backend developer the identical skill string made
+            # skills perfectly collinear with `discipline`, so they
+            # could not discriminate between two backend people and
+            # Aito correctly reported zero lift from them — the `$why`
+            # for a candidate could only ever say "role is backend".
+            # Individual skill sets are what make "why THIS backend
+            # developer" an answerable question.
+            "skills": _sample_skills(spec["skills"]),
+            "certifications": spec.get("certifications", ""),
+            # Sectors this person has actually delivered in. Text, so
+            # `$match` works and a partial overlap still counts.
+            "domains": random.sample(DOMAINS, k=random.randint(1, 3)),
+            "site": random.choices(SITES, weights=SITE_WEIGHTS, k=1)[0],
+            "seniority": seniority,
+            "years_experience": random.randint(*years),
+        })
+    return people
+
+
+# Why someone is unavailable when nothing is booked over them.
+ABSENCE_KINDS = [
+    ("annual leave", (1, 2), 40),
+    ("parental leave", (6, 10), 8),
+    ("training", (1, 1), 20),
+    ("sabbatical", (3, 6), 4),
+    ("secondment", (2, 5), 10),
+]
+
+
+def generate_proposals(persona: PersonaSpec, people: list[dict],
+                       projects: list[dict]) -> list[dict]:
+    """Teams provisionally staffed onto bids that have not closed.
+
+    Booked work is not the whole claim on a person's time. Two or three
+    other proposals in flight want the same architect, and the first
+    delivery lead to press go wins — which is why a plan that reads as
+    perfectly feasible turns out not to be, and why a planner that
+    ignores this is a document rather than a tool.
+
+    One row per person per open bid, shaped like an assignment so the
+    availability arithmetic can treat them together and report them
+    apart.
+    """
+    proposals: list[dict] = []
+    by_discipline: dict[str, list[str]] = {}
+    for entry in people:
+        by_discipline.setdefault(entry["discipline"], []).append(entry["person"])
+
+    types = list(persona.project_types.keys())
+    weights = [persona.project_types[t]["weight"] for t in types]
+    now = _month_index(TODAY_MONTH)
+
+    for index in range(persona.n_open_proposals):
+        ptype = random.choices(types, weights=weights, k=1)[0]
+        spec = persona.project_types[ptype]
+        customer = random.choice(persona.project_customers[ptype])
+        team_size = random.randint(*spec["team"])
+        # Bids start soon, not now — that is what makes them contend
+        # with the window a planner is looking at.
+        start = now + random.randint(0, 3)
+        span = month_span(random.randint(*spec["duration"]))
+        role_mix = spec.get("roles") or {}
+        roles = [r for r in role_mix] or list(by_discipline)
+        weights_r = [role_mix.get(r, 1) for r in roles]
+
+        for seat in range(team_size):
+            role = random.choices(roles, weights=weights_r, k=1)[0]
+            bench = by_discipline.get(role) or [p["person"] for p in people]
+            proposals.append({
+                "proposal_id": f"PROP-{4000 + index}",
+                "customer": customer,
+                "project_type": ptype,
+                "person": random.choice(bench),
+                "role": role,
+                # Provisional, so lighter than a booked allocation.
+                "allocation_pct": random.choice([20, 40, 50, 60]),
+                "start_month": _month_from_index(start),
+                "end_month": _month_from_index(start + span - 1),
+                "probability": random.choice([20, 40, 60, 80]),
+            })
+    return proposals
+
+
+def generate_absences(persona: PersonaSpec, people: list[dict]) -> list[dict]:
+    """Planned time out of the delivery pool.
+
+    Booked project work says where someone's hours already went.
+    It cannot say that they are on parental leave from November, and
+    that is exactly the fact that invalidates a staffing plan two weeks
+    after it is made. It is also not derivable from anything else in
+    this database — leave lives in an HR calendar — which is what makes
+    it worth having as its own table.
+
+    Weighted towards the near future on purpose: an absence in 2023
+    changes no decision anyone is making today, and a demo whose
+    availability filter never actually excludes anyone teaches nothing.
+    """
+    absences: list[dict] = []
+    now = _month_index(TODAY_MONTH)
+    for index, entry in enumerate(people):
+        # Most people have one or two, a few have none.
+        for _ in range(random.choices([0, 1, 2], weights=[30, 50, 20], k=1)[0]):
+            kinds = [k for k, _, _ in ABSENCE_KINDS]
+            weights = [w for _, _, w in ABSENCE_KINDS]
+            kind = random.choices(kinds, weights=weights, k=1)[0]
+            length_range = next(l for k, l, _ in ABSENCE_KINDS if k == kind)
+            length = random.randint(*length_range)
+            # −6 to +9 months around now, so roughly half are live or
+            # upcoming and the planner's window filter has something to
+            # bite on.
+            start = now + random.randint(-6, 9)
+            absences.append({
+                "absence_id": f"ABS-{3000 + len(absences)}",
+                "person": entry["person"],
+                "kind": kind,
+                "start_month": _month_from_index(start),
+                "end_month": _month_from_index(start + length - 1),
+                "months": length,
+            })
+    return absences
+
+
+def generate_quotes(persona: PersonaSpec, projects: list[dict]) -> list[dict]:
+    """Bids sent, and how they landed.
+
+    A won quote becomes a project, so `projects` is a survivorship-
+    biased sample: it contains no losses at all. The planner view needs
+    the losses, because the question it answers — "will this estimate
+    cost us the deal, and what will they object to" — is answerable
+    only from work that did *not* close.
+
+    The generative story, which the view then has to rediscover from
+    the data alone:
+
+      * Price is the dominant driver, and it is non-linear. Quoting
+        `at_market` wins most of the time; `well_over` loses most of
+        the time, and when it loses it loses on `price`.
+      * An existing customer forgives a high price to a degree — the
+        relationship absorbs roughly one band.
+      * A competing bid costs about fifteen points of win rate flat.
+      * Short durations on big scopes lose on `timing`, not price,
+        which is the case where cutting the price would not have
+        helped — the thing a sales team most often gets wrong.
+    """
+    quotes: list[dict] = []
+    types = list(persona.project_types.keys())
+    weights = [persona.project_types[t]["weight"] for t in types]
+    # Reuse the delivered projects' customers so the two tables talk
+    # about the same accounts.
+    customers_by_type = persona.project_customers
+
+    for idx in range(persona.n_quotes):
+        ptype = random.choices(types, weights=weights, k=1)[0]
+        spec = persona.project_types[ptype]
+        customer = random.choice(customers_by_type[ptype])
+        team_size = random.randint(*spec["team"])
+        duration = random.randint(*spec["duration"])
+        priority = random.choices(["low", "medium", "high"], weights=[25, 50, 25], k=1)[0]
+        competing = random.random() < 0.45
+        existing = random.random() < 0.55
+
+        low, high = spec["budget"]
+        market = (low + high) / 2
+        band = random.choices(PRICE_BANDS, weights=[15, 45, 28, 12], k=1)[0]
+        multiplier = {"under": 0.82, "at_market": 1.0,
+                      "over": 1.22, "well_over": 1.55}[band]
+        quoted = round(market * multiplier * random.uniform(0.9, 1.1), -2)
+
+        # Base win rate by price band, then the modifiers.
+        p_win = {"under": 0.78, "at_market": 0.72,
+                 "over": 0.45, "well_over": 0.22}[band]
+        if existing:
+            p_win += 0.12
+        if competing:
+            p_win -= 0.15
+        # A tight schedule for the scope is its own risk, independent
+        # of price.
+        rushed = duration < spec["duration"][0] + (spec["duration"][1] - spec["duration"][0]) * 0.2
+        if rushed:
+            p_win -= 0.12
+        p_win = min(max(p_win, 0.05), 0.95)
+
+        won = random.random() < p_win
+        if won:
+            loss_reason = None
+        elif rushed and random.random() < 0.55:
+            loss_reason = "timing"
+        elif band in ("over", "well_over") and random.random() < 0.7:
+            loss_reason = "price"
+        else:
+            loss_reason = random.choice(LOSS_REASONS[1:])
+
+        scope_words = persona.quote_scopes[ptype]
+        quotes.append({
+            "quote_id": f"QT-{2000 + idx}",
+            "customer": customer,
+            "project_type": ptype,
+            "scope": random.choice(scope_words),
+            "quoted_eur": quoted,
+            "price_band": band,
+            "duration_days": duration,
+            "team_size": team_size,
+            "priority": priority,
+            "competing_bid": competing,
+            "existing_customer": existing,
+            "quoted_month": random.choice(MONTHS),
+            "won": won,
+            "loss_reason": loss_reason,
+        })
+    return quotes
 
 
 def generate_impressions(persona: PersonaSpec, products: list[dict]) -> list[dict]:
@@ -1280,23 +2426,50 @@ def write_persona(persona: PersonaSpec) -> None:
     products = generate_products(persona)
     orders = generate_orders(persona, products)
     prices = generate_price_history(persona, products)
-    projects, assignments = generate_projects_and_assignments(persona)
+    people = generate_people(persona)
+    projects, assignments, deliveries = generate_projects_and_assignments(
+        persona, people)
     impressions = generate_impressions(persona, products)
     # Tasks are currently only generated for Metsä — the construction
     # / maintenance phase model the project-plan view depends on doesn't
     # apply directly to retail (Aurora) or services (Studio) personas.
     tasks = generate_metsa_tasks(persona, projects) if persona.tenant_id == "metsa" else []
+    # Aurora is the only persona with a retail catalogue big enough for
+    # line-to-product matching to be a real problem rather than a lookup.
+    invoice_lines: list[dict] = []
+    invoice_lines_test: list[dict] = []
+    vendor_rows: list[dict] = []
+    if persona.tenant_id == "aurora":
+        from generate_invoice_lines import generate as generate_lines
+        invoice_lines, invoice_lines_test, vendor_rows = generate_lines(products)
+    quotes = generate_quotes(persona, projects) if persona.n_quotes else []
+    absences = generate_absences(persona, people)
+    proposals = generate_proposals(persona, people, projects)
 
     with open(out / "purchases.json",     "w") as f: json.dump(purchases,    f, indent=2, ensure_ascii=False)
     with open(out / "products.json",      "w") as f: json.dump(products,     f, indent=2, ensure_ascii=False)
     with open(out / "orders.json",        "w") as f: json.dump(orders,       f, indent=2, ensure_ascii=False)
     with open(out / "price_history.json", "w") as f: json.dump(prices,       f, indent=2, ensure_ascii=False)
+    with open(out / "people.json",        "w") as f: json.dump(people,       f, indent=2, ensure_ascii=False)
+    with open(out / "absences.json",      "w") as f: json.dump(absences,     f, indent=2, ensure_ascii=False)
+    with open(out / "proposals.json",     "w") as f: json.dump(proposals,    f, indent=2, ensure_ascii=False)
     with open(out / "projects.json",      "w") as f: json.dump(projects,     f, indent=2, ensure_ascii=False)
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
+    with open(out / "deliveries.json",    "w") as f: json.dump(deliveries,   f, indent=2, ensure_ascii=False)
     if impressions:
         with open(out / "impressions.json", "w") as f: json.dump(impressions, f, indent=2, ensure_ascii=False)
     if tasks:
         with open(out / "tasks.json",     "w") as f: json.dump(tasks,        f, indent=2, ensure_ascii=False)
+    if invoice_lines:
+        with open(out / "invoice_lines.json", "w") as f:
+            json.dump(invoice_lines, f, indent=2, ensure_ascii=False)
+        # NOT loaded into Aito — the held-out half `./do match-eval` scores.
+        with open(out / "invoice_lines_test.json", "w") as f:
+            json.dump(invoice_lines_test, f, indent=2, ensure_ascii=False)
+        with open(out / "vendors.json", "w") as f:
+            json.dump(vendor_rows, f, indent=2, ensure_ascii=False)
+    if quotes:
+        with open(out / "quotes.json",    "w") as f: json.dump(quotes,       f, indent=2, ensure_ascii=False)
 
     completed = [p for p in projects if p["status"] == "complete"]
     succ = [p for p in completed if p["success"]]
@@ -1310,7 +2483,18 @@ def write_persona(persona: PersonaSpec) -> None:
     if completed:
         print(f"    success rate: {len(succ)}/{len(completed)} = "
               f"{len(succ)/len(completed):.0%}")
+    print(f"  people:         {len(people)}")
+    if invoice_lines:
+        print(f"  invoice_lines:  {len(invoice_lines)} train "
+              f"+ {len(invoice_lines_test)} held out")
+    print(f"  absences:       {len(absences)}")
+    print(f"  proposals:      {len(proposals)} rows "
+          f"({len({r['proposal_id'] for r in proposals})} open bids)")
     print(f"  assignments:    {len(assignments)}")
+    print(f"  deliveries:     {len(deliveries)}")
+    if quotes:
+        won = sum(1 for q in quotes if q["won"])
+        print(f"  quotes:         {len(quotes)} (won {won} = {won/len(quotes):.0%})")
     if impressions:
         print(f"  impressions:    {len(impressions)} "
               f"(clicked={sum(1 for r in impressions if r['clicked'])})")

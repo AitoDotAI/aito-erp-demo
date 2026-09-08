@@ -25,6 +25,20 @@ export interface WhyPopoverProps {
   onContextFieldsChange?: (fields: Set<string>) => void;
 }
 
+/** Place the popover under the trigger, or above it when there is not
+ *  room below. A `$why` tree is tall and the rows that most need one
+ *  are near the bottom of a long table, so anchoring it downwards put
+ *  the explanation half off-screen exactly when it mattered. */
+function placeFor(rect: DOMRect, height = 340) {
+  const gap = 6;
+  const below = window.innerHeight - rect.bottom;
+  const flip = below < height + gap && rect.top > below;
+  return {
+    top: flip ? Math.max(8, rect.top - height - gap) : rect.bottom + gap,
+    left: Math.max(8, rect.right - 380),
+  };
+}
+
 export default function WhyPopover({
   value,
   confidence,
@@ -55,7 +69,7 @@ export default function WhyPopover({
     function handleScroll() {
       if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
-        setPos({ top: r.bottom + 6, left: Math.max(8, r.right - 380) });
+        setPos(placeFor(r));
       }
     }
     document.addEventListener("mousedown", handleDocMouseDown);
@@ -97,7 +111,7 @@ export default function WhyPopover({
     e.stopPropagation();
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 6, left: Math.max(8, r.right - 380) });
+      setPos(placeFor(r));
     }
     setOpen((v) => !v);
   };

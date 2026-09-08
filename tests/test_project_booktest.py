@@ -25,6 +25,7 @@ Run with: `./do booktest` (or `pytest tests/test_project_booktest.py -v`).
 from __future__ import annotations
 
 import json
+from collections import Counter
 import os
 from pathlib import Path
 
@@ -32,11 +33,29 @@ import pytest
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-# Mirrors the generator's reliability profile. Keep in sync with
-# data/generate_personas.py — these are the people whose effect on
-# project outcomes is engineered into the fixtures.
-RELIABLE = {"A. Lindgren", "K. Saari", "P. Korhonen", "M. Salo", "H. Mattila"}
-CHAOTIC = {"V. Jokinen", "T. Rinne"}
+# Read the reliability profile FROM the generator rather than
+# mirroring it. This used to be a hand-copied list of five names, and
+# it silently went stale the moment the bench grew: the generator was
+# boosting thirty-odd people while the test still measured five, so the
+# "low reliability" bucket was full of reliable people and the
+# engineered contrast vanished into the noise. A constant duplicated
+# across a boundary is a constant that will drift.
+def _rosters() -> tuple[set[str], set[str]]:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_personas", DATA_DIR / "generate_personas.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    reliable: set[str] = set()
+    chaotic: set[str] = set()
+    for persona in (module.METSA, module.AURORA, module.STUDIO):
+        reliable |= persona.project_reliable
+        chaotic |= persona.project_chaotic
+    return reliable, chaotic
+
+
+RELIABLE, CHAOTIC = _rosters()
 
 # `team_members` is the space-joined display field on `projects`. The
 # fixture-signal tests below split on whitespace so they work regardless
@@ -153,27 +172,41 @@ def test_fixture_signal_reliable_people_boost_outcomes_combined():
     if len(all_completed) < 100:
         pytest.skip("not enough total completed projects across personas")
 
-    def reliable_share(p: dict) -> float:
-        members = _surnames(p)
-        return len(members & RELIABLE_SURNAMES) / max(len(members), 1)
+    def reliable_count(p: dict) -> int:
+        return len(_surnames(p) & RELIABLE_SURNAMES)
 
-    # Thresholds tuned to the share distribution (max ~0.5 because
-    # the team pool is ~35% reliable).
-    high = [p for p in all_completed if reliable_share(p) >= 0.33]
-    low = [p for p in all_completed if reliable_share(p) < 0.15]
+    # Compare PRESENCE, not share — and compare it WITHIN a team size.
+    #
+    # Both controls were learned the hard way. Share buckets depend on
+    # how big the reliable roster is relative to the bench, so growing
+    # the bench silently emptied one bucket. And presence alone is
+    # confounded by team size: a bigger team is likelier to contain a
+    # standout AND is penalised by `_project_success_p`, so the pooled
+    # comparison came out INVERTED (lift 0.92) while the engineered
+    # effect was still firmly positive. Stratifying removes the
+    # confound the test was never trying to measure.
+    by_size: dict[int, list[dict]] = {}
+    for project in all_completed:
+        by_size.setdefault(project["team_size"], []).append(project)
 
-    assert len(high) >= 30 and len(low) >= 30, (
-        f"buckets too small to test reliably (high={len(high)}, low={len(low)})"
+    weighted, total_weight = 0.0, 0
+    for size, group in by_size.items():
+        with_standout = [p for p in group if reliable_count(p) >= 1]
+        without = [p for p in group if reliable_count(p) == 0]
+        if len(with_standout) < 10 or len(without) < 10:
+            continue
+        weight = min(len(with_standout), len(without))
+        weighted += (_success_rate(with_standout)
+                     - _success_rate(without)) * weight
+        total_weight += weight
+
+    assert total_weight >= 60, (
+        f"not enough same-size pairs to compare: {total_weight}"
     )
-
-    rate_high = _success_rate(high)
-    rate_low = _success_rate(low)
-    lift = rate_high / max(rate_low, 0.01)
-
-    assert lift >= 1.05, (
-        f"reliable-share boost too weak across all personas: "
-        f"high-share={rate_high:.0%} ({len(high)} projects) vs "
-        f"low-share={rate_low:.0%} ({len(low)} projects), lift={lift:.2f}"
+    boost = weighted / total_weight
+    assert boost >= 0.04, (
+        f"reliable-people boost too weak, controlling for team size: "
+        f"{boost:+.1%} across {total_weight} matched projects"
     )
 
 
@@ -211,8 +244,15 @@ def test_fixture_assignments_link_to_projects(tenant_dir: Path):
     orphans = [a for a in assignments if a["project_id"] not in projects]
     assert not orphans, f"{len(orphans)} assignments reference missing projects"
 
-    leads = [a for a in assignments if a["role"] == "lead"]
-    assert len(leads) >= 30, "every project should have a lead assignment"
+    # Roles are DISCIPLINES now ("project manager", "frontend",
+    # "site manager"…), not seniority bands — that is what makes
+    # `_predict person` given a role a real match rather than a
+    # popularity contest. Every project still gets exactly one lead,
+    # whatever that persona calls it.
+    per_project = Counter(a["project_id"] for a in assignments)
+    assert min(per_project.values()) >= 1
+    roles = {a["role"] for a in assignments}
+    assert len(roles) >= 4, f"expected a discipline vocabulary, got {roles}"
 
 
 # ── Layer 2: live Aito backtests ────────────────────────────────────

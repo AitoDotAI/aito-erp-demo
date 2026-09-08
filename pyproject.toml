@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.29,<1",
     "httpx>=0.27,<1",
     "python-dotenv>=1.0,<2",
+    "aitoai>=0.6.0,<1",
 ]
 
 [dependency-groups]

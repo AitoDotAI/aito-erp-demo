@@ -1,0 +1,490 @@
+"""Invoice line → catalogue SKU: the match, and the queue it runs in.
+
+A purchase invoice arrives with one row per product and no product id.
+The supplier wrote the description in their own words — their order,
+their language, often their own article number — and somebody has to
+say which of several thousand catalogue rows each line means. At a few
+hundred thousand lines a week that is not a task anyone does by hand,
+and it is not a mapping table anyone maintains: a new supplier arrives
+and the table has no row for them.
+
+Three things about how this is built, all of them deliberate:
+
+**The eval and the view make the same call.** `rank_line` is the only
+place that queries, and `src/match_eval.py` imports it. A harness that
+issues its own query measures a system nobody ships.
+
+**The unit of work is a batch, not a line.** Invoice lines arrive as
+documents on a queue, overnight and in bulk. A screen that matches one
+line at a time answers a question nobody asked, so `run_batch` runs the
+queue at N workers and reports throughput.
+
+**Nothing posts unattended, and the measurement is why.** The obvious
+demo is an auto-post threshold: above the bar the line books itself.
+The coverage/precision table says that bar does not exist here — at
+the tightest setting the top pick is right 59% of the time, and no AP
+team signs off on four wrong lines in ten. So the product is not
+automatic posting. It is the *search* that goes away: instead of
+hunting a 3200-row catalogue, a clerk gets five ranked rows with the
+reasons attached, and confirms. Confident lines arrive pre-filled;
+the rest arrive open. Both are a human keystroke, and the honest
+version is the one that ships.
+"""
+
+import html as html_lib
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+
+from src.aito_client import AitoClient, AitoError
+from src.why_processor import process_factors
+
+# The evidence a matcher actually has when a line arrives. Deliberately
+# not the SKU, and deliberately not `invoice_id` — grouping lines by
+# document would leak the answer from siblings, which is a real
+# technique but a different claim from the one being measured.
+LINE_FEATURES = ("description", "billing_supplier", "unit_of_measure",
+                 "unit_price_eur", "quantity")
+
+# The vendor's own attributes, reached through the link on
+# `billing_supplier`. They matter most exactly where the vendor name is
+# worthless: a vendor invoicing for the FIRST time has no history under
+# its own name, but its city and market position are known from the
+# vendor master and are shared with vendors that do have history. That
+# is what lets a cold vendor inherit "a premium importer in Tallinn
+# sells rows like these" instead of starting from the base rate.
+VENDOR_FEATURES = ("city", "position", "sells_origin", "sells_grade")
+
+# Catalogue columns worth carrying back with the ranking. `sku` links to
+# `products.sku`, so Aito returns the matched row's own columns — but
+# only when they are named, because naming any `select` (which this
+# client must, for `$why`) replaces the default whole-row projection.
+CATALOGUE_FIELDS = ["name", "category", "supplier", "unit_price",
+                    "unit_of_measure"]
+
+# Above this the top candidate arrives pre-filled — still in front of a
+# human, just already chosen. Read off the coverage/precision table in
+# `./do match-eval` rather than picked by taste: at p ≥ 0.50 the top
+# pick covers 22% of lines and is right 59% of the time, which is worth
+# pre-filling and nowhere near worth posting.
+PRESELECT_THRESHOLD = 0.50
+
+
+@dataclass
+class Candidate:
+    """One catalogue row Aito put forward, with its case for itself."""
+    sku: str
+    name: str
+    category: str | None
+    supplier: str | None
+    unit_price: float | None
+    unit_of_measure: str | None
+    p: float
+    reasons: list[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "sku": self.sku, "name": self.name, "category": self.category,
+            "supplier": self.supplier, "unit_price": self.unit_price,
+            "unit_of_measure": self.unit_of_measure,
+            "p": self.p, "reasons": self.reasons,
+        }
+
+
+@dataclass
+class MatchedLine:
+    """An invoice line after matching, and where it was routed."""
+    line_id: str
+    invoice_id: str
+    billing_supplier: str
+    description: str
+    quantity: float
+    unit_of_measure: str | None
+    unit_price_eur: float | None
+    line_amount_eur: float | None
+    candidates: list[Candidate]
+    ms: float
+    truth: str | None = None          # held-out label, when there is one
+    truth_name: str | None = None     # and what the catalogue calls it
+    cold: bool = False                # supplier absent from the history
+
+    @property
+    def decision(self) -> str:
+        top = self.candidates[0].p if self.candidates else 0.0
+        return "prefilled" if top >= PRESELECT_THRESHOLD else "open"
+
+    def to_dict(self) -> dict:
+        top = self.candidates[0] if self.candidates else None
+        return {
+            "line_id": self.line_id, "invoice_id": self.invoice_id,
+            "billing_supplier": self.billing_supplier,
+            "description": self.description, "quantity": self.quantity,
+            "unit_of_measure": self.unit_of_measure,
+            "unit_price_eur": self.unit_price_eur,
+            "line_amount_eur": self.line_amount_eur,
+            "candidates": [c.to_dict() for c in self.candidates],
+            "decision": self.decision, "ms": round(self.ms),
+            "cold": self.cold,
+            # The label is shown because these lines are held out and it
+            # is the only way a viewer can tell a confident match from a
+            # confidently wrong one. A production queue has no truth
+            # column; a demo that hides it is asking to be trusted.
+            "truth": self.truth,
+            "truth_name": self.truth_name,
+            "correct": None if self.truth is None or top is None
+                       else top.sku == self.truth,
+            # Half the catalogue shares a name with another row. A pick
+            # whose name is identical to the right answer's is not a
+            # miss the ranker could have avoided — nothing in the data
+            # separates them. Shown as its own outcome rather than
+            # counted as correct: it is a weaker claim and it says so.
+            "same_name": bool(
+                top is not None and self.truth_name
+                and top.sku != self.truth
+                and top.name == self.truth_name),
+        }
+
+
+# Aito wraps matched terms in guillemets and paints an absent one red.
+# Those sentinels are the interesting part of a highlight — they say
+# WHICH words carried the match — so they are parsed rather than shown.
+_MATCHED = re.compile(r"\u00ab(.+?)\u00bb")
+_ABSENT = re.compile(r"<font[^>]*>(.*?)</font>")
+
+
+def _terms(html: str) -> list[str]:
+    """The terms Aito highlighted, in the order it highlighted them.
+
+    Unescaped, because the highlight arrives as markup and a chip
+    reading `L'Or&eacute;al` tells a viewer the demo is broken.
+    """
+    return [html_lib.unescape(t).strip()
+            for t in _MATCHED.findall(html or "") if t.strip()]
+
+
+def _reasons(hit: dict, line: dict) -> list[dict]:
+    """The case for one candidate, with each claim's provenance kept.
+
+    `aito` — Aito's `$why` named this as evidence FOR the row. `against`
+    — it named it as evidence against, which is worth showing because a
+    shortlist where every entry looks equally endorsed is not a
+    shortlist. `match` — it agrees with the invoice line, computed here
+    and argued by nobody.
+
+    Painting the three alike would credit the database with reasoning it
+    did not do, which is the failure this repo is under a ticket about.
+    """
+    out: list[dict] = []
+    processed = process_factors(hit.get("$why"), hit.get("$p", 0.0))
+    for lift in processed.get("lifts", [])[:3]:
+        terms, fields = [], []
+        for highlight in lift.get("highlights") or []:
+            found = _terms(highlight.get("html", ""))
+            terms.extend(found)
+            if found or _ABSENT.search(highlight.get("html", "")):
+                fields.append(highlight.get("field", ""))
+        if not terms and not fields:
+            continue
+        supports = lift.get("lift", 1.0) >= 1.0
+        # A quoted word is self-explanatory when it came out of the
+        # description. Out of `quantity` it is the chip `"6"`, which
+        # tells nobody anything, so those carry their field.
+        field = fields[0] if fields else ""
+        if terms and field == "description":
+            text = " · ".join(f'"{t}"' for t in terms[:4])
+        elif terms:
+            text = f"{field.replace('_', ' ')} {' · '.join(terms[:3])}"
+        else:
+            text = ", ".join(f.replace("_", " ") for f in fields if f)
+        out.append({
+            "kind": "aito" if supports else "against",
+            "text": text,
+            "field": field,
+            "lift": lift.get("lift"),
+        })
+
+    # Computed here, not by Aito. Both are things a clerk checks by eye,
+    # and neither is evidence the database put forward.
+    if (hit.get("unit_of_measure")
+            and hit["unit_of_measure"] == line.get("unit_of_measure")):
+        out.append({"kind": "match", "text": f"unit {hit['unit_of_measure']}",
+                    "field": "unit_of_measure", "lift": None})
+
+    list_price, invoiced = hit.get("unit_price"), line.get("unit_price_eur")
+    if list_price and invoiced:
+        drift = abs(float(invoiced) - float(list_price)) / float(list_price)
+        if drift <= 0.15:
+            out.append({"kind": "match", "field": "unit_price", "lift": None,
+                        "text": f"price within {drift:.0%} of list"})
+    return out
+
+
+def rank_line(client: AitoClient, line: dict, limit: int = 5,
+              vendor: dict | None = None) -> tuple[list[Candidate], float]:
+    """Rank catalogue SKUs for one invoice line. One query, no training.
+
+    This is the whole matcher. `sku` links to `products.sku`, so the
+    prediction traverses the link and hands back catalogue rows with
+    their own columns — which is what lets the shortlist argue for
+    itself rather than showing five bare identifiers.
+    """
+    where = {f: line[f] for f in LINE_FEATURES if line.get(f) is not None}
+    # Linked-field clauses on the vendor. `billing_supplier` links to
+    # `vendors`, so these are properties of WHO IS INVOICING, not of the
+    # line — and they are the only thing a first-time vendor brings.
+    for field in VENDOR_FEATURES:
+        if vendor and vendor.get(field) is not None:
+            where[f"billing_supplier.{field}"] = vendor[field]
+    started = time.perf_counter()
+    try:
+        response = client.predict("invoice_lines", where, "sku", limit=limit,
+                                  select_extra=CATALOGUE_FIELDS)
+    except AitoError:
+        return [], (time.perf_counter() - started) * 1000
+    elapsed = (time.perf_counter() - started) * 1000
+
+    candidates = []
+    for hit in response.get("hits") or []:
+        if hit.get("$value") is None:
+            continue
+        candidates.append(Candidate(
+            sku=str(hit["$value"]),
+            name=hit.get("name") or "",
+            category=hit.get("category"),
+            supplier=hit.get("supplier"),
+            unit_price=hit.get("unit_price"),
+            unit_of_measure=hit.get("unit_of_measure"),
+            p=hit.get("$p", 0.0),
+            reasons=_reasons(hit, line),
+        ))
+    return candidates, elapsed
+
+
+@dataclass
+class BatchResult:
+    """What a queue run looks like from the outside."""
+    lines: list[MatchedLine]
+    wall_s: float
+    workers: int
+    server_ms_median: float
+
+    def to_dict(self) -> dict:
+        n = len(self.lines)
+        rate = n / self.wall_s if self.wall_s else 0.0
+        prefilled = sum(1 for line in self.lines
+                        if line.decision == "prefilled")
+        labelled = [line for line in self.lines if line.truth is not None]
+        prefilled_labelled = [line for line in labelled
+                              if line.decision == "prefilled"]
+        top1 = sum(1 for line in labelled
+                   if line.candidates and line.candidates[0].sku == line.truth)
+        top5 = sum(1 for line in labelled
+                   if line.truth in [c.sku for c in line.candidates[:5]])
+        prefilled_right = sum(1 for line in prefilled_labelled
+                              if line.candidates[0].sku == line.truth)
+        return {
+            "lines": [line.to_dict() for line in self.lines],
+            "batch": {
+                "n": n,
+                "wall_s": round(self.wall_s, 1),
+                "workers": self.workers,
+                "rows_per_s": round(rate, 1),
+                "rows_per_week": round(rate * 3600 * 24 * 7),
+                "server_ms_median": round(self.server_ms_median),
+                "prefilled": prefilled,
+                "open": n - prefilled,
+                "threshold": PRESELECT_THRESHOLD,
+                # Scored on this batch only — a few hundred rows, so it
+                # moves run to run. The stable figures are in
+                # `./do match-eval` over the full held-out 2000.
+                "top1": round(top1 / len(labelled), 3) if labelled else None,
+                "top5": round(top5 / len(labelled), 3) if labelled else None,
+                "prefill_precision": (
+                    round(prefilled_right / len(prefilled_labelled), 3)
+                    if prefilled_labelled else None),
+            },
+        }
+
+
+def run_batch(client: AitoClient, lines: list[dict], workers: int = 8,
+              cold_suppliers: frozenset[str] = frozenset(),
+              names: dict[str, str] | None = None,
+              vendors: dict[str, dict] | None = None) -> BatchResult:
+    """Run the queue. Concurrency is the lever, because the constraint
+    on this shape of work is throughput and not the latency of any one
+    line — nobody is waiting at a screen for an overnight invoice run."""
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        ranked = list(pool.map(
+            lambda line: rank_line(
+                client, line,
+                vendor=(vendors or {}).get(line["billing_supplier"])), lines))
+    wall = time.perf_counter() - started
+
+    matched = [
+        MatchedLine(
+            line_id=line["line_id"], invoice_id=line["invoice_id"],
+            billing_supplier=line["billing_supplier"],
+            description=line["description"], quantity=line["quantity"],
+            unit_of_measure=line.get("unit_of_measure"),
+            unit_price_eur=line.get("unit_price_eur"),
+            line_amount_eur=line.get("line_amount_eur"),
+            candidates=candidates, ms=ms, truth=line.get("sku"),
+            truth_name=(names or {}).get(line.get("sku", "")),
+            cold=line["billing_supplier"] in cold_suppliers,
+        )
+        for (candidates, ms), line in zip(ranked, lines)
+    ]
+    times = sorted(line.ms for line in matched) or [0.0]
+    return BatchResult(lines=matched, wall_s=wall, workers=workers,
+                       server_ms_median=times[len(times) // 2])
+
+
+# ── The queue the view runs against ──────────────────────────────
+#
+# These lines were HELD OUT of the load. Nothing on this screen was in
+# the database when the question was asked, which is the only way a
+# confidence number on a demo means anything.
+
+_QUEUE: dict[str, tuple[list[dict], frozenset[str], dict[str, str],
+                        dict[str, dict]]] = {}
+
+
+def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str],
+                                    dict[str, dict]]:
+    """Held-out lines, which vendors are cold, SKU names, vendor master.
+
+    "Cold" is derived by comparing the two halves rather than declared,
+    so it cannot drift out of step with the data the way a copied
+    constant would.
+    """
+    if tenant not in _QUEUE:
+        from src.data_loader import DATA_DIR, load_fixture
+        train = DATA_DIR / tenant / "invoice_lines.json"
+        test = DATA_DIR / tenant / "invoice_lines_test.json"
+        if not train.exists():
+            # This tenant has no invoice lines at all — the view does
+            # not apply to it, and the nav hides it. A deep link should
+            # get an empty queue, not a 500.
+            _QUEUE[tenant] = ([], frozenset(), {}, {})
+            return _QUEUE[tenant]
+        if not test.exists():
+            # Training data without the held-out half is a broken
+            # generate, not an absent feature. Say so: silently scoring
+            # against rows that were loaded is exactly the mistake this
+            # whole case exists to avoid.
+            raise FileNotFoundError(
+                f"{train.name} exists for {tenant} but {test.name} does not. "
+                "Run `./do generate-personas` — the held-out split is what "
+                "makes the accuracy on this view mean anything.")
+        held_out = load_fixture("invoice_lines_test", tenant) or []
+        loaded = load_fixture("invoice_lines", tenant) or []
+        seen = {line["billing_supplier"] for line in loaded}
+        cold = frozenset({line["billing_supplier"] for line in held_out} - seen)
+        products = load_fixture("products", tenant) or []
+        names = {p["sku"]: p.get("name", "") for p in products}
+        vendors = {v["vendor"]: v
+                   for v in (load_fixture("vendors", tenant) or [])}
+        _QUEUE[tenant] = (held_out, cold, names, vendors)
+    return _QUEUE[tenant]
+
+
+# Measured by `./do match-eval` over the held-out split, 2026-09-06,
+# on the reformulated corpus. Restated here because the view quotes
+# them, and a screen quoting a number with no provenance is how a stale
+# figure gets requoted after the thing it measured has changed.
+#
+# Split by engine ON PURPOSE. rep1 and rep2 answer this query
+# differently — rep2 is ahead in every regime — so a single set of
+# numbers would be wrong for whichever engine the demo is not running.
+# Re-run the harness and update the matching block together, or not at
+# all.
+_MEASURED_SHARED = {
+    "measured_on": "2026-09-06",
+    "n": 600,
+    "catalogue_skus": 3200,
+    "labelled_lines_loaded": 60000,
+    "baseline": 1 / 3200,
+    # Zero, now. Every catalogue row has a distinct name, so nothing is
+    # unanswerable by construction and the ceiling is 100%.
+    "shared_name_share": 0.0,
+    "ceiling_top1": 1.0,
+    "ceiling_top5": 1.0,
+    "floor_top1": 0.472,
+    "floor_top5": 0.782,
+    "note": (
+        "3200 catalogue SKUs, not 20 000 — a real catalogue of that size "
+        "is a harder problem and this number should not be read as "
+        "covering it. Generic retail goods, not any customer's data."
+    ),
+}
+
+MEASURED_BY_ENGINE: dict[str, dict] = {
+    "v1": {
+        "engine": "rep1 (v1)",
+        "overall_top1": 0.793, "overall_top5": 0.953, "overall_top1_name": 0.793,
+        "warm_top1": 0.888, "warm_top5": 0.978, "warm_top1_name": 0.888,
+        "cold_top1": 0.605, "cold_top5": 0.905, "cold_top1_name": 0.605,
+        "throughput_rows_per_s": 5.4, "throughput_workers": 4,
+        "curve": [
+            {"bar": 0.05, "coverage": 0.992, "precision": 0.795},
+            {"bar": 0.10, "coverage": 0.957, "precision": 0.789},
+            {"bar": 0.20, "coverage": 0.943, "precision": 0.795},
+            {"bar": 0.35, "coverage": 0.905, "precision": 0.816},
+            {"bar": 0.50, "coverage": 0.835, "precision": 0.830},
+        ],
+        "regimes": [
+            {"overlap": "0%", "share": 0.065, "aito": 0.821, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.015, "aito": 0.778, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.218, "aito": 0.718, "tfidf": 0.122},
+            {"overlap": "67-99%", "share": 0.243, "aito": 0.705, "tfidf": 0.342},
+            {"overlap": "100%", "share": 0.458, "aito": 0.873, "tfidf": 0.789},
+        ],
+    },
+    "v2": {
+        "engine": "rep2 (v2)",
+        "overall_top1": 0.698, "overall_top5": 0.832, "overall_top1_name": 0.698,
+        "warm_top1": 0.845, "warm_top5": 0.942, "warm_top1_name": 0.845,
+        "cold_top1": 0.405, "cold_top5": 0.610, "cold_top1_name": 0.405,
+        "throughput_rows_per_s": 5.4, "throughput_workers": 4,
+        "curve": [
+            {"bar": 0.05, "coverage": 0.998, "precision": 0.699},
+            {"bar": 0.10, "coverage": 0.988, "precision": 0.707},
+            {"bar": 0.20, "coverage": 0.950, "precision": 0.730},
+            {"bar": 0.35, "coverage": 0.853, "precision": 0.775},
+            {"bar": 0.50, "coverage": 0.758, "precision": 0.824},
+        ],
+        "regimes": [
+            {"overlap": "0%", "share": 0.065, "aito": 0.897, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.015, "aito": 0.556, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.218, "aito": 0.634, "tfidf": 0.122},
+            {"overlap": "67-99%", "share": 0.243, "aito": 0.514, "tfidf": 0.342},
+            {"overlap": "100%", "share": 0.458, "aito": 0.804, "tfidf": 0.789},
+        ],
+    },
+}
+
+
+def measured_for(api_version: str) -> dict:
+    """The measured block for the engine actually answering the queries."""
+    engine = MEASURED_BY_ENGINE.get(api_version) or MEASURED_BY_ENGINE["v1"]
+    return {**_MEASURED_SHARED, **engine}
+
+
+def batch(client: AitoClient, tenant: str, size: int = 40, workers: int = 8,
+          offset: int = 0) -> dict:
+    """One run of the queue, measured."""
+    measured = measured_for(client.api_version)
+    lines, cold, names, vendors = queue_for(tenant)
+    if not lines:
+        return {"lines": [], "batch": None, "measured": measured,
+                "available": 0}
+    window = lines[offset % max(len(lines), 1):][:size]
+    result = run_batch(client, window, workers=workers, cold_suppliers=cold,
+                       names=names, vendors=vendors)
+    payload = result.to_dict()
+    payload["measured"] = measured
+    payload["available"] = len(lines)
+    payload["cold_suppliers"] = sorted(cold)
+    return payload

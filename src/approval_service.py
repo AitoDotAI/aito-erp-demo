@@ -95,7 +95,7 @@ def _extract_alternatives(hits: list[dict]) -> list[dict]:
     alts = []
     for hit in hits[:3]:
         alts.append({
-            "value": str(hit.get("feature", "")),
+            "value": str(hit.get("$value", "")),
             "confidence": hit.get("$p", 0.0),
         })
     return alts
@@ -127,8 +127,8 @@ def predict_approval(client: AitoClient, item: dict) -> ApprovalPrediction:
     approver_hits = approver_result.get("hits", [])
     approver_top = approver_hits[0] if approver_hits else {}
 
-    predicted_approver = str(approver_top.get("feature", ""))
-    predicted_level = str(level_top.get("feature", ""))
+    predicted_approver = str(approver_top.get("$value", ""))
+    predicted_level = str(level_top.get("$value", ""))
     confidence = approver_top.get("$p", 0.0)
 
     # Check escalation rules — override Aito prediction if triggered

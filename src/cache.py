@@ -88,15 +88,18 @@ def get_or_compute(key: str, compute_fn, ttl: int = DEFAULT_TTL) -> Any:
 _aito_clients: dict[str, AitoClient] = {}
 
 CACHE_TABLE = "prediction_cache"
-CACHE_SCHEMA = {
-    "type": "table",
-    "columns": {
-        "cache_key": {"type": "String", "nullable": False},
-        "endpoint": {"type": "String", "nullable": False},
-        "response_json": {"type": "String", "nullable": False},
-        "created_at": {"type": "String", "nullable": False},
-    },
+CACHE_COLUMNS = {
+    "cache_key": {"type": "String", "nullable": False},
+    "endpoint": {"type": "String", "nullable": False},
+    "response_json": {"type": "String", "nullable": False},
+    "created_at": {"type": "String", "nullable": False},
 }
+
+
+def _cache_schema(client: AitoClient) -> dict:
+    """The cache table's schema for whichever API version `client` speaks."""
+    table_type = "collection" if client.api_version == "v2" else "table"
+    return {"type": table_type, "columns": CACHE_COLUMNS}
 
 
 def init_persistent_cache(client: AitoClient, tenant: str = "_default") -> None:
@@ -115,7 +118,7 @@ def init_persistent_cache(client: AitoClient, tenant: str = "_default") -> None:
     try:
         schema = client.get_schema()
         if CACHE_TABLE not in schema.get("schema", {}):
-            client._request("PUT", f"/schema/{CACHE_TABLE}", json=CACHE_SCHEMA)
+            client._request("PUT", f"/schema/{CACHE_TABLE}", json=_cache_schema(client))
             print(f"  Created {CACHE_TABLE} table for tenant '{tenant}'.")
     except AitoError as e:
         print(f"  Could not create cache table for tenant '{tenant}': {e}")
@@ -211,7 +214,7 @@ def clear_all() -> None:
     for tenant, client in _aito_clients.items():
         try:
             client._request("DELETE", f"/schema/{CACHE_TABLE}")
-            client._request("PUT", f"/schema/{CACHE_TABLE}", json=CACHE_SCHEMA)
+            client._request("PUT", f"/schema/{CACHE_TABLE}", json=_cache_schema(client))
             print(f"Cleared Aito prediction cache for tenant '{tenant}'.")
         except AitoError as e:
             print(f"Could not clear Aito cache for tenant '{tenant}': {e}")

@@ -245,7 +245,7 @@ def forecast_assignment(client: AitoClient, person: str, project_type: str) -> C
     role_hits = role_pred.get("hits") or []
     role_top = role_hits[0] if role_hits else None
     role_alts = [
-        {"value": str(h.get("feature")), "confidence": float(h.get("$p", 0.0))}
+        {"value": str(h.get("$value")), "confidence": float(h.get("$p", 0.0))}
         for h in role_hits[:5]
     ]
 
@@ -266,10 +266,10 @@ def forecast_assignment(client: AitoClient, person: str, project_type: str) -> C
     return CapacityForecast(
         person=person,
         project_type=project_type,
-        predicted_role=str(role_top.get("feature")) if role_top else None,
+        predicted_role=str(role_top.get("$value")) if role_top else None,
         role_confidence=float(role_top.get("$p", 0.0)) if role_top else 0.0,
         role_alternatives=role_alts,
-        predicted_allocation=int(alloc_top.get("feature")) if alloc_top else None,
+        predicted_allocation=int(alloc_top.get("$value")) if alloc_top else None,
         allocation_confidence=float(alloc_top.get("$p", 0.0)) if alloc_top else 0.0,
         historical_count=historical_count,
     )

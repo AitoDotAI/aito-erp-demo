@@ -375,7 +375,7 @@ def _predict_value(
     hits = response.get("hits") or []
     if not hits:
         return None, 0.0
-    return hits[0].get("feature"), float(hits[0].get("$p", 0.0))
+    return hits[0].get("$value"), float(hits[0].get("$p", 0.0))
 
 
 def _success_p(client: AitoClient, where: dict) -> float:
@@ -385,7 +385,7 @@ def _success_p(client: AitoClient, where: dict) -> float:
     except Exception:
         return 0.0
     for hit in response.get("hits") or []:
-        if hit.get("feature") in (True, "true", "True"):
+        if hit.get("$value") in (True, "true", "True"):
             return float(hit.get("$p", 0.0))
     return 0.0
 
@@ -474,7 +474,7 @@ def _predict_purchase_supplier(
     hits = response.get("hits") or []
     if not hits:
         return None, 0.0, None, 0
-    supplier = hits[0].get("feature")
+    supplier = hits[0].get("$value")
     p = float(hits[0].get("$p", 0.0))
     if not supplier:
         return None, p, None, 0
@@ -589,7 +589,7 @@ def _predict_material_supplier_and_amount(
     if not s_hits:
         return None
     supplier_hit = s_hits[0]
-    supplier = supplier_hit.get("feature")
+    supplier = supplier_hit.get("$value")
     if not supplier:
         return None
     supplier_p = float(supplier_hit.get("$p", 0.0))
@@ -604,7 +604,7 @@ def _predict_material_supplier_and_amount(
         amount_resp = client.predict("purchases", amount_where, "amount_eur", limit=1)
         a_hits = amount_resp.get("hits") or []
         if a_hits:
-            feat = a_hits[0].get("feature")
+            feat = a_hits[0].get("$value")
             if isinstance(feat, (int, float)):
                 estimated = float(feat)
                 amount_p = float(a_hits[0].get("$p", 0.0))
@@ -856,7 +856,7 @@ def suggest_suppliers_for_category(
     # populates in one round-trip even when top_n=5.
     history_names: list[tuple[str, float, dict | None]] = []
     for hit in hits:
-        name = hit.get("feature")
+        name = hit.get("$value")
         if not name:
             continue
         p = float(hit.get("$p", 0.0))
@@ -996,7 +996,7 @@ def suggest_next_phase(
     accepted = set(accepted_phases)
     candidates: list[PhaseOption] = []
     for hit in hits:
-        phase = hit.get("feature")
+        phase = hit.get("$value")
         if not phase or phase in accepted:
             continue
         candidates.append(PhaseOption(
@@ -1120,7 +1120,7 @@ def suggest_assignees(
     out: list[AssigneeOption] = []
     parallel_args: list[tuple[str, float]] = []
     for hit in hits[:top_n]:
-        name = hit.get("feature")
+        name = hit.get("$value")
         p = float(hit.get("$p", 0.0))
         if name:
             parallel_args.append((str(name), p))
@@ -1309,7 +1309,7 @@ def rerank_assignees(
     out: list[AlternativeAssignee] = []
     for hit in hits:
         # _recommend hit shape mirrors _predict: feature + $p.
-        name = hit.get("feature") or hit.get("subcontractor")
+        name = hit.get("$value") or hit.get("subcontractor")
         if not name:
             continue
         rows = history_by_sub.get(str(name), [])

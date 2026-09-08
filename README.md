@@ -14,7 +14,7 @@ ERP features** built on Aito's `_predict`, `_relate`, `_search`, and
 `_match` operators. Each view comes with a hero screenshot, working
 code, and a use-case guide. The demo runs in three industry profiles —
 **Metsä Machinery** (industrial maintenance), **Aurora Retail**
-(commerce), **Helsinki Studio** (services) — each backed by its own
+(commerce), **Vire Consulting** (services) — each backed by its own
 Aito DB, swap profiles in the TopBar.
 
 > Profile switching here is for *content variety*, not a multi-tenant
@@ -296,7 +296,7 @@ and persona-appropriate fixtures. Switch in the TopBar (`localStorage.demoTenant
 |---------|----------|------------|
 | **Metsä Machinery Oy** | Industrial maintenance / construction (Lemonsoft-shaped buyer) | Wärtsilä, ABB, Caverion, NCC · 3.2K POs · 320 spare-part SKUs · 285 maintenance/construction projects · 46 months of history |
 | **Aurora Retail Oy** | Multi-channel retail (Oscar / ERPly-shaped buyer) | Valio, Marimekko, L'Oréal · 5.3K POs · 3.2K SKUs · 18K orders · 6.5K price points |
-| **Helsinki Studio** | Professional services (horizontal SaaS buyer) | Adobe, AWS, Figma · 3.2K POs · 435 client engagements · 2.1K assignments |
+| **Vire Consulting** | Professional services (horizontal SaaS buyer) | Adobe, AWS, Figma · 3.2K POs · 435 client engagements · 2.1K assignments |
 
 Each profile filters which views appear in the side nav. The right-rail
 Aito panel re-tones with persona-specific examples: Metsä's panel
@@ -477,8 +477,14 @@ python3 data/generate_fixtures.py     # Regenerate fixtures (deterministic)
 ./do stop / restart                   # Kill / restart servers
 ./do clear-cache                      # Invalidate prediction cache
 
+# Aito API v2 (beta) — runs against a separate `v2` env per tenant DB
+./do env-init-v2                      # Branch the v2 env from master
+./do load-data-v2 --tenant=all        # Load the fixtures as v2 collections
+./do v2-check --tenant=all            # Every view's query shape, on v2
+./do dev-v2                           # Both servers, against /api/v2
+
 # Quality
-./do test                             # 26 pytest tests
+./do test                             # pytest suite
 ./do typecheck                        # TypeScript strict check
 ./do screenshot all                   # Refresh all 11 view screenshots
 
@@ -494,6 +500,7 @@ python3 data/generate_fixtures.py     # Regenerate fixtures (deterministic)
 - **[Security](docs/security.md)** — Threat model + the `PUBLIC_DEMO=1` lockdown bundle
 - **[Demo Script](docs/demo-script.md)** — Walkthrough for live presentations
 - **[Aito Cheatsheet](docs/aito-cheatsheet.md)** — Verified query patterns
+- **[API v2 Migration](docs/v2-migration.md)** — Running the demo on Aito's v2 (rep2) engine: what differs from v1, and what it cost
 - **[Architecture Decisions](docs/adr/)** — Why we chose what we did
 - **[Smart Forms guide](https://aito.ai/docs/guides/smart-forms)** — The pattern behind SmartField
 - **[Prediction Explanations guide](https://aito.ai/docs/guides/prediction-explanations)** — The pattern behind WhyPopover

@@ -150,7 +150,7 @@ def _extract_alternatives(hits: list[dict]) -> list[dict]:
     """Aito _predict on a Boolean returns hits like [{feature: true, $p: 0.83}, ...]."""
     out = []
     for h in hits[:5]:
-        feat = h.get("feature")
+        feat = h.get("$value")
         p = h.get("$p", 0.0)
         out.append({"value": str(feat), "confidence": float(p)})
     return out
@@ -162,7 +162,7 @@ def _success_p_from_response(response: dict) -> tuple[float, dict, list[dict]]:
     p_true = 0.0
     why_true: dict = {}
     for hit in hits:
-        if hit.get("feature") in (True, "true", "True"):
+        if hit.get("$value") in (True, "true", "True"):
             p_true = float(hit.get("$p", 0.0))
             why_true = hit.get("$why") or {}
             break
@@ -257,14 +257,11 @@ def _factors_from_hits(
     out: list[SuccessFactor] = []
     for hit in hits:
         related = hit.get("related") or {}
-        # Aito shape: {"<field>": {"$has": "<value>"}} or {"$is": ...}
-        value = None
-        for v in related.values():
-            if isinstance(v, dict):
-                value = v.get("$has") or v.get("$is")
-                if value is not None:
-                    break
-        if value in (None, ""):
+        # `AitoClient.relate` hands back the canonical shape
+        # {"<field>": "<value>"} on both API versions — v1's operator
+        # wrapper ({"$has": …}) is unwrapped there, not here.
+        value = next((v for v in related.values() if v not in (None, "")), None)
+        if value is None:
             continue
         fs = hit.get("fs") or {}
         ps = hit.get("ps") or {}

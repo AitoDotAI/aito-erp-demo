@@ -55,6 +55,7 @@ const SECTIONS: NavSection[] = [
       { label: "Price Intelligence", href: "/pricing" },
       { label: "Demand Forecast", href: "/demand" },
       { label: "Inventory Intelligence", href: "/inventory", badge: 2, badgeRed: true },
+      { label: "Invoice Matching", href: "/matching" },
       { label: "Recommendations", href: "/recommendations" },
     ],
   },
@@ -65,6 +66,8 @@ const SECTIONS: NavSection[] = [
       { label: "Project Portfolio", href: "/projects" },
       { label: "Project Plan", href: "/project-plan" },
       { label: "Utilization", href: "/utilization" },
+      { label: "Engagement Planner", href: "/planner" },
+      { label: "Revenue Outlook", href: "/forecast" },
     ],
   },
   {

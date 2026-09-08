@@ -152,7 +152,7 @@ def _extract_alternatives(hits: list[dict]) -> list[dict]:
     alts = []
     for hit in hits[:3]:
         alts.append({
-            "value": str(hit.get("feature", "")),
+            "value": str(hit.get("$value", "")),
             "confidence": hit.get("$p", 0.0),
         })
     return alts
@@ -254,7 +254,7 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
 
         predictions.append(AttributePrediction(
             field_name=f,
-            predicted_value=str(top.get("feature", "")),
+            predicted_value=str(top.get("$value", "")),
             confidence=conf,
             alternatives=wp_extract_alternatives(pred_hits, skip_top=True, limit=3),
             why_factors=process_factors(top.get("$why"), conf) if top else {},
