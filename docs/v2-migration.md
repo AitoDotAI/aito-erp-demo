@@ -614,7 +614,8 @@ Three worries, and only the third is real:
 ```bash
 # 0. the v2 envs are only as current as the last load
 ./do load-data-v2 --tenant=all
-./do v2-check --tenant=all            # must be all-ok before anything else
+./do preflight --api-version=v2 --tenant=all   # env, schema drift, data, build
+./do v2-check --tenant=all                     # query shape, all 17 views x 3
 
 # 1. go live on the branch. master untouched, rollback is an env var
 AITO_API_VERSION=v2   # in the deployed environment, then redeploy
@@ -632,6 +633,15 @@ Do not linger between (1) and (2). Non-master envs are evictable
 (§9), so a quiet demo running on a branch pays cold-start on the first
 click of every session — the one number this demo cannot afford to be
 bad. Promotion is what buys the retention, not just a tidier URL.
+
+**Run `./do preflight` before `./do v2-check`, not after.** The sweep
+answers "does the query shape survive"; preflight answers "am I even
+pointed at the right, current database". It exits non-zero on: a URL
+with no `/env/` segment (that is master), a loaded schema missing a
+column this build declares, a required table that is empty or
+unreadable. The second of those is what caught metsä and studio serving
+a `products` table three days out of date while the sweep called them
+green, and the third is how core #1303 presents.
 
 `./do load-data-v2` drops and recreates every table, and
 `data_loader._assert_env_scoped` refuses a URL with no `/env/`

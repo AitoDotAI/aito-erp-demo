@@ -324,6 +324,13 @@ cmd_match_eval() {
   uv run python -m src.match_eval "$@"
 }
 
+cmd_preflight() {
+  # Pre-deploy gate: env scoping, schema drift, data presence, engine
+  # build. Shape is checked by `./do v2-check`; this checks readiness.
+  cd "$SCRIPT_DIR"
+  uv run python -m src.preflight "$@"
+}
+
 cmd_v2_check() {
   cd "$SCRIPT_DIR"
   uv run python -m src.v2_conformance "$@"
@@ -626,6 +633,7 @@ case "${1:-help}" in
   env-init-v2)     cmd_env_init_v2 ;;
   env-drop-v2)     cmd_env_drop_v2 ;;
   load-data-v2)    shift; cmd_load_data_v2 "$@" ;;
+  preflight)       shift; cmd_preflight "$@" ;;
   v2-check)        shift; cmd_v2_check "$@" ;;
   match-eval)      shift; cmd_match_eval "$@" ;;
   dev-v2)          cmd_dev_v2 ;;
