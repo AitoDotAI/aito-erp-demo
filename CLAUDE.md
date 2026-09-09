@@ -689,6 +689,22 @@ Fonts: DM Serif Display, DM Mono, DM Sans (Google Fonts)
 
 ## Public-demo deployment
 
+**Build-time:** `NEXT_PUBLIC_AMPLITUDE_KEY` must be set before
+`./do frontend-build`. Next.js inlines `NEXT_PUBLIC_*` into the bundle,
+so setting it afterwards does nothing, and analytics then no-ops in the
+browser with only a `console.warn` — a missing key is silent, not loud.
+Amplitude runs on the production host only (EU zone, `.aito.ai` cookie
+domain); the GA4 measurement ID is hardcoded in
+`frontend/lib/analytics.ts`.
+
+**Before pointing a deploy at an Aito environment**, run
+`./do preflight [--api-version=v2] --tenant=all`. It exits non-zero on
+an unscoped URL (which silently resolves to `master`), on a loaded
+schema missing a column this build declares, and on a required table
+that is empty or unreadable. `./do v2-check` answers a different
+question — whether the query shapes survive — and has been green
+through both of those failures.
+
 Set `PUBLIC_DEMO=1` in the deployed environment to enable:
 - **CORS lockdown** to origins in `CORS_ORIGINS` (comma-separated).
 - **Three-tier rate limiting** (per-IP, per-tenant, global) — caps
