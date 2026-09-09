@@ -59,13 +59,13 @@ def _row_count(client: AitoClient, table: str) -> int | None:
         return None
 
 
-def check_tenant(tenant: TenantId, api_version: str) -> list[str]:
+def check_tenant(tenant: TenantId, api_version: str | None) -> list[str]:
     """Return a list of problems. Empty means ready."""
     problems: list[str] = []
     config = load_config(api_version=api_version)
     creds = config.creds_for(tenant)
     client = AitoClient.from_creds(creds.api_url, creds.api_key,
-                                   api_version=api_version)
+                                   api_version=config.api_version)
 
     # 1. Which environment.
     env = creds.api_url.rsplit("/env/", 1)[-1] if "/env/" in creds.api_url else None
@@ -89,7 +89,8 @@ def check_tenant(tenant: TenantId, api_version: str) -> list[str]:
             problems.append(
                 f"{tenant}/{table}: loaded schema is STALE, missing "
                 f"{missing} — run ./do load-data"
-                f"{'-v2' if api_version == 'v2' else ''} --tenant={tenant} --reset")
+                f"{'-v2' if config.api_version == 'v2' else ''} "
+                f"--tenant={tenant} --reset")
 
     # 3. Data present.
     for table in REQUIRED:
@@ -105,7 +106,13 @@ def check_tenant(tenant: TenantId, api_version: str) -> list[str]:
 
 
 def main() -> None:
-    api_version = "v1"
+    # No default. `load_config(api_version=None)` follows AITO_API_VERSION
+    # the way the app does — and a gate that checks a different
+    # environment than the app will run against is worse than no gate.
+    # This shipped hard-coded to "v1", which meant that the moment .env
+    # said v2, preflight cheerfully reported `dev` healthy while the app
+    # was pointed at `v2`.
+    api_version: str | None = None
     tenants: list[TenantId] = list(TENANT_IDS)
     for arg in sys.argv[1:]:
         if arg.startswith("--api-version="):
@@ -113,11 +120,13 @@ def main() -> None:
         elif arg.startswith("--tenant=") and arg.split("=", 1)[1] != "all":
             tenants = [arg.split("=", 1)[1]]  # type: ignore[list-item]
 
-    print(f"Preflight — api {api_version}\n")
     config = load_config(api_version=api_version)
+    resolved = config.api_version
+    source = "--api-version" if api_version else "AITO_API_VERSION / default"
+    print(f"Preflight — api {resolved}  (from {source})\n")
     creds = config.creds_for(tenants[0])
     probe = AitoClient.from_creds(creds.api_url, creds.api_key,
-                                  api_version=api_version)
+                                  api_version=resolved)
     try:
         version = probe._request("GET", "/_version")
         print(f"  engine {version.get('version')} "
@@ -136,12 +145,12 @@ def main() -> None:
         for problem in problems:
             print(f"  ✗ {problem}")
         print("\nFix these, then run `./do v2-check"
-              f"{' --api-version=v1' if api_version == 'v1' else ''} --tenant=all`.")
+              f"{' --api-version=v1' if resolved == 'v1' else ''} --tenant=all`.")
         sys.exit(1)
     print("Ready. Every tenant is env-scoped, current with this build's "
           "schema, and populated.")
     print("Next: `./do v2-check"
-          f"{' --api-version=v1' if api_version == 'v1' else ''} --tenant=all` "
+          f"{' --api-version=v1' if resolved == 'v1' else ''} --tenant=all` "
           "for query shape, then the promote steps in docs/v2-migration.md.")
 
 
