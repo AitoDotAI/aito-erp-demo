@@ -20,6 +20,12 @@ export const metadata = {
 export const viewport = {
   width: "device-width",
   initialScale: 1,
+  // Lets the page paint into the display cutout / gesture area, which is
+  // what makes `env(safe-area-inset-*)` resolve to anything but 0. We opt
+  // in and then pay it back as padding on the elements that sit at the
+  // bottom edge — without it, those insets are always 0 and the CSS below
+  // would be inert.
+  viewportFit: "cover" as const,
 };
 
 // Same GA4 property as the other Aito demos so events land in the same
