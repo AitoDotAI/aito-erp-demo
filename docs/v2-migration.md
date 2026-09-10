@@ -144,6 +144,54 @@ text survives at all. `MEASURED_BY_ENGINE` holds both sets and the view
 labels which it is quoting, so this does not block a deploy; it just
 means the screenshot changes.
 
+### The aito-core ledger, re-verified 2026-09-10 on 2.8.1 (`2a3ff15da3a0`)
+
+Six of the ten issues this demo raised or depends on are closed. Statuses
+below were read from the tracker, and the two behavioural ones were
+re-measured rather than assumed — twice this week a number in this file
+was stale within days, so anything quoted here has a build attached.
+
+| issue | state | note |
+|---|---|---|
+| #1063 `feature` → `$value` | **closed** | absorbed in `AitoClient` |
+| #1253 `_estimate` on a nullable numeric | **closed** | worked around with a non-nullable `deliveries` table |
+| #1262 v1 `None.get` on an unsupported select | **closed** | second `Option` leak after #1253 |
+| #1263 `set[...]` unreachable from both schema surfaces | **closed** | `String[]` is what `skills`/`domains` use |
+| #1245 rep2 predict sensitive to segment structure | **merged** | |
+| #1281 rep2 diverging on high-cardinality targets | **closed** | filed from here, then **reversed** — see above |
+| #1062 bare string vs `$match` on a Text column | open | **does not reproduce here**, on two corpora 640× apart in target cardinality; both negatives posted |
+| #1064 `_relate` proposition shape / `ps` block | open upstream, **not reproducing** | see below |
+| #1065 `_relate` statistics differ on identical data | open, **still true** | see below |
+| #1303 2.8.0 cannot read rep2 collections from an older build | open | filed from here; the operational one |
+
+**`_relate` today.** `ps` is present on **both** engines — the block
+this section was originally about is back, so #1064's headline symptom
+is gone. v2 additionally returns an `n` field v1 does not. Ranking is
+stable: the same top three suppliers in the same order.
+
+What remains is #1065, and it is small but real —
+`_relate purchases {delivery_late: true} → supplier`, metsä:
+
+| supplier | v1 lift | v2 lift | v1 `fs.f` | v2 `fs.f` |
+|---|---|---|---|---|
+| Lemminkäinen | 1.7478367 | 1.7436979 | 55.0 | 55.0 |
+| NCC Suomi | 1.5116294 | 1.5080499 | 94.0 | 94.0 |
+| Caverion Suomi | 1.2127369 | 1.1838460 | **317.87** | **330.0** |
+| Elenia Oy | 0.7533533 | 0.7560555 | **137.43** | **135.0** |
+
+Lift differs in the third or fourth decimal everywhere. The interesting
+column is `fs.f`: v1 reports a **fractional** frequency (317.86763) where
+v2 reports an **integer count** (330.0). Where the two agree on an
+integer the lift still moves slightly, so the smoothing differs as well
+as the counting. Neither changes which supplier the view names as the
+worst offender, which is why Supplier Intel and Rule Mining pass on both
+engines — but any number read off `fs` should not be quoted as
+engine-independent.
+
+**#1303 is the one that constrains deployment.** It is not a bug the
+demo trips over day to day; it is a bug that turns a core upgrade into a
+reload event. Keep a backup env alive after promoting, not just during.
+
 ### Verdict
 
 Functionally ready. `AITO_API_VERSION=v2` against the existing `/env/v2`
