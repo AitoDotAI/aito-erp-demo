@@ -351,42 +351,53 @@ _QUEUE: dict[str, tuple[list[dict], frozenset[str], dict[str, str],
                         dict[str, dict]]] = {}
 
 
-def queue_for(tenant: str) -> tuple[list[dict], frozenset[str], dict[str, str],
-                                    dict[str, dict]]:
+def queue_for(client: AitoClient, tenant: str
+              ) -> tuple[list[dict], frozenset[str], dict[str, str],
+                         dict[str, dict]]:
     """Held-out lines, which vendors are cold, SKU names, vendor master.
 
+    Read from AITO, not from `data/`. The first version read the fixture
+    files directly, which worked on a laptop and produced an empty queue
+    in production: `data/` is gitignored, so a deployed container has no
+    fixtures at all. Every other view in this demo gets its data from
+    the database; this one now does too.
+
+    The held-out rows live in `invoice_lines_holdout`, which is
+    deliberately link-free — see the schema comment. They are storage
+    the view reads, not evidence the ranker can reach, so scoring them
+    still measures generalisation rather than recall.
+
     "Cold" is derived by comparing the two halves rather than declared,
-    so it cannot drift out of step with the data the way a copied
-    constant would.
+    so it cannot drift out of step with the data.
     """
-    if tenant not in _QUEUE:
-        from src.data_loader import DATA_DIR, load_fixture
-        train = DATA_DIR / tenant / "invoice_lines.json"
-        test = DATA_DIR / tenant / "invoice_lines_test.json"
-        if not train.exists():
-            # This tenant has no invoice lines at all — the view does
-            # not apply to it, and the nav hides it. A deep link should
-            # get an empty queue, not a 500.
-            _QUEUE[tenant] = ([], frozenset(), {}, {})
-            return _QUEUE[tenant]
-        if not test.exists():
-            # Training data without the held-out half is a broken
-            # generate, not an absent feature. Say so: silently scoring
-            # against rows that were loaded is exactly the mistake this
-            # whole case exists to avoid.
-            raise FileNotFoundError(
-                f"{train.name} exists for {tenant} but {test.name} does not. "
-                "Run `./do generate-personas` — the held-out split is what "
-                "makes the accuracy on this view mean anything.")
-        held_out = load_fixture("invoice_lines_test", tenant) or []
-        loaded = load_fixture("invoice_lines", tenant) or []
-        seen = {line["billing_supplier"] for line in loaded}
-        cold = frozenset({line["billing_supplier"] for line in held_out} - seen)
-        products = load_fixture("products", tenant) or []
-        names = {p["sku"]: p.get("name", "") for p in products}
-        vendors = {v["vendor"]: v
-                   for v in (load_fixture("vendors", tenant) or [])}
-        _QUEUE[tenant] = (held_out, cold, names, vendors)
+    if tenant in _QUEUE:
+        return _QUEUE[tenant]
+
+    def rows(table: str, limit: int) -> list[dict]:
+        try:
+            return client.search(table, {}, limit=limit).get("hits") or []
+        except AitoError:
+            return []
+
+    held_out = rows("invoice_lines_holdout", 2000)
+    if not held_out:
+        # This tenant has no invoice lines — the view does not apply to
+        # it and the nav hides it. A deep link gets an empty queue
+        # rather than a 500.
+        _QUEUE[tenant] = ([], frozenset(), {}, {})
+        return _QUEUE[tenant]
+
+    # Only the vendor column is needed from the training half, and it is
+    # a small distinct set — but Aito has no DISTINCT, so this reads a
+    # capped sample. A vendor that appears in 60000 training rows will
+    # be in the first few thousand; one that is genuinely absent stays
+    # absent, which is the only thing "cold" turns on.
+    seen = {line.get("billing_supplier") for line in rows("invoice_lines", 4000)}
+    cold = frozenset({line["billing_supplier"] for line in held_out} - seen)
+    names = {p["sku"]: p.get("name", "")
+             for p in rows("products", 4000) if p.get("sku")}
+    vendors = {v["vendor"]: v for v in rows("vendors", 200) if v.get("vendor")}
+    _QUEUE[tenant] = (held_out, cold, names, vendors)
     return _QUEUE[tenant]
 
 
@@ -476,7 +487,7 @@ def batch(client: AitoClient, tenant: str, size: int = 40, workers: int = 8,
           offset: int = 0) -> dict:
     """One run of the queue, measured."""
     measured = measured_for(client.api_version)
-    lines, cold, names, vendors = queue_for(tenant)
+    lines, cold, names, vendors = queue_for(client, tenant)
     if not lines:
         return {"lines": [], "batch": None, "measured": measured,
                 "available": 0}

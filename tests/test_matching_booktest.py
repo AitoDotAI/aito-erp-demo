@@ -135,7 +135,7 @@ def test_an_article_code_is_stable_per_product():
     coded = {v[0] for v in gen.VENDORS if v[6] in ("code_only", "article_prefix")}
     assert coded, "no vendor writes an article code — the pure-history case is gone"
     by_sku: dict[tuple[str, str], set[str]] = collections.defaultdict(set)
-    for line in _load("invoice_lines") + _load("invoice_lines_test"):
+    for line in _load("invoice_lines") + _load("invoice_lines_holdout"):
         if line["billing_supplier"] in coded:
             by_sku[(line["billing_supplier"], line["sku"])].add(line["description"])
     spread = [k for k, v in by_sku.items() if len(v) > 1]
@@ -144,11 +144,35 @@ def test_an_article_code_is_stable_per_product():
         "a code that changes per line carries no information at all")
 
 
+def test_the_holdout_table_carries_no_links():
+    """The held-out rows live in Aito so the view can read a queue in
+    production, where `data/` does not exist. That is only safe while
+    the table is inert.
+
+    `invoice_lines.sku` links to `products` and `billing_supplier` to
+    `vendors`. If the holdout table ever grew the same links, rows Aito
+    is supposed to have never seen could contribute evidence to
+    `_predict invoice_lines.sku` through those shared tables — and the
+    accuracy would go UP, which is the worst possible symptom because it
+    looks like progress.
+    """
+    from src.data_loader import SCHEMAS
+
+    holdout = SCHEMAS["invoice_lines_holdout"]["columns"]
+    linked = sorted(k for k, v in holdout.items() if "link" in v)
+    assert not linked, (
+        f"invoice_lines_holdout has link(s) on {linked}. Held-out rows must "
+        "stay unreachable from the prediction path.")
+    # And it must still carry what the view needs to render a queue.
+    assert {"line_id", "billing_supplier", "description", "sku",
+            "unit_of_measure", "unit_price_eur"} <= set(holdout)
+
+
 @needs_fixture
 def test_the_held_out_half_is_actually_held_out():
     """Scoring against rows that were loaded measures memory, not skill."""
     train_ids = {line["line_id"] for line in _load("invoice_lines")}
-    test = _load("invoice_lines_test")
+    test = _load("invoice_lines_holdout")
     overlap = train_ids & {line["line_id"] for line in test}
     assert not overlap, f"{len(overlap)} held-out lines are also in training"
     assert len(test) >= 500, "held-out split too small to measure anything"
@@ -167,7 +191,7 @@ def test_cold_vendors_appear_only_in_the_held_out_half():
     leaked = cold & {line["billing_supplier"] for line in _load("invoice_lines")}
     assert not leaked, f"cold vendors present in training: {sorted(leaked)}"
     in_test = cold & {line["billing_supplier"]
-                      for line in _load("invoice_lines_test")}
+                      for line in _load("invoice_lines_holdout")}
     assert in_test == cold, f"cold vendors missing from the test half: {cold - in_test}"
 
 
@@ -217,7 +241,7 @@ def test_every_rendering_style_is_represented():
     styles = {v[6] for v in gen.VENDORS}
     vendors = {v[0]: v[6] for v in gen.VENDORS}
     present = {vendors[line["billing_supplier"]]
-               for line in _load("invoice_lines") + _load("invoice_lines_test")}
+               for line in _load("invoice_lines") + _load("invoice_lines_holdout")}
     assert styles == present, f"styles never generated: {sorted(styles - present)}"
 
 
@@ -251,7 +275,7 @@ def scored():
         pytest.skip(f"invoice_lines not loaded in Aito ({exc}) — "
                     "run `./do load-data --tenant=aurora` first")
 
-    lines = _load("invoice_lines_test")[:SAMPLE]
+    lines = _load("invoice_lines_holdout")[:SAMPLE]
     vendors = {v["vendor"]: v for v in _load("vendors")}
     with ThreadPoolExecutor(max_workers=8) as pool:
         ranked = list(pool.map(

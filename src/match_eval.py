@@ -140,7 +140,7 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
     client = AitoClient.from_creds(creds.api_url, creds.api_key,
                                    api_version=config.api_version)
 
-    test = json.load(open(DATA / tenant / "invoice_lines_test.json"))
+    test = json.load(open(DATA / tenant / "invoice_lines_holdout.json"))
     train = json.load(open(DATA / tenant / "invoice_lines.json"))
     products = json.load(open(DATA / tenant / "products.json"))
     vendors = {v["vendor"]: v
