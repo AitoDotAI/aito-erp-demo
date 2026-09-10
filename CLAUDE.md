@@ -502,6 +502,25 @@ whether the top row arrives pre-filled or open; both end in front of a
 human. The table is on screen so a reader picks their own bar, and a
 test fails if the threshold ever stops matching a measured row.
 
+**The queue comes from Aito, not from `data/`.** The held-out rows are
+loaded into `invoice_lines_holdout` and the view reads its queue from
+there. The first version read the fixture files off disk, which worked
+on a laptop and showed an empty queue in production — `data/` is
+gitignored, so a deployed container has no fixtures at all. Every other
+view gets its data from the database; this one does too.
+
+That table is **deliberately link-free**. `invoice_lines.sku` links to
+`products` and `billing_supplier` to `vendors`; giving the holdout the
+same links would let rows Aito is supposed to have never seen feed
+`_predict invoice_lines.sku` through those shared tables, and accuracy
+would go UP — the worst symptom, because it reads as progress.
+`test_the_holdout_table_carries_no_links` fails if a link appears.
+
+Regenerating at build time is not an alternative: `generate_personas`
+seeds with `random.seed(hash(tenant_id))`, and Python randomises string
+hashing per process, so a rebuild produces a DIFFERENT universe from the
+one loaded into Aito.
+
 **The held-out label is shown on screen.** A production queue has no
 truth column. A demo that has one and hides it is asking to be
 trusted, and the ✗ rows are the honest half of the pitch.

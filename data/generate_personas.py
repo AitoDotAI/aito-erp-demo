@@ -2437,11 +2437,11 @@ def write_persona(persona: PersonaSpec) -> None:
     # Aurora is the only persona with a retail catalogue big enough for
     # line-to-product matching to be a real problem rather than a lookup.
     invoice_lines: list[dict] = []
-    invoice_lines_test: list[dict] = []
+    invoice_lines_holdout: list[dict] = []
     vendor_rows: list[dict] = []
     if persona.tenant_id == "aurora":
         from generate_invoice_lines import generate as generate_lines
-        invoice_lines, invoice_lines_test, vendor_rows = generate_lines(products)
+        invoice_lines, invoice_lines_holdout, vendor_rows = generate_lines(products)
     quotes = generate_quotes(persona, projects) if persona.n_quotes else []
     absences = generate_absences(persona, people)
     proposals = generate_proposals(persona, people, projects)
@@ -2464,8 +2464,8 @@ def write_persona(persona: PersonaSpec) -> None:
         with open(out / "invoice_lines.json", "w") as f:
             json.dump(invoice_lines, f, indent=2, ensure_ascii=False)
         # NOT loaded into Aito — the held-out half `./do match-eval` scores.
-        with open(out / "invoice_lines_test.json", "w") as f:
-            json.dump(invoice_lines_test, f, indent=2, ensure_ascii=False)
+        with open(out / "invoice_lines_holdout.json", "w") as f:
+            json.dump(invoice_lines_holdout, f, indent=2, ensure_ascii=False)
         with open(out / "vendors.json", "w") as f:
             json.dump(vendor_rows, f, indent=2, ensure_ascii=False)
     if quotes:
@@ -2486,7 +2486,7 @@ def write_persona(persona: PersonaSpec) -> None:
     print(f"  people:         {len(people)}")
     if invoice_lines:
         print(f"  invoice_lines:  {len(invoice_lines)} train "
-              f"+ {len(invoice_lines_test)} held out")
+              f"+ {len(invoice_lines_holdout)} held out")
     print(f"  absences:       {len(absences)}")
     print(f"  proposals:      {len(proposals)} rows "
           f"({len({r['proposal_id'] for r in proposals})} open bids)")

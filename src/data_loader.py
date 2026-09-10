@@ -117,6 +117,33 @@ SCHEMAS = {
             "sells_grade": {"type": "String", "nullable": True},
         },
     },
+    # The held-out half, in Aito so the VIEW can read a queue without a
+    # local fixture file. `data/` is gitignored, so a deployed container
+    # has none — which is why Invoice Matching showed an empty queue in
+    # production while working on a laptop.
+    #
+    # Deliberately LINK-FREE. `invoice_lines.sku` links to `products` and
+    # `billing_supplier` to `vendors`; replicating those here would let
+    # rows Aito is supposed to have never seen contribute evidence to
+    # `_predict invoice_lines.sku` through the shared linked tables. As
+    # plain Strings these rows are inert: storage the view reads, and
+    # nothing the ranker can reach. `test_matching_booktest` fails if a
+    # link ever appears here.
+    "invoice_lines_holdout": {
+        "type": "table",
+        "columns": {
+            "line_id": {"type": "String", "nullable": False},
+            "invoice_id": {"type": "String", "nullable": False},
+            "billing_supplier": {"type": "String", "nullable": False},
+            "description": {"type": "String", "nullable": False},
+            "quantity": {"type": "Int", "nullable": False},
+            "unit_of_measure": {"type": "String", "nullable": False},
+            "unit_price_eur": {"type": "Decimal", "nullable": False},
+            "line_amount_eur": {"type": "Decimal", "nullable": False},
+            "invoice_month": {"type": "String", "nullable": False},
+            "sku": {"type": "String", "nullable": False},
+        },
+    },
     "invoice_lines": {
         "type": "table",
         "columns": {
@@ -440,7 +467,8 @@ SCHEMAS = {
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
 OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences",
-                   "proposals", "deliveries", "invoice_lines", "vendors"}
+                   "proposals", "deliveries", "invoice_lines", "vendors",
+                   "invoice_lines_holdout"}
 
 
 def load_fixture(name: str, tenant: str | None = None) -> list[dict] | None:

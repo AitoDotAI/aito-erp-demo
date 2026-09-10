@@ -328,7 +328,7 @@ def main() -> None:
     products = json.load(open(out / "products.json"))
     train, test, vendors = generate(products)
 
-    for name, rows in (("invoice_lines", train), ("invoice_lines_test", test),
+    for name, rows in (("invoice_lines", train), ("invoice_lines_holdout", test),
                        ("vendors", vendors)):
         with open(out / f"{name}.json", "w") as f:
             json.dump(rows, f, indent=2, ensure_ascii=False)
@@ -338,7 +338,7 @@ def main() -> None:
                      if line["billing_supplier"] in cold_names)
     print(f"  vendors:            {len(vendors)}")
     print(f"  invoice_lines:      {len(train)} train (loaded into Aito)")
-    print(f"  invoice_lines_test: {len(test)} held out — "
+    print(f"  invoice_lines_holdout: {len(test)} held out — "
           f"{cold_lines} of them from {len(cold_names)} unseen vendors")
     names = {p["name"] for p in products}
     print(f"  catalogue:          {len(products)} SKUs, "
