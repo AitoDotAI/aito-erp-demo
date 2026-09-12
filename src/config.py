@@ -149,6 +149,28 @@ def _read_api_version(override: str | None = None) -> ApiVersion:
     return raw  # type: ignore[return-value]
 
 
+def v2_url_for(base_url: str, env_name: str) -> str:
+    """Point a tenant's v1 URL at the v2 environment `env_name`.
+
+    `master` is a SENTINEL, not an environment. The API refuses
+    `/env/master/` outright — "Env 'master' is the default; use the
+    unscoped /api/... path" — so the one name that cannot denote a
+    branch is free to mean "no branch". That is the end state of a
+    cutover: the branch is promoted into master and the app stops
+    naming an environment. Without the sentinel, v2-against-master
+    cannot be expressed at all.
+
+    Derived from the v1 URL rather than configured separately so the
+    cutover is one variable instead of six. Same convention the
+    accounting demo uses (`AITO_V2_ENV`); see its
+    docs/v2-cutover-runbook.md.
+    """
+    root = base_url.rstrip("/")
+    if "/env/" in root:
+        root = root.rsplit("/env/", 1)[0]
+    return root if env_name == "master" else f"{root}/env/{env_name}"
+
+
 def load_config(*, use_dotenv: bool = True,
                 api_version: str | None = None) -> Config:
     """Load config from environment, with .env file fallback.
@@ -197,6 +219,13 @@ def load_config(*, use_dotenv: bool = True,
         )
 
     resolved_version = _read_api_version(api_version)
+    # Naming a v2 environment and still running v1 would be a config
+    # that silently does nothing, so the presence of AITO_V2_ENV is
+    # itself the switch. An explicit api_version argument still wins —
+    # `./do load-data --api-version=v1` must mean v1 whatever .env says.
+    if api_version is None and not os.environ.get("AITO_API_VERSION", "").strip() \
+            and os.environ.get("AITO_V2_ENV", "").strip():
+        resolved_version = "v2"
 
     # Per-tenant v2 pairs. Read unconditionally so `./do env-init-v2`
     # and the conformance probe can see them while the app itself is
@@ -207,11 +236,25 @@ def load_config(*, use_dotenv: bool = True,
         if url and key:
             v2_tenants[tenant_id] = AitoCreds(api_url=url, api_key=key)
 
+    # `AITO_V2_ENV` names the v2 environment and derives the URLs from
+    # each tenant's own v1 pair — one variable instead of six, so a
+    # cutover is one line and a rollback is deleting it. An explicit
+    # `_V2_` pair still wins, because someone who wrote six URLs meant
+    # them.
+    v2_env = os.environ.get("AITO_V2_ENV", "").strip()
+    if v2_env:
+        for tenant_id, creds in per_tenant.items():
+            if tenant_id not in v2_tenants:
+                v2_tenants[tenant_id] = AitoCreds(
+                    api_url=v2_url_for(creds.api_url, v2_env),
+                    api_key=creds.api_key)
+
     if resolved_version == "v2" and not v2_tenants:
         raise ValueError(
-            "AITO_API_VERSION=v2 but no v2 credentials are configured. "
-            "Add AITO_<TENANT>_V2_API_URL / _V2_API_KEY pairs pointing at "
-            "each tenant's `v2` environment (see .env.example)."
+            "v2 selected but no v2 credentials are configured. Either set "
+            "AITO_V2_ENV=<env name> (derives each tenant's v2 URL from its "
+            "v1 pair — `master` means v2 with no /env/ segment), or add "
+            "AITO_<TENANT>_V2_API_URL / _V2_API_KEY pairs (see .env.example)."
         )
 
     # Fill missing tenants with the default pair so .creds_for() always

@@ -173,8 +173,13 @@ cmd_restart() {
 
 cmd_load_data() {
   cd "$SCRIPT_DIR"
+  # Pinned to v1 on purpose. This command's whole meaning is "load the
+  # v1 environments"; `./do load-data-v2` is its twin. Without the pin
+  # it inherits AITO_API_VERSION from .env, so once that says v2 a
+  # plain `./do load-data` would quietly write to the v2 envs instead —
+  # a destructive surprise that looks like the command doing nothing.
   # Forward extra args (e.g. --tenant=metsa, --tenant=all)
-  uv run python -m src.data_loader "$@"
+  uv run python -m src.data_loader --api-version=v1 "$@"
 }
 
 cmd_generate_personas() {
@@ -186,7 +191,8 @@ cmd_generate_personas() {
 
 cmd_reset_data() {
   cd "$SCRIPT_DIR"
-  uv run python -m src.data_loader --reset "$@"
+  # v1 for the same reason as cmd_load_data.
+  uv run python -m src.data_loader --reset --api-version=v1 "$@"
 }
 
 cmd_clear_cache() {
