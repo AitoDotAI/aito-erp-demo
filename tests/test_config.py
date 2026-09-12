@@ -129,3 +129,85 @@ def test_half_set_default_pair_with_no_per_tenant_still_raises(monkeypatch):
     monkeypatch.setenv("AITO_API_URL", "https://api.aito.ai")
     with pytest.raises(ValueError, match="AITO_API_URL"):
         load_config(use_dotenv=False)
+
+
+# ── AITO_V2_ENV: one variable for the whole v2 cutover ──────────────
+
+
+def _three_tenants(monkeypatch):
+    """A per-tenant v1 setup pointing at `/env/dev`, like production."""
+    _clear_aito_env(monkeypatch)
+    for prefix, db in (("METSA", "2"), ("AURORA", "3"), ("STUDIO", "4")):
+        monkeypatch.setenv(f"AITO_{prefix}_API_URL",
+                           f"https://shared.aito.ai/db/demo-{db}/env/dev")
+        monkeypatch.setenv(f"AITO_{prefix}_API_KEY", f"key-{db}")
+
+
+def test_v2_env_derives_every_tenant_url_from_its_v1_pair(monkeypatch):
+    """The point of the variable: one line to cut over, not six URLs.
+
+    Each tenant keeps its own database and key; only the environment
+    segment moves.
+    """
+    _three_tenants(monkeypatch)
+    monkeypatch.setenv("AITO_V2_ENV", "v2")
+    config = load_config(use_dotenv=False)
+    assert config.api_version == "v2"
+    assert config.creds_for("aurora").api_url == "https://shared.aito.ai/db/demo-3/env/v2"
+    assert config.creds_for("metsa").api_url == "https://shared.aito.ai/db/demo-2/env/v2"
+    # The key travels with the tenant — same database, different env.
+    assert config.creds_for("aurora").api_key == "key-3"
+
+
+def test_master_means_v2_with_no_env_segment(monkeypatch):
+    """`master` is a sentinel, not an environment.
+
+    The API refuses `/env/master/` outright, so the one name that cannot
+    denote a branch is free to mean "no branch" — which is the end state
+    of a cutover, once the branch has been promoted.
+    """
+    _three_tenants(monkeypatch)
+    monkeypatch.setenv("AITO_V2_ENV", "master")
+    config = load_config(use_dotenv=False)
+    assert config.api_version == "v2"
+    assert config.creds_for("aurora").api_url == "https://shared.aito.ai/db/demo-3"
+
+
+def test_unset_v2_env_means_v1(monkeypatch):
+    """Rollback is deleting the line, so absence has to mean v1."""
+    _three_tenants(monkeypatch)
+    config = load_config(use_dotenv=False)
+    assert config.api_version == "v1"
+    assert config.creds_for("aurora").api_url.endswith("/env/dev")
+
+
+def test_an_explicit_v2_pair_still_wins(monkeypatch):
+    """Someone who wrote six URLs meant them. The derivation is a
+    convenience, not a policy that overrides what was stated."""
+    _three_tenants(monkeypatch)
+    monkeypatch.setenv("AITO_V2_ENV", "v2")
+    monkeypatch.setenv("AITO_AURORA_V2_API_URL", "https://elsewhere/db/x/env/special")
+    monkeypatch.setenv("AITO_AURORA_V2_API_KEY", "other-key")
+    config = load_config(use_dotenv=False)
+    assert config.creds_for("aurora").api_url == "https://elsewhere/db/x/env/special"
+    assert config.creds_for("aurora").api_key == "other-key"
+    # The tenants without an explicit pair still derive.
+    assert config.creds_for("metsa").api_url == "https://shared.aito.ai/db/demo-2/env/v2"
+
+
+def test_an_explicit_api_version_still_overrides(monkeypatch):
+    """`./do load-data --api-version=v1` has to mean v1 whatever the
+    environment says — it is the guard that keeps a v1 load from
+    rewriting the v2 environments."""
+    _three_tenants(monkeypatch)
+    monkeypatch.setenv("AITO_V2_ENV", "v2")
+    assert load_config(use_dotenv=False, api_version="v1").api_version == "v1"
+
+
+def test_v2_without_any_credentials_says_both_ways_out(monkeypatch):
+    _clear_aito_env(monkeypatch)
+    monkeypatch.setenv("AITO_API_URL", "https://x/db/d")
+    monkeypatch.setenv("AITO_API_KEY", "k")
+    monkeypatch.setenv("AITO_API_VERSION", "v2")
+    with pytest.raises(ValueError, match="AITO_V2_ENV"):
+        load_config(use_dotenv=False)
