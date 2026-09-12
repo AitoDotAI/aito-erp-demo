@@ -165,7 +165,13 @@ These never relax.
   setups still work. Run `./do generate-personas` then
   `./do load-data --tenant=all`.
 
-- **Aito API v1 / v2**: `AITO_API_VERSION` picks the REST surface.
+- **Aito API v1 / v2**: `AITO_V2_ENV` is the cutover switch — it names
+  the v2 environment and derives each tenant's v2 URL from its own v1
+  pair, so going live is one line, rollback is deleting it, and the end
+  state (after promoting the branch into master) is `AITO_V2_ENV=master`,
+  where `master` is a sentinel meaning "v2, no `/env/` segment". Explicit
+  `AITO_<T>_V2_API_URL` pairs still win where set.
+  `AITO_API_VERSION` picks the REST surface directly.
   v1 (rep1 tables) is the production default and serves the live demo
   from each tenant DB's `master` env. v2 (rep2 collections) runs
   against a separate `v2` env per tenant, loaded by `./do

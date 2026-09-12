@@ -599,10 +599,23 @@ creates the `v2raw` copy-on-write branch and loads it without calling
 Three worries, and only the third is real:
 
 * *"Promote the env first and the running app breaks."* It doesn't
-  arise — the app names the env in the URL
-  (`AITO_<T>_V2_API_URL=…/env/v2`), so `AITO_API_VERSION=v2` reads the
-  branch while `master` keeps serving v1. Nothing is swapped, so
-  nothing has to be ordered.
+  arise — the app names the env, so `AITO_V2_ENV=v2` reads the branch
+  while `master` keeps serving v1. Nothing is swapped, so nothing has
+  to be ordered.
+
+  **`AITO_V2_ENV` is the whole cutover.** It names the environment and
+  derives each tenant's v2 URL from its own v1 pair, so going live is
+  adding one line, rolling back is deleting it, and the end state is
+  changing it to `master`. The alternative — six `AITO_<T>_V2_API_URL`
+  secrets — works, but then step 2 below means editing six secret
+  values that live outside this repo, which is a poor shape for
+  something you want to be able to reverse in a hurry. The explicit
+  pairs still win where they are set.
+
+  `master` is a **sentinel**, not an environment: the API refuses
+  `/env/master/` outright, so the one name that cannot denote a branch
+  is free to mean "no branch". Without it, v2-against-master could not
+  be expressed at all.
 * *"Deploy the app first and it fails until the DB is promoted."*
   Same answer: the app is already pointed at a live env.
 * *"Promote without a backup and I cannot roll back."* True, and the
@@ -618,12 +631,12 @@ Three worries, and only the third is real:
 ./do v2-check --tenant=all                     # query shape, all 17 views x 3
 
 # 1. go live on the branch. master untouched, rollback is an env var
-AITO_API_VERSION=v2   # in the deployed environment, then redeploy
+AITO_V2_ENV=v2        # in the deployed environment, then redeploy
 
 # 2. once it has been watched: make it master, keeping a way back
 POST /api/v2/_envs           {"name": "v1-backup", "basedOn": "master"}
 POST /api/v2/_envs/v2/promote
-#    then drop `/env/v2` from the URLs and redeploy
+#    then AITO_V2_ENV=master and redeploy — one word, no secrets touched
 
 # rollback at any point
 POST /api/v2/_envs/v1-backup/promote
