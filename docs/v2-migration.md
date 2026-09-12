@@ -144,6 +144,122 @@ text survives at all. `MEASURED_BY_ENGINE` holds both sets and the view
 labels which it is quoting, so this does not block a deploy; it just
 means the screenshot changes.
 
+### The aito-core ledger, re-verified 2026-09-12 on 2.8.3 (`a4d4903c122d`)
+
+Six of the ten issues this demo raised or depends on are closed. Statuses
+below were read from the tracker, and the two behavioural ones were
+re-measured rather than assumed — twice this week a number in this file
+was stale within days, so anything quoted here has a build attached.
+
+| issue | state | note |
+|---|---|---|
+| #1063 `feature` → `$value` | **closed** | absorbed in `AitoClient` |
+| #1253 `_estimate` on a nullable numeric | **closed** | worked around with a non-nullable `deliveries` table |
+| #1262 v1 `None.get` on an unsupported select | **closed** | second `Option` leak after #1253 |
+| #1263 `set[...]` unreachable from both schema surfaces | **closed** | `String[]` is what `skills`/`domains` use |
+| #1245 rep2 predict sensitive to segment structure | **merged** | |
+| #1281 rep2 diverging on high-cardinality targets | **closed** | filed from here, then **reversed** — see above |
+| #1062 bare string vs `$match` on a Text column | open | **does not reproduce here**, on two corpora 640× apart in target cardinality; both negatives posted |
+| #1064 `_relate` proposition shape / `ps` block | open upstream, **not reproducing** | see below |
+| #1065 `_relate` statistics differ on identical data | open, **still true** | see below |
+| #1303 2.8.0 cannot read rep2 collections from an older build | open | filed from here; the operational one |
+
+**`_relate` today.** `ps` is present on **both** engines — the block
+this section was originally about is back, so #1064's headline symptom
+is gone. v2 additionally returns an `n` field v1 does not. Ranking is
+stable: the same top three suppliers in the same order.
+
+What remains is #1065, and it is small but real —
+`_relate purchases {delivery_late: true} → supplier`, metsä:
+
+| supplier | v1 lift | v2 lift | v1 `fs.f` | v2 `fs.f` |
+|---|---|---|---|---|
+| Lemminkäinen | 1.7478367 | 1.7436979 | 55.0 | 55.0 |
+| NCC Suomi | 1.5116294 | 1.5080499 | 94.0 | 94.0 |
+| Caverion Suomi | 1.2127369 | 1.1838460 | **317.87** | **330.0** |
+| Elenia Oy | 0.7533533 | 0.7560555 | **137.43** | **135.0** |
+
+Lift differs in the third or fourth decimal everywhere. The interesting
+column is `fs.f`: v1 reports a **fractional** frequency (317.86763) where
+v2 reports an **integer count** (330.0). Where the two agree on an
+integer the lift still moves slightly, so the smoothing differs as well
+as the counting. Neither changes which supplier the view names as the
+worst offender, which is why Supplier Intel and Rule Mining pass on both
+engines — but any number read off `fs` should not be quoted as
+engine-independent.
+
+**#1303 is the one that constrains deployment.** It is not a bug the
+demo trips over day to day; it is a bug that turns a core upgrade into a
+reload event. Keep a backup env alive after promoting, not just during.
+
+**It has now survived two upgrades.** 2.8.1 → 2.8.2 → 2.8.3 each left
+the rep2 collections readable — preflight Ready on all three tenants
+straight after the release, no reload needed. Two clean upgrades are
+evidence, not a fix: the failure was specific to state written by
+`38a234a6`, and nothing here has been written by a build that old since.
+Treat the reload as the contingency, not the routine.
+
+### What 2.8.3 changed, measured 2026-09-12
+
+**rep2 got better and much faster; rep1 held.** Same 600 held-out lines,
+same corpus:
+
+Full held-out split, n=2000 (the n=600 spot check that first flagged
+the change is superseded by this):
+
+| | rep1 | rep2 | gap |
+|---|---|---|---|
+| overall top-1 | **80.9%** | 74.9% | 6.0 |
+| **seen-before vendor** | **92.0%** | **90.0%** | **2.0** |
+| cold start | **58.8%** | 44.7% | 14.1 |
+| top-5 | 92.9% | 86.8% | 6.1 |
+| median per request | 2731 ms | **2623 ms** | — |
+| throughput @10 workers | 3.6 rows/s | 3.6 rows/s | — |
+
+**The gap is almost entirely cold start.** On a vendor the history has
+seen — which is the ordinary case, and 1333 of the 2000 lines — the two
+engines are two points apart. On a vendor invoicing for the first time
+they are fourteen apart. Anything else is a rounding of those two.
+
+Latency is no longer a consideration at all: rep2 is now marginally
+*faster* per request, where at 2.8.2 it was three times slower on this
+same batch. Throughput is identical.
+
+Per regime, they are good at different things — rep2 wins the one a
+text index cannot answer at all:
+
+| overlap | share | rep1 | rep2 | TF-IDF |
+|---|---|---|---|---|
+| 0% (no shared token) | 5.7% | 85.8% | **88.5%** | 0.0% |
+| 34-66% | 22.4% | **70.5%** | 62.7% | 11.2% |
+| 67-99% | 22.9% | **69.9%** | 55.5% | 39.1% |
+| 100% (verbatim) | 48.0% | **90.7%** | 88.4% | 75.7% |
+
+And at a pre-fill bar of p ≥ 0.50 the two are equally *trustworthy* —
+86.5% vs 86.3% precision — but rep1 covers far more of the queue at
+that bar, 90.5% against 69.1%. rep2 is not more wrong; it is less often
+confident.
+
+The latency line is the one that matters for the cutover: rep2 was
+three times slower than rep1 on this batch and is now level with it.
+rep2's accuracy gap narrowed from 9.5 points to 7.2, and it still wins
+the pure-history regime outright (89.7% where a text index scores 0%).
+
+rep1's cold start dropping 4.5 points is nine rows of two hundred on
+identical inputs, so it is a real change in the v1 path rather than
+sampling — small, and in the opposite direction to everything else.
+
+**#1065 did not move at all.** The `_relate` divergence reproduces to
+seven decimal places — `Caverion Suomi` lift 1.2127369 vs 1.1838460,
+`fs.f` 317.86763 vs 330.0 — identical to the 2.8.1 reading.
+
+**`_evaluate` did not move either**, and that is worth a correction: the
+studio deltas (`cost_center` −5.0, `approver` +4.0) reproduce *exactly*
+across three releases. They were described here as reading like sample
+noise. They are deterministic and systematic — still only ten rows on
+the smallest corpus in the demo, so they may not generalise, but "noise"
+was the wrong word for something this repeatable.
+
 ### Verdict
 
 Functionally ready. `AITO_API_VERSION=v2` against the existing `/env/v2`
