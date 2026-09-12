@@ -204,13 +204,41 @@ Treat the reload as the contingency, not the routine.
 **rep2 got better and much faster; rep1 held.** Same 600 held-out lines,
 same corpus:
 
-| | rep1 2.8.2 → 2.8.3 | rep2 2.8.2 → 2.8.3 |
-|---|---|---|
-| overall top-1 | 79.3% → **79.7%** | 69.8% → **72.5%** |
-| seen-before | 88.8% → **91.5%** | 84.5% → **86.8%** |
-| cold start | 60.5% → **56.0%** | 40.5% → **44.0%** |
-| top-5 | 95.3% → 94.5% | 83.2% → **86.3%** |
-| median per request | 3286 ms → **2413 ms** | 7756 ms → **2420 ms** |
+Full held-out split, n=2000 (the n=600 spot check that first flagged
+the change is superseded by this):
+
+| | rep1 | rep2 | gap |
+|---|---|---|---|
+| overall top-1 | **80.9%** | 74.9% | 6.0 |
+| **seen-before vendor** | **92.0%** | **90.0%** | **2.0** |
+| cold start | **58.8%** | 44.7% | 14.1 |
+| top-5 | 92.9% | 86.8% | 6.1 |
+| median per request | 2731 ms | **2623 ms** | — |
+| throughput @10 workers | 3.6 rows/s | 3.6 rows/s | — |
+
+**The gap is almost entirely cold start.** On a vendor the history has
+seen — which is the ordinary case, and 1333 of the 2000 lines — the two
+engines are two points apart. On a vendor invoicing for the first time
+they are fourteen apart. Anything else is a rounding of those two.
+
+Latency is no longer a consideration at all: rep2 is now marginally
+*faster* per request, where at 2.8.2 it was three times slower on this
+same batch. Throughput is identical.
+
+Per regime, they are good at different things — rep2 wins the one a
+text index cannot answer at all:
+
+| overlap | share | rep1 | rep2 | TF-IDF |
+|---|---|---|---|---|
+| 0% (no shared token) | 5.7% | 85.8% | **88.5%** | 0.0% |
+| 34-66% | 22.4% | **70.5%** | 62.7% | 11.2% |
+| 67-99% | 22.9% | **69.9%** | 55.5% | 39.1% |
+| 100% (verbatim) | 48.0% | **90.7%** | 88.4% | 75.7% |
+
+And at a pre-fill bar of p ≥ 0.50 the two are equally *trustworthy* —
+86.5% vs 86.3% precision — but rep1 covers far more of the queue at
+that bar, 90.5% against 69.1%. rep2 is not more wrong; it is less often
+confident.
 
 The latency line is the one that matters for the cutover: rep2 was
 three times slower than rep1 on this batch and is now level with it.
