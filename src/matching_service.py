@@ -412,7 +412,11 @@ def queue_for(client: AitoClient, tenant: str
 # Re-run the harness and update the matching block together, or not at
 # all.
 _MEASURED_SHARED = {
-    "measured_on": "2026-09-06",
+    "measured_on": "2026-09-12",
+    # The engine the numbers below describe. Two of them moved between
+    # builds this month, so a figure here without a build attached is a
+    # figure nobody can check.
+    "engine_build": "2.8.3 (a4d4903c122d)",
     "n": 600,
     "catalogue_skus": 3200,
     "labelled_lines_loaded": 60000,
@@ -434,9 +438,9 @@ _MEASURED_SHARED = {
 MEASURED_BY_ENGINE: dict[str, dict] = {
     "v1": {
         "engine": "rep1 (v1)",
-        "overall_top1": 0.793, "overall_top5": 0.953, "overall_top1_name": 0.793,
-        "warm_top1": 0.888, "warm_top5": 0.978, "warm_top1_name": 0.888,
-        "cold_top1": 0.605, "cold_top5": 0.905, "cold_top1_name": 0.605,
+        "overall_top1": 0.797, "overall_top5": 0.945, "overall_top1_name": 0.797,
+        "warm_top1": 0.915, "warm_top5": 0.980, "warm_top1_name": 0.915,
+        "cold_top1": 0.560, "cold_top5": 0.875, "cold_top1_name": 0.560,
         "throughput_rows_per_s": 5.4, "throughput_workers": 4,
         "curve": [
             {"bar": 0.05, "coverage": 0.992, "precision": 0.795},
@@ -446,18 +450,18 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
             {"bar": 0.50, "coverage": 0.835, "precision": 0.830},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.065, "aito": 0.821, "tfidf": 0.0},
+            {"overlap": "0%", "share": 0.065, "aito": 0.897, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.015, "aito": 0.778, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.218, "aito": 0.718, "tfidf": 0.122},
-            {"overlap": "67-99%", "share": 0.243, "aito": 0.705, "tfidf": 0.342},
-            {"overlap": "100%", "share": 0.458, "aito": 0.873, "tfidf": 0.789},
+            {"overlap": "34-66%", "share": 0.218, "aito": 0.695, "tfidf": 0.122},
+            {"overlap": "67-99%", "share": 0.243, "aito": 0.692, "tfidf": 0.342},
+            {"overlap": "100%", "share": 0.458, "aito": 0.891, "tfidf": 0.789},
         ],
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.698, "overall_top5": 0.832, "overall_top1_name": 0.698,
-        "warm_top1": 0.845, "warm_top5": 0.942, "warm_top1_name": 0.845,
-        "cold_top1": 0.405, "cold_top5": 0.610, "cold_top1_name": 0.405,
+        "overall_top1": 0.725, "overall_top5": 0.863, "overall_top1_name": 0.725,
+        "warm_top1": 0.868, "warm_top5": 0.958, "warm_top1_name": 0.868,
+        "cold_top1": 0.440, "cold_top5": 0.675, "cold_top1_name": 0.440,
         "throughput_rows_per_s": 5.4, "throughput_workers": 4,
         "curve": [
             {"bar": 0.05, "coverage": 0.998, "precision": 0.699},
@@ -469,9 +473,9 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
         "regimes": [
             {"overlap": "0%", "share": 0.065, "aito": 0.897, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.015, "aito": 0.556, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.218, "aito": 0.634, "tfidf": 0.122},
-            {"overlap": "67-99%", "share": 0.243, "aito": 0.514, "tfidf": 0.342},
-            {"overlap": "100%", "share": 0.458, "aito": 0.804, "tfidf": 0.789},
+            {"overlap": "34-66%", "share": 0.218, "aito": 0.664, "tfidf": 0.122},
+            {"overlap": "67-99%", "share": 0.243, "aito": 0.493, "tfidf": 0.342},
+            {"overlap": "100%", "share": 0.458, "aito": 0.858, "tfidf": 0.789},
         ],
     },
 }

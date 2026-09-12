@@ -144,7 +144,7 @@ text survives at all. `MEASURED_BY_ENGINE` holds both sets and the view
 labels which it is quoting, so this does not block a deploy; it just
 means the screenshot changes.
 
-### The aito-core ledger, re-verified 2026-09-10 on 2.8.1 (`2a3ff15da3a0`)
+### The aito-core ledger, re-verified 2026-09-12 on 2.8.3 (`a4d4903c122d`)
 
 Six of the ten issues this demo raised or depends on are closed. Statuses
 below were read from the tracker, and the two behavioural ones were
@@ -191,6 +191,46 @@ engine-independent.
 **#1303 is the one that constrains deployment.** It is not a bug the
 demo trips over day to day; it is a bug that turns a core upgrade into a
 reload event. Keep a backup env alive after promoting, not just during.
+
+**It has now survived two upgrades.** 2.8.1 → 2.8.2 → 2.8.3 each left
+the rep2 collections readable — preflight Ready on all three tenants
+straight after the release, no reload needed. Two clean upgrades are
+evidence, not a fix: the failure was specific to state written by
+`38a234a6`, and nothing here has been written by a build that old since.
+Treat the reload as the contingency, not the routine.
+
+### What 2.8.3 changed, measured 2026-09-12
+
+**rep2 got better and much faster; rep1 held.** Same 600 held-out lines,
+same corpus:
+
+| | rep1 2.8.2 → 2.8.3 | rep2 2.8.2 → 2.8.3 |
+|---|---|---|
+| overall top-1 | 79.3% → **79.7%** | 69.8% → **72.5%** |
+| seen-before | 88.8% → **91.5%** | 84.5% → **86.8%** |
+| cold start | 60.5% → **56.0%** | 40.5% → **44.0%** |
+| top-5 | 95.3% → 94.5% | 83.2% → **86.3%** |
+| median per request | 3286 ms → **2413 ms** | 7756 ms → **2420 ms** |
+
+The latency line is the one that matters for the cutover: rep2 was
+three times slower than rep1 on this batch and is now level with it.
+rep2's accuracy gap narrowed from 9.5 points to 7.2, and it still wins
+the pure-history regime outright (89.7% where a text index scores 0%).
+
+rep1's cold start dropping 4.5 points is nine rows of two hundred on
+identical inputs, so it is a real change in the v1 path rather than
+sampling — small, and in the opposite direction to everything else.
+
+**#1065 did not move at all.** The `_relate` divergence reproduces to
+seven decimal places — `Caverion Suomi` lift 1.2127369 vs 1.1838460,
+`fs.f` 317.86763 vs 330.0 — identical to the 2.8.1 reading.
+
+**`_evaluate` did not move either**, and that is worth a correction: the
+studio deltas (`cost_center` −5.0, `approver` +4.0) reproduce *exactly*
+across three releases. They were described here as reading like sample
+noise. They are deterministic and systematic — still only ten rows on
+the smallest corpus in the demo, so they may not generalise, but "noise"
+was the wrong word for something this repeatable.
 
 ### Verdict
 
