@@ -53,6 +53,12 @@ def missing_columns(declared: dict, loaded: dict | None) -> list[str]:
                   - set((loaded or {}).get("columns", {})))
 
 
+# Sentinel: "this tenant is on master". Carried through `check_tenant`'s
+# return so the summary can say so, but filtered out before the exit
+# code — being on master is a fact to report, not a failure to gate on.
+_MASTER = "__master__"
+
+
 def _row_count(client: AitoClient, table: str) -> int | None:
     try:
         return client.search(table, {}, limit=1).get("total")
@@ -71,7 +77,13 @@ def check_tenant(tenant: TenantId, api_version: str | None) -> list[str]:
     # 1. Which environment.
     env = creds.api_url.rsplit("/env/", 1)[-1] if "/env/" in creds.api_url else None
     if env is None:
-        print(f"  [ WARN ] {tenant:7} URL names no /env/ — this is MASTER")
+        # Not a fault once the cutover has completed — `AITO_V2_ENV=master`
+        # is the documented end state, and master is where the demo WANTS
+        # to be (it is retained; branch envs are evictable). Still worth
+        # saying out loud, because the same line means something very
+        # different when nobody intended it.
+        problems.append(_MASTER)
+        print(f"  [ note ] {tenant:7} no /env/ segment — this is MASTER")
     else:
         print(f"  [  ok  ] {tenant:7} env={env}")
 
@@ -147,6 +159,9 @@ def main() -> None:
     for tenant in tenants:
         problems += check_tenant(tenant, api_version)
 
+    on_master = problems.count(_MASTER)
+    problems = [p for p in problems if p != _MASTER]
+
     print()
     if problems:
         print(f"NOT READY — {len(problems)} problem(s):")
@@ -155,7 +170,13 @@ def main() -> None:
         print("\nFix these, then run `./do v2-check"
               f"{' --api-version=v1' if resolved == 'v1' else ''} --tenant=all`.")
         sys.exit(1)
-    print("Ready. Every tenant is env-scoped, current with this build's "
+    if on_master == len(tenants):
+        where = "on MASTER (the post-cutover end state)"
+    elif on_master:
+        where = f"{on_master} of {len(tenants)} on MASTER, the rest env-scoped"
+    else:
+        where = "env-scoped"
+    print(f"Ready. Every tenant is {where}, current with this build's "
           "schema, and populated.")
     print("Next: `./do v2-check"
           f"{' --api-version=v1' if resolved == 'v1' else ''} --tenant=all` "
