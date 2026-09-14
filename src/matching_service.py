@@ -47,6 +47,28 @@ from src.why_processor import process_factors
 LINE_FEATURES = ("description", "billing_supplier", "unit_of_measure",
                  "unit_price_eur", "quantity")
 
+# The inference preset, set explicitly rather than inherited.
+#
+# The engines default differently — rep1 to And-only, rep2 to Group
+# re-expression — so leaving it unset meant the "rep2 is six points
+# behind rep1" reading in this file was comparing two PRESETS as much as
+# two engines. Measured on 600 held-out lines against rep2:
+#
+#     default (group)   top-1 69.3%   warm 85.8%   cold 36.5%
+#     and               top-1 75.8%   warm 92.2%   cold 43.0%
+#     high (and+group)  top-1 76.2%   warm 92.5%   cold 43.5%
+#
+# `and` recovers almost all of it for no extra cost — `high` buys a
+# further 0.4 points and is measurably slower, which is not a trade
+# worth making. Naming it here also means the demo scores the same way
+# on both engines, so a v1/v2 comparison is about the engine again.
+#
+# Note this contradicts the upstream guidance in V2QueryDocs, which says
+# And+Group "adds cost without improving accuracy on the corpora". On
+# THIS corpus it improves it by 6.9 points, and line matching is the
+# case that doc's own ProductMatchingTest book exists for.
+INFERENCE_PRESET = "and"
+
 # The vendor's own attributes, reached through the link on
 # `billing_supplier`. They matter most exactly where the vendor name is
 # worthless: a vendor invoicing for the FIRST time has no history under
@@ -82,6 +104,11 @@ class Candidate:
     unit_of_measure: str | None
     p: float
     reasons: list[dict] = field(default_factory=list)
+    # Aito's `$why` exactly as it arrived. Not serialised to the
+    # frontend — it is here so a test can compare what the engine said
+    # against what the chips show, which is the drift that hid a
+    # lift-26 factor for a week.
+    why_raw: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +190,39 @@ def _terms(html: str) -> list[str]:
             for t in _MATCHED.findall(html or "") if t.strip()]
 
 
+def _proposition_terms(prop: object) -> list[tuple[str, str]]:
+    """The (field, value) leaves of a `$why` proposition.
+
+    Needed because `highlight` is not a reliable inventory of what a
+    factor is about. Aito marks only some terms of a `$group` — for one
+    real line it marked `cordial` out of `{cordial, Apple}` and marked
+    nothing at all out of `{Konfektyr, Fazer}` — so a chip list built
+    from the markers alone dropped a lift-26 factor entirely and left
+    the match looking as if it had turned on one rare word.
+    """
+    out: list[tuple[str, str]] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            if key.startswith("$"):
+                walk(value)
+            elif isinstance(value, dict):
+                # {"description": {"$has": "cordial"}}
+                for inner in value.values():
+                    out.append((key, str(inner)))
+            else:
+                out.append((key, str(value)))
+
+    walk(prop)
+    return out
+
+
 def _reasons(hit: dict, line: dict) -> list[dict]:
     """The case for one candidate, with each claim's provenance kept.
 
@@ -177,13 +237,21 @@ def _reasons(hit: dict, line: dict) -> list[dict]:
     """
     out: list[dict] = []
     processed = process_factors(hit.get("$why"), hit.get("$p", 0.0))
-    for lift in processed.get("lifts", [])[:3]:
+    for lift in processed.get("lifts", [])[:5]:
         terms, fields = [], []
         for highlight in lift.get("highlights") or []:
             found = _terms(highlight.get("html", ""))
             terms.extend(found)
             if found or _ABSENT.search(highlight.get("html", "")):
                 fields.append(highlight.get("field", ""))
+        if not terms:
+            # Fall back to the proposition. This is the difference
+            # between "matched cordial" and "matched cordial, and Fazer
+            # Konfektyr, and the vendor, and the pack size" — the second
+            # is what Aito actually did.
+            leaves = _proposition_terms(lift.get("proposition"))
+            terms = [v for _, v in leaves]
+            fields = [f for f, _ in leaves]
         if not terms and not fields:
             continue
         supports = lift.get("lift", 1.0) >= 1.0
@@ -239,7 +307,8 @@ def rank_line(client: AitoClient, line: dict, limit: int = 5,
     started = time.perf_counter()
     try:
         response = client.predict("invoice_lines", where, "sku", limit=limit,
-                                  select_extra=CATALOGUE_FIELDS)
+                                  select_extra=CATALOGUE_FIELDS,
+                                  ai=INFERENCE_PRESET)
     except AitoError:
         return [], (time.perf_counter() - started) * 1000
     elapsed = (time.perf_counter() - started) * 1000
@@ -257,6 +326,7 @@ def rank_line(client: AitoClient, line: dict, limit: int = 5,
             unit_of_measure=hit.get("unit_of_measure"),
             p=hit.get("$p", 0.0),
             reasons=_reasons(hit, line),
+            why_raw=hit.get("$why"),
         ))
     return candidates, elapsed
 
@@ -412,11 +482,11 @@ def queue_for(client: AitoClient, tenant: str
 # Re-run the harness and update the matching block together, or not at
 # all.
 _MEASURED_SHARED = {
-    "measured_on": "2026-09-12",
+    "measured_on": "2026-09-14",
     # The engine the numbers below describe. Two of them moved between
     # builds this month, so a figure here without a build attached is a
     # figure nobody can check.
-    "engine_build": "2.8.3 (a4d4903c122d)",
+    "engine_build": "2.8.4 (6979ad71dfd5), config.ai=and",
     "n": 2000,
     "catalogue_skus": 3200,
     "labelled_lines_loaded": 60000,
@@ -438,44 +508,44 @@ _MEASURED_SHARED = {
 MEASURED_BY_ENGINE: dict[str, dict] = {
     "v1": {
         "engine": "rep1 (v1)",
-        "overall_top1": 0.809, "overall_top5": 0.929, "overall_top1_name": 0.809,
-        "warm_top1": 0.920, "warm_top5": 0.979, "warm_top1_name": 0.920,
-        "cold_top1": 0.588, "cold_top5": 0.829, "cold_top1_name": 0.588,
-        "throughput_rows_per_s": 3.6, "throughput_workers": 10,
+        "overall_top1": 0.808, "overall_top5": 0.928, "overall_top1_name": 0.808,
+        "warm_top1": 0.905, "warm_top5": 0.981, "warm_top1_name": 0.905,
+        "cold_top1": 0.613, "cold_top5": 0.823, "cold_top1_name": 0.613,
+        "throughput_rows_per_s": 3.7, "throughput_workers": 10,
         "curve": [
-            {"bar": 0.05, "coverage": 1.000, "precision": 0.809},
-            {"bar": 0.10, "coverage": 0.999, "precision": 0.810},
-            {"bar": 0.20, "coverage": 0.991, "precision": 0.816},
-            {"bar": 0.35, "coverage": 0.964, "precision": 0.832},
-            {"bar": 0.50, "coverage": 0.905, "precision": 0.865},
+            {"bar": 0.05, "coverage": 0.999, "precision": 0.808},
+            {"bar": 0.10, "coverage": 0.998, "precision": 0.809},
+            {"bar": 0.20, "coverage": 0.991, "precision": 0.814},
+            {"bar": 0.35, "coverage": 0.964, "precision": 0.834},
+            {"bar": 0.50, "coverage": 0.907, "precision": 0.865},
         ],
         "regimes": [
             {"overlap": "0%", "share": 0.057, "aito": 0.858, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.010, "aito": 0.650, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.224, "aito": 0.705, "tfidf": 0.112},
-            {"overlap": "67-99%", "share": 0.229, "aito": 0.699, "tfidf": 0.391},
-            {"overlap": "100%", "share": 0.480, "aito": 0.907, "tfidf": 0.757},
+            {"overlap": "34-66%", "share": 0.224, "aito": 0.692, "tfidf": 0.112},
+            {"overlap": "67-99%", "share": 0.229, "aito": 0.710, "tfidf": 0.391},
+            {"overlap": "100%", "share": 0.480, "aito": 0.906, "tfidf": 0.757},
         ],
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.749, "overall_top5": 0.868, "overall_top1_name": 0.749,
-        "warm_top1": 0.900, "warm_top5": 0.965, "warm_top1_name": 0.900,
-        "cold_top1": 0.447, "cold_top5": 0.673, "cold_top1_name": 0.447,
-        "throughput_rows_per_s": 3.6, "throughput_workers": 10,
+        "overall_top1": 0.771, "overall_top5": 0.893, "overall_top1_name": 0.771,
+        "warm_top1": 0.911, "warm_top5": 0.972, "warm_top1_name": 0.911,
+        "cold_top1": 0.492, "cold_top5": 0.736, "cold_top1_name": 0.492,
+        "throughput_rows_per_s": 4.7, "throughput_workers": 10,
         "curve": [
-            {"bar": 0.05, "coverage": 0.995, "precision": 0.753},
-            {"bar": 0.10, "coverage": 0.970, "precision": 0.761},
-            {"bar": 0.20, "coverage": 0.905, "precision": 0.787},
-            {"bar": 0.35, "coverage": 0.804, "precision": 0.830},
-            {"bar": 0.50, "coverage": 0.691, "precision": 0.863},
+            {"bar": 0.05, "coverage": 0.997, "precision": 0.772},
+            {"bar": 0.10, "coverage": 0.990, "precision": 0.777},
+            {"bar": 0.20, "coverage": 0.955, "precision": 0.798},
+            {"bar": 0.35, "coverage": 0.889, "precision": 0.834},
+            {"bar": 0.50, "coverage": 0.802, "precision": 0.863},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.057, "aito": 0.885, "tfidf": 0.0},
+            {"overlap": "0%", "share": 0.057, "aito": 0.894, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.010, "aito": 0.650, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.224, "aito": 0.627, "tfidf": 0.112},
-            {"overlap": "67-99%", "share": 0.229, "aito": 0.555, "tfidf": 0.391},
-            {"overlap": "100%", "share": 0.480, "aito": 0.884, "tfidf": 0.757},
+            {"overlap": "34-66%", "share": 0.224, "aito": 0.699, "tfidf": 0.112},
+            {"overlap": "67-99%", "share": 0.229, "aito": 0.629, "tfidf": 0.391},
+            {"overlap": "100%", "share": 0.480, "aito": 0.861, "tfidf": 0.757},
         ],
     },
 }

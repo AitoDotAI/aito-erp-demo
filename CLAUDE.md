@@ -538,6 +538,27 @@ retail goods: the case this was drawn from is a flower wholesaler with
 no NDA in place and unconfirmed volumes, so nothing here is modelled
 on it. Generic transfers to every other line-matching prospect anyway.
 
+**The inference preset is named, not inherited** (`INFERENCE_PRESET`).
+The engines default differently — rep1 to And-only, rep2 to Group
+re-expression — so a v1/v2 comparison with no `config.ai` compares two
+PRESETS as much as two engines, which is how a six-point "rep2 is
+behind" reading survived several rounds of measurement here. Setting
+`and` explicitly on both makes the comparison about the engine again,
+and on rep2 it is worth 2.2 points overall and 25% lower latency.
+
+Measured on the full held-out split, rep2: default `group` 74.9% top-1,
+`and` **77.1%**, `high` (and+group) a further ~0.4 for measurably more
+time. Note this contradicts the upstream guidance in `V2QueryDocs`,
+which says And+Group "adds cost without improving accuracy on the
+corpora" — on this corpus And beats Group-only by several points, and
+line matching is the case that doc's own `ProductMatchingTest` exists
+for.
+
+It also fixes the explanations at the source: `$group` bundles
+correlated tokens into one theme and highlights only some members, so
+`{Konfektyr, Fazer}` arrived with no marked terms at all. Under `and`
+the `$why` is `$and`/`$has`, the same shape v1 emits.
+
 **The numbers are per engine, and the view says which it is quoting.**
 rep1 and rep2 answer this query differently and rep2 is ahead in every
 regime (36.5% overall against 30.6%, and 32.9% against 13.5% where the

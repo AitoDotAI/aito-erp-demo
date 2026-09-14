@@ -149,6 +149,13 @@ def process_factors(why: dict | None, final_p: float) -> dict:
                 "lift": round(lift, 3),
                 "highlights": highlights,
                 "proposition_str": _proposition_to_string(f.get("proposition")),
+                # The structured proposition, not just its rendering.
+                # A caller that wants to name the evidence needs the
+                # values, and `highlight` cannot be relied on for them:
+                # Aito marks only some terms of a `$group`, and
+                # sometimes none, so a display built purely on the
+                # markers silently drops whole factors.
+                "proposition": f.get("proposition"),
             })
         # Ignore "product" and unknown types
 

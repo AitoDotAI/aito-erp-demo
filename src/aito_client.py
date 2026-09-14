@@ -367,7 +367,8 @@ class AitoClient:
 
     def predict(self, table: str, where: dict, predict_field: str,
                 limit: int = 10,
-                select_extra: list[str] | None = None) -> dict:
+                select_extra: list[str] | None = None,
+                ai: str | None = None) -> dict:
         """Run a _predict query.
 
         `select_extra` adds field names to the projection. It exists for
@@ -389,6 +390,15 @@ class AitoClient:
         Returns hits like:
             {"$p": 0.94, "$value": "6110", "$why": {...}}
 
+        `ai` sets `config.ai`, the inference preset, for this one query.
+        The engines differ in what they default to — rep1 to And-only,
+        rep2 to Group re-expression — so two engines compared without it
+        are two PRESETS as much as two engines, which is how a six-point
+        "rep2 is behind" reading survived several measurements here.
+        Presets: `and`/`v1` (And-only), `group`/`v2` (the rep2 default),
+        `high` (both), `fast`/`flat` (plain naive Bayes). Unknown names
+        are rejected with a 400 rather than ignored.
+
         Note: Aito returns the predicted value under a fixed key, not
         under one named after the field. v1 calls that key `feature`
         and v2 calls it `$value`; this method always hands back
@@ -399,6 +409,26 @@ class AitoClient:
         why_select = {"$why": {"highlight": {"posPreTag": "«", "posPostTag": "»"}}}
 
         if self._v2 is not None:
+            if ai:
+                # The SDK's `predict()` takes no config, so a query that
+                # sets one goes through its raw request path. Only that
+                # case — the typed call stays the default so this does
+                # not quietly change transport for every existing view.
+                query = {
+                    "from": table,
+                    "where": where,
+                    "predict": predict_field,
+                    "select": ["$p", "$value", why_select,
+                               *(select_extra or [])],
+                    "limit": limit,
+                    "config": {"ai": ai},
+                }
+                return _assert_why_integrity(
+                    self._v2_result("predict", table,
+                                    lambda: self._v2.request(
+                                        "POST", "/_predict", query),
+                                    extract=lambda resp: resp),
+                    table, predict_field)
             return _assert_why_integrity(
                 self._v2_result("predict", table, lambda: self._v2.predict(
                     from_table=table, where=where, predict=predict_field,
@@ -420,6 +450,8 @@ class AitoClient:
             "select": ["$p", "$value", why_select, *(select_extra or [])],
             "limit": limit,
         }
+        if ai:
+            query["config"] = {"ai": ai}
         try:
             response = self._request("POST", "/_predict", json=query)
         except AitoError as exc:

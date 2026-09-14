@@ -351,3 +351,116 @@ def test_the_right_answer_is_usually_on_the_shortlist(scored):
     top5 = sum(1 for line, r in scored
                if line["sku"] in [c.sku for c in r[:5]]) / len(scored)
     assert top5 > 0.80, f"top-5 recall {top5:.1%} — the shortlist claim fails"
+
+
+# ── Layer 3: the explanation, in Aito's own words ───────────────────
+#
+# The chips on screen are a rendering of `$why`. A rendering can drift
+# from what the engine actually said, and it did: the chip list was
+# built from `highlight` markers alone, Aito marks only some terms of a
+# `$group` (and sometimes none), so a lift-26 factor naming
+# "Fazer Konfektyr" was dropped silently and the match looked as if it
+# had turned on one rare word. Nothing failed. The screen was just
+# quietly less true than the response behind it.
+
+
+def _why_factors(why: dict | None) -> list[tuple[float, str]]:
+    """Every `relatedPropositionLift` in a `$why`, as (lift, proposition)."""
+    import json as _json
+
+    out: list[tuple[float, str]] = []
+
+    def walk(node):
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "relatedPropositionLift":
+            out.append((float(node.get("value", 1.0)),
+                        _json.dumps(node.get("proposition"), ensure_ascii=False,
+                                    sort_keys=True)))
+        for child in node.get("factors") or []:
+            walk(child)
+
+    walk(why or {})
+    return out
+
+
+@needs_aito
+@needs_fixture
+def test_the_chips_do_not_drop_evidence_aito_gave(scored, capsys):
+    """Every strong factor must survive into the rendered reasons.
+
+    "Strong" is the top five by |lift - 1|, which is what the view
+    shows. The assertion is not that the wording matches — it is that a
+    factor Aito weighted heavily is represented at all, by its field or
+    one of its values. That is the exact failure this test was written
+    after.
+    """
+    import json as _json
+
+    checked = 0
+    for line, candidates in scored[:12]:
+        if not candidates:
+            continue
+        top = candidates[0]
+        factors = sorted(_why_factors(top.why_raw), key=lambda f: -abs(f[0] - 1.0))
+        strong = [f for f in factors[:5] if abs(f[0] - 1.0) >= 0.5]
+        if not strong:
+            continue
+        rendered = " ".join(r["text"] + " " + r.get("field", "")
+                            for r in top.reasons).lower()
+        for lift, proposition in strong:
+            values = [str(v) for v in _json.loads(proposition).values()
+                      if not isinstance(v, (dict, list))]
+            leaves = _leaf_strings(_json.loads(proposition))
+            assert any(leaf.lower() in rendered for leaf in leaves), (
+                f"factor lift x{lift:.1f} {proposition} is in Aito's $why but "
+                f"nothing in the rendered reasons mentions it: {rendered!r}")
+        checked += 1
+    if not checked:
+        pytest.skip("no strongly-weighted factors in this sample")
+
+
+def _leaf_strings(prop) -> list[str]:
+    """Every scalar leaf of a proposition, as a string."""
+    out: list[str] = []
+    if isinstance(prop, list):
+        for item in prop:
+            out += _leaf_strings(item)
+    elif isinstance(prop, dict):
+        for key, value in prop.items():
+            if isinstance(value, (dict, list)):
+                out += _leaf_strings(value)
+            elif not key.startswith("$"):
+                out.append(str(value))
+            else:
+                out.append(str(value))
+    return [o for o in out if o]
+
+
+@needs_aito
+@needs_fixture
+def test_print_the_raw_why_for_reading(scored, capsys):
+    """Not an assertion — a transcript.
+
+    Run with `-s` to read what Aito actually returns, in its own shape,
+    next to the chips derived from it. The two are meant to be
+    comparable at a glance; when they stop being, the rendering is
+    wrong, not the engine.
+    """
+    with capsys.disabled():
+        shown = 0
+        for line, candidates in scored:
+            if not candidates or shown >= 2:
+                continue
+            top = candidates[0]
+            print(f"\n  LINE  {line['billing_supplier']} — {line['description']!r}")
+            print(f"  MATCH {top.sku} {top.name!r}  p={top.p:.4f}"
+                  f"  {'correct' if top.sku == line['sku'] else 'WRONG'}")
+            print("  $why, every factor Aito returned:")
+            for lift, proposition in sorted(_why_factors(top.why_raw),
+                                            key=lambda f: -abs(f[0] - 1.0)):
+                print(f"      lift {lift:>10.4f}   {proposition}")
+            print("  rendered as:")
+            for r in top.reasons:
+                print(f"      [{r['kind']:7}] {r['text']}")
+            shown += 1
