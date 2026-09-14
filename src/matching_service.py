@@ -537,8 +537,23 @@ def run_batch(client: AitoClient, lines: list[dict], workers: int = 8,
 # the database when the question was asked, which is the only way a
 # confidence number on a demo means anything.
 
-_QUEUE: dict[str, tuple[list[dict], frozenset[str], dict[str, str],
-                        dict[str, dict]]] = {}
+# Cached for the life of the PROCESS is what this used to be, and that
+# is a bug with a production incident attached to it. Promoting a new
+# corpus into the env the demo reads left the running app holding the
+# previous queue — held-out lines and truth labels from one generation,
+# scored against a catalogue from the next — so every row came back
+# wrong and the view showed a wall of ✗. The data was correct
+# throughout; only the process was stale, and nothing short of a restart
+# cleared it.
+#
+# A TTL makes the window minutes instead of forever. It does not make a
+# mid-flight promote safe — the queue and the catalogue still have to
+# come from one generation — but it means a demo recovers on its own
+# rather than needing a redeploy to stop lying.
+_QUEUE_TTL_SECONDS = 600
+
+_QUEUE: dict[str, tuple[float, tuple[list[dict], frozenset[str],
+                                     dict[str, str], dict[str, dict]]]] = {}
 
 
 def queue_for(client: AitoClient, tenant: str
@@ -560,8 +575,9 @@ def queue_for(client: AitoClient, tenant: str
     "Cold" is derived by comparing the two halves rather than declared,
     so it cannot drift out of step with the data.
     """
-    if tenant in _QUEUE:
-        return _QUEUE[tenant]
+    cached = _QUEUE.get(tenant)
+    if cached and (time.monotonic() - cached[0]) < _QUEUE_TTL_SECONDS:
+        return cached[1]
 
     def rows(table: str, limit: int) -> list[dict]:
         try:
@@ -574,8 +590,9 @@ def queue_for(client: AitoClient, tenant: str
         # This tenant has no invoice lines — the view does not apply to
         # it and the nav hides it. A deep link gets an empty queue
         # rather than a 500.
-        _QUEUE[tenant] = ([], frozenset(), {}, {})
-        return _QUEUE[tenant]
+        empty: tuple = ([], frozenset(), {}, {})
+        _QUEUE[tenant] = (time.monotonic(), empty)
+        return empty
 
     # Only the vendor column is needed from the training half, and it is
     # a small distinct set — but Aito has no DISTINCT, so this reads a
@@ -587,8 +604,8 @@ def queue_for(client: AitoClient, tenant: str
     names = {p["sku"]: p.get("name", "")
              for p in rows("products", 4000) if p.get("sku")}
     vendors = {v["vendor"]: v for v in rows("vendors", 200) if v.get("vendor")}
-    _QUEUE[tenant] = (held_out, cold, names, vendors)
-    return _QUEUE[tenant]
+    _QUEUE[tenant] = (time.monotonic(), (held_out, cold, names, vendors))
+    return held_out, cold, names, vendors
 
 
 # Measured by `./do match-eval` over the held-out split, 2026-09-06,
