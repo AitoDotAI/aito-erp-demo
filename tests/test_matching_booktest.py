@@ -338,18 +338,32 @@ def test_aito_answers_the_regime_a_text_index_cannot(scored):
 
 @needs_aito
 @needs_fixture
-def test_a_familiar_vendor_is_easier_than_a_first_time_one(scored):
-    """Cold start should be measurably harder. If it is not, either the
-    split is leaking or the vendor route carries nothing."""
+def test_a_first_time_vendor_is_not_mysteriously_better(scored):
+    """Cold start used to be asserted as strictly harder than warm, on
+    the reasoning that if it were not, either the split was leaking or
+    the vendor route carried nothing.
+
+    There is a third explanation, and it is the one that applies now:
+    every cold vendor has a warm twin on (origin, grade, style), so the
+    linked-field generalisation does nearly as well as the vendor's own
+    history. Cold runs at parity with warm rather than below it, and
+    that is a corpus design choice — see the twin rule — not a result.
+
+    What still has to hold is that cold does not run AHEAD by a margin
+    no generalisation could explain. A held-out row that leaked into the
+    training half would show up exactly there, and parity is close
+    enough to the leak signature that the band is worth pinning.
+    """
     gen = _generator()
     cold_names = {v[0] for v in gen.VENDORS if v[7]}
     warm = [(l, r) for l, r in scored if l["billing_supplier"] not in cold_names]
     cold = [(l, r) for l, r in scored if l["billing_supplier"] in cold_names]
     if len(cold) < 10 or len(warm) < 10:
         pytest.skip("sample does not contain both warm and cold vendors")
-    assert _top1(warm) > _top1(cold), (
-        f"warm {_top1(warm):.1%} is not above cold {_top1(cold):.1%} — "
-        "suspect a leak in the held-out split")
+    assert _top1(cold) <= _top1(warm) + 0.08, (
+        f"cold {_top1(cold):.1%} is well ABOVE warm {_top1(warm):.1%}. A "
+        "vendor the history has never seen cannot beat one it knows by "
+        "this much — suspect a leak in the held-out split")
 
 
 @needs_aito
@@ -525,3 +539,26 @@ def test_print_the_raw_why_for_reading(scored, capsys):
             for r in top.reasons:
                 print(f"      [{r['kind']:7}] {r['text']}")
             shown += 1
+
+
+def test_every_cold_vendor_has_a_warm_twin():
+    """A first-time vendor must RESEMBLE one the history already knows.
+
+    Not to make cold start easy — the vendor's own name and article
+    codes are still absent, and that is the part being measured — but
+    because a vendor whose style AND profile are both unprecedented is
+    unanswerable rather than hard. `abbreviate` on a single cold vendor
+    scored 28.7% for exactly this reason: nothing in the training half
+    had ever truncated a word the way it does.
+
+    The twin has to match on BOTH. Matching them independently was tried
+    and was not enough: a warm `abbreviate` vendor on a different
+    (origin, grade) abbreviates a different slice of the catalogue.
+    """
+    gen = _generator()
+    warm = {(v[4], v[5], v[6]) for v in gen.VENDORS if not v[7]}
+    orphans = [v[0] for v in gen.VENDORS
+               if v[7] and (v[4], v[5], v[6]) not in warm]
+    assert not orphans, (
+        f"cold vendors with no warm twin on (origin, grade, style): "
+        f"{orphans} — their lines are unanswerable, not merely hard")

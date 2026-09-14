@@ -542,7 +542,28 @@ predict something about the product (`SUPPLIER_BIAS`) — drawn uniformly
 it carried no signal at all, so the most legible thing a `$why` tree
 could show a human was absent from the data.
 
-**Three suppliers exist only in the test half**, so cold start is
+**Every cold vendor has a warm twin on (origin, grade, style), and
+that is why cold start reads 90.4%.** Not to make it easy — the
+vendor's own name and article codes are still absent from the history,
+and that is the part being measured — but because a vendor whose style
+AND profile are both unprecedented is *unanswerable* rather than hard.
+`abbreviate` on a single cold vendor scored 28.7% for exactly that
+reason: nothing in the training half had ever truncated a word the way
+it does. Twinning them independently was not enough; a warm
+`abbreviate` vendor on a different (origin, grade) abbreviates a
+different slice of the catalogue, so the pair has to match.
+
+This is also what a first-time supplier really is: not an unprecedented
+event, but one that RESEMBLES suppliers already on file. The honest
+consequence is that cold now runs at PARITY with warm rather than below
+it, so "a familiar vendor is easier" is no longer a claim this corpus
+supports, and the test that asserted it has been rewritten to guard
+what it was really there for — a leak, which would look like cold
+running far ahead. If the genuinely-unprecedented case is wanted back
+as its own number, the way to do it is a fifth cold vendor with no twin,
+reported on its own line rather than blended into the headline.
+
+**Four suppliers exist only in the test half**, so cold start is
 measurable rather than asserted. It is reported as its own number
 because it is the argument: any matcher does well on a supplier whose
 lines it has seen a thousand times, and the question a finance team

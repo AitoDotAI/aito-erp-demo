@@ -872,7 +872,16 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
     # measurement, and only the DESCRIPTION connects the two.
     SIZE_WORDS = ["pieni", "keskikoko", "pitkä", "suuri", "erikoissuuri"]
 
+    # Share of base names deliberately left colliding across origins, so
+    # the vendor still has to break a tie somewhere. See the comment at
+    # the assignment below for why this is a knob and not an accident.
+    SHARED_BASE_RATE = 0.12
+
     seen_names: set[tuple[str, str]] = set()
+    used_bases: set[str] = set()
+
+    def rng_share() -> float:
+        return random.random()
 
     while len(products) < persona.n_products:
         counter += 1
@@ -959,12 +968,26 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         # goes into the BASE — "Mk2", the way a catalogue really writes
         # one — so it reaches the invoice text. Hiding it in a trailing
         # "#2" the invoice never repeats just moves the ambiguity.
+        # (base, origin) must be unique — that is what makes the row
+        # identifiable at all. Whether the BASE alone repeats across
+        # origins is a separate, deliberate choice: a repeated base is
+        # what forces the vendor to act as discriminator, which is the
+        # whole of route 2 and worth demonstrating.
+        #
+        # It had been left to chance, and chance gave 25.4% of base
+        # names to more than one SKU — 48.6% of held-out lines needing
+        # the vendor to break a tie. That is not a demo of route 2, it
+        # is a corpus where half the answers hinge on one column.
+        # SHARED_BASE_RATE makes it a knob: most rows are identifiable
+        # from their text, and a designed minority are not.
         base = brand + name + variant_text + suffix
         mark = 2
-        while (base, origin) in seen_names:
+        while ((base, origin) in seen_names
+               or (base in used_bases and rng_share() >= SHARED_BASE_RATE)):
             base = f"{brand}{name}{variant_text} Mk{mark}{suffix}"
             mark += 1
         seen_names.add((base, origin))
+        used_bases.add(base)
         full = f"{base} ({origin})"
 
         # A short spec line. It carries the size BOTH ways — the figure

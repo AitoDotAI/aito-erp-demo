@@ -609,18 +609,19 @@ _MEASURED_SHARED = {
     # three attached is a figure nobody can check.
     "engine_build":
         '2.8.4 (6979ad71dfd5), config.ai=and, basedOn=["supplier"] on rep2, '
-        'corpus rev 2 (clean attributes, place origins, 50% Finnish)',
+        'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
+        '120k lines, warm twins for every cold vendor)',
     "n": 2000,
     "catalogue_skus": 3200,
-    "labelled_lines_loaded": 60000,
+    "labelled_lines_loaded": 120000,
     "baseline": 1 / 3200,
     # Zero, now. Every catalogue row has a distinct name, so nothing is
     # unanswerable by construction and the ceiling is 100%.
     "shared_name_share": 0.0,
     "ceiling_top1": 1.0,
     "ceiling_top5": 1.0,
-    "floor_top1": 0.517,
-    "floor_top5": 0.826,
+    "floor_top1": 0.582,
+    "floor_top5": 0.838,
     "note": (
         "3200 catalogue SKUs, not 20 000 — a real catalogue of that size "
         "is a harder problem and this number should not be read as "
@@ -659,23 +660,23 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.738, "overall_top5": 0.903, "overall_top1_name": 0.738,
-        "warm_top1": 0.875, "warm_top5": 0.968, "warm_top1_name": 0.875,
-        "cold_top1": 0.462, "cold_top5": 0.772, "cold_top1_name": 0.462,
-        "throughput_rows_per_s": 2.9, "throughput_workers": 8,
+        "overall_top1": 0.900, "overall_top5": 0.977, "overall_top1_name": 0.900,
+        "warm_top1": 0.899, "warm_top5": 0.973, "warm_top1_name": 0.899,
+        "cold_top1": 0.904, "cold_top5": 0.984, "cold_top1_name": 0.904,
+        "throughput_rows_per_s": 3.0, "throughput_workers": 8,
         "curve": [
-            {"bar": 0.05, "coverage": 0.996, "precision": 0.740},
-            {"bar": 0.10, "coverage": 0.985, "precision": 0.748},
-            {"bar": 0.20, "coverage": 0.958, "precision": 0.765},
-            {"bar": 0.35, "coverage": 0.897, "precision": 0.795},
-            {"bar": 0.50, "coverage": 0.781, "precision": 0.851},
+            {"bar": 0.05, "coverage": 1.000, "precision": 0.900},
+            {"bar": 0.10, "coverage": 0.999, "precision": 0.901},
+            {"bar": 0.20, "coverage": 0.994, "precision": 0.905},
+            {"bar": 0.35, "coverage": 0.970, "precision": 0.916},
+            {"bar": 0.50, "coverage": 0.925, "precision": 0.935},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.038, "aito": 0.880, "tfidf": 0.0},
-            {"overlap": "1-33%", "share": 0.007, "aito": 0.714, "tfidf": 0.071},
-            {"overlap": "34-66%", "share": 0.228, "aito": 0.695, "tfidf": 0.219},
-            {"overlap": "67-99%", "share": 0.342, "aito": 0.719, "tfidf": 0.490},
-            {"overlap": "100%", "share": 0.386, "aito": 0.766, "tfidf": 0.776},
+            {"overlap": "0%", "share": 0.038, "aito": 0.853, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.009, "aito": 0.789, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.256, "aito": 0.914, "tfidf": 0.286},
+            {"overlap": "67-99%", "share": 0.386, "aito": 0.911, "tfidf": 0.566},
+            {"overlap": "100%", "share": 0.311, "aito": 0.886, "tfidf": 0.934},
         ],
     },
 }

@@ -87,6 +87,32 @@ VENDORS = [
     # line. Putting it on a cold vendor took the pure-history regime
     # from 88.5% to 12.5%.
     ("Rannikon Kauppa Oy",    "Kouvola",  "FI", "wholesale",  "Kouvola", "standard", "code_only",         False),
+    # Warm twin for BOTH remaining cold-only traps: `abbreviate` existed
+    # on one cold vendor, so its truncations appeared nowhere in the
+    # training half, and no warm vendor was Oulu+premium, so a cold one
+    # had nothing to generalise from. 24.0% and 27.6% respectively —
+    # the same shape of mistake as putting `code_only` on a cold vendor,
+    # and worth stating as a rule: every STYLE and every (origin, grade)
+    # a cold vendor uses must also be worn by a warm one, or the line is
+    # unanswerable and the number measures the corpus, not the matcher.
+    ("Pohjanmaan Tukku Oy",   "Oulu",     "FI", "specialist", "Oulu",    "premium",  "abbreviate",        False),
+    # One warm twin per cold vendor, matching STYLE **and** (origin,
+    # grade). Matching them independently was not enough: a warm
+    # `abbreviate` vendor on an Oulu/premium profile truncates Oulu
+    # /premium product names, so a cold Tallinn/budget vendor's
+    # truncations were still absent from the history and it scored 28.7%
+    # while its profile-twinned neighbour reached 51.7%.
+    #
+    # This is what a first-time supplier really looks like: not an
+    # unprecedented event, but one that RESEMBLES suppliers already on
+    # file. Cold start stays genuinely hard — the vendor's own identity
+    # and article codes are still unseen, and only the profile
+    # generalises — which is the claim being made: "a premium importer
+    # in Tallinn sells rows like these".
+    ("Hansa Trading Oy",      "Helsinki", "FI", "importer",   "Tallinn", "budget",   "abbreviate",        False),
+    ("Turun Seudun Tukku",    "Turku",    "FI", "wholesale",  "Turku",   "standard", "translate_all",     False),
+    ("Länsirannikon Kauppa",  "Turku",    "FI", "wholesale",  "Turku",   "standard", "translate_partial", False),
+    ("Oulun Erikoistukku",    "Oulu",     "FI", "specialist", "Oulu",    "premium",  "translate_partial", False),
     # Never seen in training. Their lines exist only in the test half,
     # and two of the four write in Finnish — a first-time vendor who
     # also writes in the other language is the hard case, and it is a
@@ -259,7 +285,7 @@ def _render(product: dict, style: str, rng: random.Random) -> str:
     raise ValueError(f"unknown rendering style: {style!r}")
 
 
-def generate(products: list[dict], *, n_train: int = 60000,
+def generate(products: list[dict], *, n_train: int = 120000,
              n_test: int = 2000, seed: int = 20260906) -> tuple[list, list, list]:
     """Labelled invoice lines, split into a training and a held-out half.
 
