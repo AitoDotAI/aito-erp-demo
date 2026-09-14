@@ -474,6 +474,63 @@ Aito 23.7%. A single blended number averages the task Aito is not needed
 for against the task it exists for. Never reweight the mix until the
 database wins — publish the shares and report per regime.
 
+**Half the vendors write in Finnish, and that is the point.** Cross-
+language is the case a text index cannot answer at all — 0.0% where the
+line and the name share no words, against Aito's 88.5% — and at three
+vendors out of seventeen the corpus was under-weighting the one thing
+the database exists for. Ten of twenty vendors now translate, either
+wholly (`translate_all`) or by halves (`translate_partial`, the nouns
+go native and the brand and model number stay), and two of the four
+cold vendors are among them: a first-time supplier who also writes in
+the other language is the hard case and an entirely ordinary one here.
+Reweighting a corpus toward what you sell is a real hazard, which is
+why `./do match-eval` publishes the regime shares on every run and the
+view prints them on screen — the shift is visible rather than flattering.
+
+**Attributes belong to the rows they make sense on.** The size axis was
+per CATEGORY, so every `electronics` row drew from one pool and earbuds
+were sold in 128GB while a `TV 55"` could pick up a second screen size.
+That is not untidy, it is misleading: `128GB` then sat on earbuds, a
+tablet and a TV alike, so the token argued for three unrelated rows and
+a line reading `langaton nappikuulokkeet 128gb` matched a tablet. An
+attribute every row shares discriminates nothing; one that is nonsense
+for its row is worse than absent, because it is evidence pointing the
+wrong way. `TEMPLATE_AXES` overrides the category per product.
+
+**`origin` is one axis, and its values are mutually exclusive.** It used
+to mix a provenance CLASS with a provenance PLACE — `kotimainen` and
+`lähituote` alongside `Turku` and `Oulu` — which are not alternatives to
+each other, because Turku stock IS kotimainen. Two labels for
+overlapping sets split the vendor→origin correlation between them, and
+that correlation is the whole of what a first-time vendor has to lean
+on. Origin is now a place (`Kouvola`, `Turku`, `Tampere`, `Oulu`,
+`Tallinn`, `Riga`); the class word survives in the DESCRIPTION, where it
+reads as the hierarchy it actually is and a line quoting either one
+narrows rather than contradicts.
+
+Vendors gained the matching distinction: `city` is where the vendor IS,
+`sells_origin` is where their goods COME FROM. They coincide for a
+regional wholesaler and diverge for an importer — a Helsinki office
+sourcing from Tallinn — which is what keeps the two columns from being
+one column written twice.
+
+**The seeding pass has to seed plausible pairs.** It guaranteed every
+sellable product three vendors by drawing them UNIFORMLY, which injected
+~7000 off-profile lines into the training half only and dragged the
+vendor→origin correlation the training half teaches down to 75.8% while
+the test half still exhibited 87.1%. An 11-point dilution of the one
+signal cold start depends on, produced by the pass meant to make the
+corpus learnable. It now seeds from vendors matching the product's
+origin, preferring those that also match its grade, and the training
+half teaches 89.2%.
+
+**Fixtures regenerate to the same universe.** `random.seed(hash(...))`
+on a str is salted per process, so every run produced a DIFFERENT
+catalogue — which is why regenerating at build time was ruled out
+rather than fixed, and why a fixture change could not be reviewed by
+regenerating and diffing. `zlib.crc32` is stable across processes and
+machines.
+
 **Three properties the corpus needs, each learned by getting it wrong.**
 A supplier's article code must be STABLE per SKU (`_stable_code`) — the
 first version drew a fresh random number per line, which made it
