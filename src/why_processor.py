@@ -156,6 +156,13 @@ def process_factors(why: dict | None, final_p: float) -> dict:
                 # sometimes none, so a display built purely on the
                 # markers silently drops whole factors.
                 "proposition": f.get("proposition"),
+                # When a query names `basedOn`, a factor Aito could not
+                # judge from the candidate's own history carries a
+                # `prior`: what it fell back on, and which attribute of
+                # the candidate got it there. That is a different kind
+                # of claim from the factor itself — a generalisation —
+                # and the caller decides whether to say so.
+                "prior": f.get("prior"),
             })
         # Ignore "product" and unknown types
 

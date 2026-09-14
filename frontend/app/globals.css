@@ -4260,6 +4260,22 @@ body {
 .mt-cand-p { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 600; }
 .mt-cand .pl-chips { margin-top: 7px; }
 
+/* A factor and the generalisation that rescued it are one unit. The
+   group wraps as a whole so a line break can never leave "↳ via
+   supplier Berner Oy" sitting under a factor it says nothing about. */
+.mt-reason { display: inline-flex; align-items: center; gap: 3px; }
+
+/* Same teal family as .pl-chip-aito — this IS Aito's own reasoning —
+   but outlined rather than filled, because it is a weaker claim: what
+   the database knows about rows LIKE this one, not about this one. */
+.mt-chip-prior {
+  background: transparent;
+  border-color: rgba(18, 181, 173, 0.45);
+  border-style: dashed;
+  color: #0b6f6a;
+  opacity: 0.85;
+}
+
 .mt-miss {
   padding: 10px 12px; font-size: 12px; line-height: 1.6;
   color: var(--mid); border: 1px dashed var(--line); border-radius: 5px;

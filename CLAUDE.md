@@ -614,6 +614,38 @@ nine is a mistake this corpus actually shipped with at some point, and
 none of them looked like a bug from the outside: they all looked like a
 mediocre database.
 
+**A prior is Aito saying "I have not seen this row, but I have seen
+rows like it".** The query passes `basedOn: ["supplier"]`, so where a
+catalogue row's own history is too thin to judge a factor, Aito
+generalises across rows sharing its supplier and reports which
+attribute carried it — a `prior` nested inside the factor. That is
+worth +1.7 points overall and +2.0 on familiar vendors, and it is the
+only way to get the explanation at all: without `basedOn` there are no
+priors in the tree to show.
+
+**rep2 only, and that is the one engine branch in these services.**
+The same argument costs rep1 ten points overall and twenty on cold
+start — the opposite sign, an order of magnitude larger. The two
+engines do not mean the same thing by it, so `rank_line` asks
+`client.api_version` and a test fails if that ever stops being true.
+`config.ai=and`, by contrast, helps both; the contrast is the lesson,
+and only measurement separates the two cases.
+
+It is drawn as the weaker claim it is — dashed outline, nested under
+the factor it rescued, `↳ via supplier Fazer Konfektyr`. A
+generalisation painted like direct evidence would have the demo
+claiming the database had SEEN something it inferred, which is the
+same mistake as painting the computed gold chips teal.
+
+**The chips render the proposition, not the highlights.** `highlight`
+marks some members of a group and sometimes none, so a display built
+on the markers showed `{TV, ea, 55"}` as "unit of measure ea" and a
+five-column vendor group as one supplier name — the factor was on
+screen and most of its content was not. This is the second time that
+exact omission shipped. The proposition is the complete inventory;
+highlights only win where they agree on the count, because then they
+add which token in the description matched.
+
 **History has to exist before it can be learned from.** At 10 000 lines
 over 3200 SKUs the corpus averaged 4.2 per product, 795 products had
 never been invoiced at all, and a line arriving in Finnish had a 50%

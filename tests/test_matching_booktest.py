@@ -248,9 +248,18 @@ def test_every_rendering_style_is_represented():
 # ── Layer 2: live Aito backtest ─────────────────────────────────────
 
 
+# The fixture reads AURORA's credentials, so that is what the guard has
+# to ask about. It asked about the fallback pair instead, which no
+# multi-tenant .env sets — so every live test in this file skipped on
+# every developer machine and in every run of `./do booktest-matching`,
+# while reporting green. A skip that cannot be distinguished from a pass
+# is worse than a failure.
 needs_aito = pytest.mark.skipif(
-    not (os.environ.get("AITO_API_URL") and os.environ.get("AITO_API_KEY")),
-    reason="AITO_API_URL / AITO_API_KEY not set — skipping live Aito backtest",
+    not (
+        (os.environ.get("AITO_AURORA_API_URL") and os.environ.get("AITO_AURORA_API_KEY"))
+        or (os.environ.get("AITO_API_URL") and os.environ.get("AITO_API_KEY"))
+    ),
+    reason="no Aurora or fallback Aito credentials — skipping live backtest",
 )
 
 SAMPLE = 150
@@ -406,11 +415,11 @@ def test_the_chips_do_not_drop_evidence_aito_gave(scored, capsys):
         strong = [f for f in factors[:5] if abs(f[0] - 1.0) >= 0.5]
         if not strong:
             continue
-        rendered = " ".join(r["text"] + " " + r.get("field", "")
-                            for r in top.reasons).lower()
+        rendered = " ".join(
+            r["text"] + " " + r.get("field", "")
+            + " " + " ".join(pr["text"] for pr in r.get("priors", []))
+            for r in top.reasons).lower()
         for lift, proposition in strong:
-            values = [str(v) for v in _json.loads(proposition).values()
-                      if not isinstance(v, (dict, list))]
             leaves = _leaf_strings(_json.loads(proposition))
             assert any(leaf.lower() in rendered for leaf in leaves), (
                 f"factor lift x{lift:.1f} {proposition} is in Aito's $why but "
@@ -418,6 +427,56 @@ def test_the_chips_do_not_drop_evidence_aito_gave(scored, capsys):
         checked += 1
     if not checked:
         pytest.skip("no strongly-weighted factors in this sample")
+
+
+def test_a_prior_is_shown_wherever_aito_leaned_on_one(scored):
+    """Every prior that moved a number reaches the screen, under its own
+    factor and nowhere else.
+
+    `basedOn` is a SCORING argument — it changes the ranking, not just
+    the explanation — so a run where Aito generalised and the view did
+    not say so is a view claiming the database had seen something it
+    inferred. That is the same class of mistake as the dropped `$group`
+    members, and it is invisible from the outside: the match is still
+    right, the reason is still plausible, and the provenance is wrong.
+
+    The pairing is checked too. Priors used to be flat siblings, which
+    let a flex wrap put "via supplier Berner Oy" under a factor about
+    the unit of measure.
+    """
+    checked = 0
+    for _line, candidates in scored[:12]:
+        for cand in candidates[:2]:
+            factors = (cand.why_raw or {}).get("factors") or []
+            moved = [
+                pf
+                for f in factors
+                for pf in ((f.get("prior") or {}).get("factors") or [])
+                if isinstance(pf.get("value"), (int, float))
+                and abs(pf["value"] - 1.0) >= 0.05
+            ]
+            shown = [pr for r in cand.reasons for pr in r.get("priors", [])]
+
+            if moved and not shown:
+                pytest.fail(
+                    f"Aito reported {len(moved)} prior(s) that moved the "
+                    f"number for {cand.sku} and none reached the reasons")
+
+            # A prior can only hang off a factor that HAD one. Nothing
+            # computed here (the gold `match` chips) ever generalised.
+            for reason in cand.reasons:
+                if reason["kind"] == "match":
+                    assert not reason.get("priors"), (
+                        f"a chip computed here carries a prior: {reason}")
+
+            for prior in shown:
+                assert prior["text"].startswith("via "), prior
+                assert abs(prior["lift"] - 1.0) >= 0.05, (
+                    f"a prior that moved nothing is on screen: {prior}")
+            checked += len(shown)
+
+    if not checked:
+        pytest.skip("no priors fired in this sample — check BASED_ON is set")
 
 
 def _leaf_strings(prop) -> list[str]:

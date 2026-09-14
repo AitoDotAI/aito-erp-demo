@@ -33,7 +33,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "returns the ranking <em>and</em> the matched product's own columns. " +
     "No mapping table, no model, no training step — the rows were " +
     "inserted and the prediction is a query.",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/v2/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"invoice_lines"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -43,11 +43,15 @@ const DEFAULT_PANEL: AitoPanelConfig = {
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"unit_price_eur"</span>: <span class="q-n">47.55</span><br/>
 &nbsp;&nbsp;},<br/>
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"sku"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"basedOn"</span>: [<span class="q-v">"supplier"</span>],<br/>
+&nbsp;&nbsp;<span class="q-k">"config"</span>: { <span class="q-k">"ai"</span>: <span class="q-v">"and"</span> },<br/>
 &nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">5</span><br/>
 }<br/>
 <br/>
 <span class="q-d">// sku links to products.sku, so each hit carries</span><br/>
-<span class="q-d">// the catalogue row's name, category and price.</span>`,
+<span class="q-d">// the catalogue row's name, category and price.</span><br/>
+<span class="q-d">// basedOn lets a thinly-invoiced row be judged by what</span><br/>
+<span class="q-d">// its SUPPLIER's rows do — the ↳ chips in the shortlist.</span>`,
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     {
@@ -112,9 +116,17 @@ function Candidate({ c, rank, truth }: {
       </div>
       <div className="pl-chips">
         {c.reasons.map((r, i) => (
-          <span key={`${r.field}-${i}`} className={chipClass(r.kind)}
-                title={r.lift != null ? `lift ×${r.lift.toFixed(1)}` : "computed here, not by Aito"}>
-            {r.kind === "against" ? "− " : ""}{r.text}
+          <span key={`${r.field}-${i}`} className="mt-reason">
+            <span className={chipClass(r.kind)}
+                  title={r.lift != null ? `lift ×${r.lift.toFixed(1)}` : "computed here, not by Aito"}>
+              {r.kind === "against" ? "− " : ""}{r.text}
+            </span>
+            {r.priors.map((p, j) => (
+              <span key={j} className="pl-chip mt-chip-prior"
+                    title={`Too little history on this row itself, so Aito generalised — ×${p.lift.toFixed(1)}`}>
+                ↳ {p.text}
+              </span>
+            ))}
           </span>
         ))}
       </div>
@@ -182,7 +194,13 @@ export default function MatchingPage() {
         `The shortlist is five catalogue rows ranked by ` +
         `<em>P(sku | line)</em>; the teal chips are the terms Aito's ` +
         `<em>$why</em> named as evidence, the gold ones are agreements ` +
-        `computed here that the database never argued.`,
+        `computed here that the database never argued. A dashed ` +
+        `<em>↳ via …</em> chip is a <em>prior</em>: the query passes ` +
+        `<em>basedOn: ["supplier"]</em>, so where a catalogue row's own ` +
+        `history was too thin to judge a factor, Aito fell back on rows ` +
+        `sharing its supplier — and reports which attribute carried it. ` +
+        `That is a generalisation rather than something it has seen, ` +
+        `which is why it is drawn as the weaker claim it is.`,
     });
   };
 

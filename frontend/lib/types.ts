@@ -845,6 +845,18 @@ export interface MatchReason {
   text: string;
   field: string;
   lift: number | null;
+  /** What Aito fell back on when this candidate's own history was too
+   *  thin to judge the factor — present only where a fallback actually
+   *  fired and actually moved the number. Nested, not a sibling: the
+   *  generalisation is only meaningful next to the factor it rescued. */
+  priors: MatchPrior[];
+}
+
+/** One generalisation: "I have not seen this SKU invoiced this way,
+ *  but I have seen rows from this supplier". */
+export interface MatchPrior {
+  text: string;
+  lift: number;
 }
 
 export interface MatchCandidate {
