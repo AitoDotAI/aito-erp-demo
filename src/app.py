@@ -284,20 +284,6 @@ if _PUBLIC and _cors_origins_env:
 else:
     _allow_origins = ["*"]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_allow_origins,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    # Only the headers the frontend actually sends — narrower than "*"
-    # while still permitting the X-Tenant routing header.
-    allow_headers=["Content-Type", "X-Tenant"],
-    # X-Aito-Calls carries per-request timing data the browser reads
-    # to render the latency pill. CORS hides custom response headers
-    # from JS unless explicitly exposed.
-    expose_headers=["X-Aito-Calls"],
-)
-
-
 @app.middleware("http")
 async def strip_api_trailing_slash(request: Request, call_next):
     """Redirect /api/.../  →  /api/... so the API routes always match.
@@ -341,7 +327,14 @@ async def aito_timing_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api/"):
+    """Three-tier cap, public deployments only.
+
+    `PUBLIC_DEMO` gates it because that is what the deployment docs have
+    always claimed, and because a developer running the booktest or the
+    2000-line eval against a laptop is not the traffic this protects
+    against — they are the person it would silently throttle.
+    """
+    if _PUBLIC and request.url.path.startswith("/api/"):
         client_ip = request.client.host if request.client else "unknown"
         # Read the same X-Tenant header the routing middleware uses so
         # the per-tenant tier can attribute the call correctly.
@@ -359,6 +352,29 @@ async def rate_limit_middleware(request: Request, call_next):
                 headers={"Retry-After": "60"},
             )
     return await call_next(request)
+
+
+# CORS goes on LAST, which in Starlette makes it OUTERMOST — every
+# middleware added after another wraps it. That ordering is the whole
+# point here: a middleware that short-circuits (the rate limiter returns
+# 429 without calling the next handler) never reaches anything added
+# before it, so a throttled response went back with no
+# Access-Control-Allow-Origin and the browser refused to read it. The
+# user saw "Failed to fetch" on every view at once and it looked like a
+# total outage rather than a rate limit. A CORS layer is only useful if
+# it is outside everything that can answer on its own.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allow_origins,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    # Only the headers the frontend actually sends — narrower than "*"
+    # while still permitting the X-Tenant routing header.
+    allow_headers=["Content-Type", "X-Tenant"],
+    # X-Aito-Calls carries per-request timing data the browser reads
+    # to render the latency pill. CORS hides custom response headers
+    # from JS unless explicitly exposed.
+    expose_headers=["X-Aito-Calls"],
+)
 
 
 # ── Health & schema ──────────────────────────────────────────────
