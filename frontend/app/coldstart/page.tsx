@@ -31,7 +31,7 @@ const PANEL: AitoPanelConfig = {
     "evaluate-step <code>where</code>. Aito's conditional probabilities " +
     "then condition on only rows up to that cutoff — same shape as a " +
     "younger tenant. No data manipulation; works against read-only keys.",
-  query: `<span class="q-k">POST</span> /api/v1/_evaluate<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_evaluate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"testSource"</span>: { <span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>, <span class="q-k">"limit"</span>: <span class="q-n">200</span> },<br/>
 &nbsp;&nbsp;<span class="q-k">"evaluate"</span>: {<br/>

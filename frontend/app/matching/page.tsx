@@ -33,7 +33,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "returns the ranking <em>and</em> the matched product's own columns. " +
     "No mapping table, no model, no training step — the rows were " +
     "inserted and the prediction is a query.",
-  query: `<span class="q-k">POST</span> /api/v2/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"invoice_lines"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

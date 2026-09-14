@@ -31,7 +31,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "this size, this duration, under this manager, how often did the schedule " +
     "survive? The blue bar is the schedule. The gold bar is the schedule after " +
     "that answer is applied — the same money, moved in time.",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -144,7 +144,7 @@ export default function ForecastPage() {
         `<em>${fmtAmount(p.at_risk_eur)}</em> of it past the scheduled end. ` +
         `Open the <em>?</em> on the row for which parts of the project's ` +
         `shape drove that number.`,
-      query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

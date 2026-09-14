@@ -92,7 +92,7 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
       `route to <em>${c.costCenter}</em> / account <em>${c.account}</em>; ` +
       `${c.approver} signs the typical case. High-confidence predictions ` +
       `auto-code; low-confidence ones queue for review.`,
-    query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -129,7 +129,7 @@ export function supplierPanel(tenant: TenantId): AitoPanelConfig {
       `correlate with late delivery&rdquo; — discovered, not configured. ` +
       `The lift score tells you how much more likely the bad outcome is, ` +
       `compared to baseline.`,
-    query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
+    query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"delivery_late"</span>: <span class="q-n">true</span> },<br/>
@@ -163,7 +163,7 @@ export function anomaliesPanel(tenant: TenantId): AitoPanelConfig {
       `purchase posted to a wildly off-pattern account, returns a low ` +
       `probability — that's the anomaly score. No rules, no thresholds to ` +
       `maintain.`,
-    query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

@@ -19,7 +19,7 @@ const defaultPanel: AitoPanelConfig = {
   ],
   description:
     "Same purchase order data, different question. aito.._estimate predicts <em>future demand</em> from historical order patterns. aito.._relate discovers <em>seasonality</em> and <em>demand drivers</em> automatically &mdash; no manual feature engineering.",
-  query: `<span class="q-k">POST</span> <span class="q-v">/api/v1/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,\n  <span class="q-k">"where"</span>: {\n    <span class="q-k">"product"</span>: <span class="q-v">"*"</span>,\n    <span class="q-k">"period"</span>: <span class="q-v">"next_30d"</span>\n  },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"quantity"</span>\n}`,
+  query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,\n  <span class="q-k">"where"</span>: {\n    <span class="q-k">"product"</span>: <span class="q-v">"*"</span>,\n    <span class="q-k">"period"</span>: <span class="q-v">"next_30d"</span>\n  },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"quantity"</span>\n}`,
   links: [
     { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
     { label: "aito.ai/docs/relate", url: "https://aito.ai/docs/api/relate" },
@@ -74,7 +74,7 @@ export default function DemandPage() {
         { label: "Confidence", value: `${Math.round(f.confidence * 100)}%` },
       ],
       description: `<strong>${f.product_name}</strong> (${f.product_id})<br/><br/>Forecast: <em>${f.forecast} units</em> (baseline: ${f.baseline}).<br/><br/>Trend: ${f.trend === "up" ? "Increasing" : f.trend === "down" ? "Decreasing" : "Stable"}.`,
-      query: `<span class="q-k">POST</span> <span class="q-v">/api/v1/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,\n  <span class="q-k">"where"</span>: {\n    <span class="q-k">"product"</span>: <span class="q-v">"${f.product_id}"</span>\n  },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"quantity"</span>\n}`,
+      query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,\n  <span class="q-k">"where"</span>: {\n    <span class="q-k">"product"</span>: <span class="q-v">"${f.product_id}"</span>\n  },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"quantity"</span>\n}`,
       links: [
         { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
       ],

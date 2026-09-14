@@ -32,7 +32,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "actually move outcomes — people from <em>assignments</em>, plus " +
     "<em>manager</em>, <em>project_type</em> and <em>priority</em> from " +
     "<em>projects</em>.",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -119,7 +119,7 @@ export default function ProjectsPage() {
         `Lead: <em>${p.team_lead}</em>. Type: <em>${p.project_type}</em>. ` +
         `Open the <em>?</em> on the row for the factor decomposition — which ` +
         `parts of the project context move the prediction up or down.`,
-      query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -159,7 +159,7 @@ export default function ProjectsPage() {
         `portfolio. Lift <em>× ${f.lift.toFixed(2)}</em>. Treat as ` +
         `correlation, not cause: factors confound with project type, ` +
         `priority and seniority.`,
-      query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"${sourceTable}"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"${successKey}"</span>: <span class="q-n">true</span> },<br/>

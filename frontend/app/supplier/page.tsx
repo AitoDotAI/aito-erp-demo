@@ -65,7 +65,7 @@ export default function SupplierPage() {
         `Supplier profile for <em>${item.supplier}</em>. Total spend: <em>${fmtAmount(item.total_amount)}</em> ` +
         `across <em>${item.po_count}</em> orders. Average order: <em>${fmtAmount(item.avg_amount)}</em>. ` +
         `Categories: <em>${item.categories.join(", ")}</em>.`,
-      query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -95,7 +95,7 @@ export default function SupplierPage() {
         `Late rate: <em>${(item.late_rate * 100).toFixed(1)}%</em>. ` +
         `This factor has a lift of <em>${item.lift.toFixed(1)}x</em>, meaning it increases ` +
         `the probability of late delivery by ${item.lift.toFixed(1)} times.`,
-      query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"deliveries"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

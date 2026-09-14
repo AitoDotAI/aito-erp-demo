@@ -24,7 +24,7 @@ const defaultPanel: AitoPanelConfig = {
     "Suggestions surface for governance review — they are not policy until promoted via " +
     "the Rule Mining workflow with explicit signoff. The audit trail records every " +
     "override and every promoted rule.",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"approval_history"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -103,7 +103,7 @@ export default function ApprovalPage() {
         (item.escalation_reason
           ? `Escalation reason: <em>${item.escalation_reason}</em>.`
           : "No escalation required."),
-      query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"approval_history"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

@@ -31,14 +31,14 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "category, supplier, and price-band — the &ldquo;similar products&rdquo; " +
     "ribbon. Both are queried per request; no offline batch jobs, no model " +
     "retraining.",
-  query: `<span class="q-k">POST</span> /api/v1/_search<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"orders"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"product_id"</span>: <span class="q-v">"SKU-1234"</span> },<br/>
 &nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">300</span><br/>
 }<br/>
 <br/>
-<span class="q-k">POST</span> /api/v1/_match<br/>
+<span class="q-k">POST</span> /api/{version}/_match<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"products"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"category"</span>: <span class="q-v">"Beauty"</span> },<br/>

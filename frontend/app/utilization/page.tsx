@@ -32,7 +32,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "person take on engagements of that kind. No timesheet integration, " +
     "no rules: predictions come straight from the historical assignment " +
     "table.",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -122,7 +122,7 @@ export default function UtilizationPage() {
         `${selected.completed_projects} completed projects: <em>${selected.historical_avg_pct}%</em>. ` +
         `Pick a project type below to see the role + allocation Aito predicts ` +
         `for them on a typical engagement of that kind.`,
-      query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

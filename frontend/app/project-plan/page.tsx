@@ -52,7 +52,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "distribution channel that lets suppliers reach the planner " +
     "directly. Every cell is editable; the live KPI strip recomputes " +
     "in place.",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -107,7 +107,7 @@ function supplierSwapPanel(
           `against <em>${category}</em> via the portal, pushed straight into ` +
           `the planning view as a sales/distribution channel.`
         : "No portal listings registered for this category yet."}`,
-    query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -338,7 +338,7 @@ export default function ProjectPlanPage() {
         `typical task names from history. Click <em>Accept</em> on a ` +
         `candidate to ask Aito who should do it. Each accepted task is ` +
         `editable afterwards — swap assignee, delete, or add more.`,
-      query: `<span class="q-k">POST</span> /api/v1/_search<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"project_type"</span>: <span class="q-v">"${projectType}"</span>, <span class="q-k">"phase"</span>: <span class="q-v">"${option.phase}"</span> }<br/>
@@ -375,7 +375,7 @@ export default function ProjectPlanPage() {
           `<em>_predict success</em> for each candidate. Pick the top ` +
           `(what history most likely matches) or any of the alternatives ` +
           `to swap.`,
-        query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+        query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"phase"</span>: <span class="q-v">"${phase}"</span>, <span class="q-k">"task_name"</span>: <span class="q-v">"${taskName}"</span> },<br/>
