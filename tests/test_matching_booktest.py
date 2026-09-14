@@ -429,6 +429,8 @@ def test_the_chips_do_not_drop_evidence_aito_gave(scored, capsys):
         pytest.skip("no strongly-weighted factors in this sample")
 
 
+@needs_aito
+@needs_fixture
 def test_a_prior_is_shown_wherever_aito_leaned_on_one(scored):
     """Every prior that moved a number reaches the screen, under its own
     factor and nowhere else.

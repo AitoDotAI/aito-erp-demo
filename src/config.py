@@ -214,7 +214,7 @@ def load_config(*, use_dotenv: bool = True,
         raise ValueError(
             "No Aito credentials found. Set AITO_API_URL + AITO_API_KEY "
             "(single-tenant) or at least one per-tenant pair "
-            "(AITO_KONEPAJA_*, AITO_POHJOLA_*, AITO_STUDIO_*). "
+            "(AITO_METSA_*, AITO_AURORA_*, AITO_STUDIO_*). "
             "Copy .env.example to .env to get started."
         )
 
