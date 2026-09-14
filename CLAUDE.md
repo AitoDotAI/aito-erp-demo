@@ -783,6 +783,16 @@ that is empty or unreadable. `./do v2-check` answers a different
 question — whether the query shapes survive — and has been green
 through both of those failures.
 
+**Middleware order matters, and CORS goes on last.** Starlette applies
+`add_middleware` outside-in — whatever is registered LAST wraps
+everything else — and a middleware that answers on its own never
+reaches what was registered before it. The rate limiter returns 429
+directly, so with CORS registered first a throttled response carried no
+`Access-Control-Allow-Origin` and the browser refused to read it: every
+view showed "Failed to fetch" at once and it read as a total outage
+rather than a rate limit. `tests/test_app_middleware.py` fails if CORS
+stops being outermost.
+
 Set `PUBLIC_DEMO=1` in the deployed environment to enable:
 - **CORS lockdown** to origins in `CORS_ORIGINS` (comma-separated).
 - **Three-tier rate limiting** (per-IP, per-tenant, global) — caps
