@@ -22,7 +22,7 @@ const defaultPanel: AitoPanelConfig = {
     "data as <strong>candidates for governance review</strong>. Nothing is promoted to policy " +
     "without an explicit human signoff. The lift and support columns let an auditor judge " +
     "whether a candidate is statistically meaningful before it becomes a hardcoded rule.",
-  query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {},<br/>
@@ -91,7 +91,7 @@ export default function RulesPage() {
           : rule.strength === "weak"
           ? "Weak candidate — confidence too low; do not promote without more data."
           : "Review candidate — moderate signal; needs subject-matter judgement before promotion."),
-      query: `<span class="q-k">POST</span> /api/v1/_relate<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

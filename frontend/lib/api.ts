@@ -121,3 +121,28 @@ export function confClass(p: number): string {
   if (p >= 0.50) return "conf-mid";
   return "conf-low";
 }
+
+/** Which REST surface the backend is actually talking to.
+ *
+ * The side panels print the endpoint they describe, and they printed
+ * `/api/{version}/...` long after production moved to v2 — a query shape a
+ * developer could copy and have fail. The backend already reports the
+ * answer on `/api/tenants`; nothing on the client had ever asked.
+ *
+ * Fetched once per page load and shared, because every panel on a page
+ * wants the same answer and none of them should each cost a request.
+ */
+export type ApiVersion = "v1" | "v2";
+
+let _versionPromise: Promise<ApiVersion> | null = null;
+
+export function fetchApiVersion(): Promise<ApiVersion> {
+  if (!_versionPromise) {
+    _versionPromise = apiFetch<{ api_version?: string }>("/api/tenants")
+      .then((r) => (r.api_version === "v1" ? "v1" : "v2"))
+      // A panel that cannot reach the backend has bigger problems than
+      // its example path; fall back rather than blanking the snippet.
+      .catch(() => "v2" as ApiVersion);
+  }
+  return _versionPromise;
+}

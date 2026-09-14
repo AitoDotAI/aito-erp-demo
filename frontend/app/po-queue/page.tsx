@@ -75,7 +75,7 @@ export default function POQueuePage() {
         `Prediction for <em>${order.purchase_id}</em> from <em>${order.supplier}</em>. ` +
         `The model predicts cost center <em>${order.cost_center}</em> with ${Math.round(order.cost_center_confidence * 100)}% confidence ` +
         `and account <em>${order.account_code}</em> with ${Math.round(order.account_code_confidence * 100)}% confidence.`,
-      query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

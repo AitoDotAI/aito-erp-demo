@@ -44,7 +44,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "tables structurally cannot — <em>projects</em> only contains work that " +
     "was won, so the losses, and the objection behind each one, live only in " +
     "the quote history.",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"quotes"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
@@ -300,7 +300,7 @@ export default function PlannerPage() {
         `<em>${c.current_load_pct}%</em>, read from the same aggregation the ` +
         `capacity view uses, so best-fit and actually-free are visible ` +
         `together. They are often not the same person.`,
-      query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>

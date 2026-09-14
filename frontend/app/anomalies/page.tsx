@@ -42,7 +42,7 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
         ` <strong>Unknown-vendor check</strong>: a <em>_search</em> for prior POs ` +
         `from this supplier returns no hits, so the row is flagged with a ` +
         `high baseline anomaly score.`,
-      query: `<span class="q-k">POST</span> /api/v1/_search<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
@@ -66,7 +66,7 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
         ` <strong>Amount-spike check</strong>: <em>_search</em> retrieves the ` +
         `supplier's prior PO amounts; the ratio of this PO against the supplier ` +
         `average is converted to an anomaly score in app code.`,
-      query: `<span class="q-k">POST</span> /api/v1/_search<br/>
+      query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
@@ -94,7 +94,7 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
       `the distribution Aito would predict for <em>${item.flagged_field}</em> ` +
       `given this supplier; the actual value <em>${item.actual_value}</em> ` +
       `received low probability mass, so the row is flagged.`,
-    query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>

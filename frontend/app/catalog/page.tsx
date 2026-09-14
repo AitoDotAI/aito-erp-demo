@@ -19,7 +19,7 @@ const defaultPanel: AitoPanelConfig = {
   ],
   description:
     "Products with <em>missing attributes</em> block downstream workflows: quoting, customs export, warehouse picking. aito.._predict fills gaps by learning from complete products in the same category &mdash; no rules needed.",
-  query: `<span class="q-k">POST</span> <span class="q-v">/api/v1/_predict</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"sku"</span>: <span class="q-v">"EL-4420"</span> },\n  <span class="q-k">"predict"</span>: <span class="q-p">"hs_code"</span>\n}`,
+  query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_predict</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"sku"</span>: <span class="q-v">"EL-4420"</span> },\n  <span class="q-k">"predict"</span>: <span class="q-p">"hs_code"</span>\n}`,
   links: [
     { label: "aito.ai/docs/predict", url: "https://aito.ai/docs/api/predict" },
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/07-catalog-intelligence.md", kind: "doc" },
@@ -125,7 +125,7 @@ export default function CatalogPage() {
         { label: "Category", value: p.category ?? "—" },
       ],
       description: `<strong>${p.name}</strong> (${p.sku}) is missing ${p.missing_count} field(s): <em>${p.missing_fields.join(", ")}</em>.<br/><br/>Completeness: ${Math.round(p.completeness * 100)}%.<br/><br/>aito.._predict learns from <em>${p.category ?? "similar"}</em> products with complete data to fill these gaps with no manual rules.`,
-      query: `<span class="q-k">POST</span> <span class="q-v">/api/v1/_predict</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"sku"</span>: <span class="q-v">"${p.sku}"</span> },\n  <span class="q-k">"predict"</span>: <span class="q-p">"${p.missing_fields[0] ?? "hs_code"}"</span>\n}`,
+      query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_predict</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"sku"</span>: <span class="q-v">"${p.sku}"</span> },\n  <span class="q-k">"predict"</span>: <span class="q-p">"${p.missing_fields[0] ?? "hs_code"}"</span>\n}`,
       links: [
         { label: "aito.ai/docs/predict", url: "https://aito.ai/docs/api/predict" },
       ],

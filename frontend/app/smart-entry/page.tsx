@@ -66,7 +66,7 @@ const defaultPanel: AitoPanelConfig = {
     "to fill four fields and explain each prediction. Each field is a single semantic " +
     "concept — the predicted value lives in the input itself, styled gold-italic until " +
     "the user accepts it (Tab) or overrides it (typing).",
-  query: `<span class="q-k">POST</span> /api/v1/_predict<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"$supplier"</span> },<br/>

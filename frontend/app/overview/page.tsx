@@ -24,7 +24,7 @@ const defaultPanel: AitoPanelConfig = {
     "<em>Predictions &ge; 0.85</em> are the auto-approve zone; lower bands flag review work.<br/><br/>" +
     "Unlike traditional ML, aito.. needs <em>no feature engineering, no model selection, no deployment</em> " +
     "&mdash; predictions come directly from the database, and so does this evaluation.",
-  query: `<span class="q-k">POST</span> /api/v1/_evaluate<br/>
+  query: `<span class="q-k">POST</span> /api/{version}/_evaluate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"testSource"</span>: { <span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>, <span class="q-k">"limit"</span>: <span class="q-n">200</span> },<br/>
 &nbsp;&nbsp;<span class="q-k">"evaluate"</span>: {<br/>

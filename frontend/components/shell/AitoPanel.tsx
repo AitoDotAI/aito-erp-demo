@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AitoPanelConfig } from "@/lib/types";
+import { fetchApiVersion, type ApiVersion } from "@/lib/api";
 
 /** CSS variable the topbar and content read to keep their right edge
  *  flush with the panel. 320px expanded, 0 collapsed — matches the
@@ -10,6 +11,17 @@ import { AitoPanelConfig } from "@/lib/types";
 const PANEL_WIDTH_VAR = "--aito-panel-w";
 const PANEL_WIDTH_EXPANDED = "320px";
 const PANEL_WIDTH_COLLAPSED = "0px";
+
+/** Panels print the endpoint they describe, so the version in that
+ *  path has to be the one the backend is actually on. Snippets write
+ *  `{version}` and it is substituted here — one place, rather than a
+ *  literal in nineteen files that drifts the next time we cut over.
+ *  The placeholder is deliberately not a real version: a page file
+ *  reading `/api/v1/` while the screen said v2 is how this was missed.
+ */
+function renderQuery(html: string, version: ApiVersion): string {
+  return html.split("{version}").join(version);
+}
 
 interface AitoPanelProps {
   config: AitoPanelConfig;
@@ -35,6 +47,16 @@ interface AitoPanelProps {
 export default function AitoPanel({ config }: AitoPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Defaults to what production runs, then corrects itself. The panel
+  // is explanatory copy, so a first paint showing the common case and
+  // settling is better than a blank where the query should be.
+  const [apiVersion, setApiVersion] = useState<ApiVersion>("v2");
+
+  useEffect(() => {
+    let live = true;
+    fetchApiVersion().then((v) => { if (live) setApiVersion(v); });
+    return () => { live = false; };
+  }, []);
 
   // Topbar / content read this var to size their right padding so the
   // panel doesn't overlap them. Mobile media queries override it to 0.
@@ -64,7 +86,7 @@ export default function AitoPanel({ config }: AitoPanelProps) {
       {config.query && (
         <div
           className="aito-query-block"
-          dangerouslySetInnerHTML={{ __html: config.query }}
+          dangerouslySetInnerHTML={{ __html: renderQuery(config.query, apiVersion) }}
         />
       )}
 
