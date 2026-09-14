@@ -608,18 +608,20 @@ _MEASURED_SHARED = {
     # move them further than a build did — so a figure here without all
     # three attached is a figure nobody can check.
     "engine_build":
-        '2.8.4 (6979ad71dfd5), config.ai=and, basedOn=["supplier"] on rep2',
+        '2.8.4 (6979ad71dfd5), config.ai=and, basedOn=["supplier"] on rep2, '
+        'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
+        '120k lines, warm twins for every cold vendor)',
     "n": 2000,
     "catalogue_skus": 3200,
-    "labelled_lines_loaded": 60000,
+    "labelled_lines_loaded": 120000,
     "baseline": 1 / 3200,
     # Zero, now. Every catalogue row has a distinct name, so nothing is
     # unanswerable by construction and the ceiling is 100%.
     "shared_name_share": 0.0,
     "ceiling_top1": 1.0,
     "ceiling_top5": 1.0,
-    "floor_top1": 0.478,
-    "floor_top5": 0.770,
+    "floor_top1": 0.582,
+    "floor_top5": 0.838,
     "note": (
         "3200 catalogue SKUs, not 20 000 — a real catalogue of that size "
         "is a harder problem and this number should not be read as "
@@ -628,6 +630,13 @@ _MEASURED_SHARED = {
 }
 
 MEASURED_BY_ENGINE: dict[str, dict] = {
+    # STALE — measured on the PREVIOUS corpus, before the attribute,
+    # origin and seeding fixes. The v1 environments still hold that
+    # corpus, so these numbers are internally consistent and are what
+    # a v1 deployment would actually score; they are NOT comparable to
+    # the v2 block below any more. Load the current fixtures into v1
+    # and re-run `./do match-eval --api-version=v1` before quoting the
+    # two side by side.
     "v1": {
         "engine": "rep1 (v1)",
         "overall_top1": 0.808, "overall_top5": 0.928, "overall_top1_name": 0.808,
@@ -651,23 +660,23 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.788, "overall_top5": 0.899, "overall_top1_name": 0.788,
-        "warm_top1": 0.931, "warm_top5": 0.979, "warm_top1_name": 0.931,
-        "cold_top1": 0.501, "cold_top5": 0.739, "cold_top1_name": 0.501,
-        "throughput_rows_per_s": 3.1, "throughput_workers": 8,
+        "overall_top1": 0.900, "overall_top5": 0.977, "overall_top1_name": 0.900,
+        "warm_top1": 0.899, "warm_top5": 0.973, "warm_top1_name": 0.899,
+        "cold_top1": 0.904, "cold_top5": 0.984, "cold_top1_name": 0.904,
+        "throughput_rows_per_s": 3.0, "throughput_workers": 8,
         "curve": [
-            {"bar": 0.05, "coverage": 1.000, "precision": 0.788},
-            {"bar": 0.10, "coverage": 0.996, "precision": 0.790},
-            {"bar": 0.20, "coverage": 0.977, "precision": 0.803},
-            {"bar": 0.35, "coverage": 0.909, "precision": 0.834},
-            {"bar": 0.50, "coverage": 0.846, "precision": 0.868},
+            {"bar": 0.05, "coverage": 1.000, "precision": 0.900},
+            {"bar": 0.10, "coverage": 0.999, "precision": 0.901},
+            {"bar": 0.20, "coverage": 0.994, "precision": 0.905},
+            {"bar": 0.35, "coverage": 0.970, "precision": 0.916},
+            {"bar": 0.50, "coverage": 0.925, "precision": 0.935},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.057, "aito": 0.885, "tfidf": 0.0},
-            {"overlap": "1-33%", "share": 0.010, "aito": 0.650, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.224, "aito": 0.681, "tfidf": 0.112},
-            {"overlap": "67-99%", "share": 0.229, "aito": 0.653, "tfidf": 0.391},
-            {"overlap": "100%", "share": 0.480, "aito": 0.893, "tfidf": 0.757},
+            {"overlap": "0%", "share": 0.038, "aito": 0.853, "tfidf": 0.0},
+            {"overlap": "1-33%", "share": 0.009, "aito": 0.789, "tfidf": 0.0},
+            {"overlap": "34-66%", "share": 0.256, "aito": 0.914, "tfidf": 0.286},
+            {"overlap": "67-99%", "share": 0.386, "aito": 0.911, "tfidf": 0.566},
+            {"overlap": "100%", "share": 0.311, "aito": 0.886, "tfidf": 0.934},
         ],
     },
 }

@@ -21,6 +21,7 @@ Run with:  python data/generate_personas.py
 
 import json
 import random
+import zlib
 import sys
 from dataclasses import dataclass, field
 from datetime import date
@@ -801,6 +802,44 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         "office supplies":       (["A4", "A5", "A3"], ["Black", "Blue"]),
     }
 
+    # …and per PRODUCT where the category is too coarse to be sensible.
+    #
+    # `electronics` handed every row the same pool, so earbuds were
+    # sold in 128GB and a `TV 55"` could pick up a second screen size.
+    # That is not merely untidy: `128GB` then appears on earbuds, a
+    # tablet and a TV alike, so the token argues for three unrelated
+    # rows and a line reading "langaton nappikuulokkeet 128gb" matched
+    # a tablet. An attribute that every row shares discriminates
+    # nothing, and one that is nonsense for the row it sits on is worse
+    # than absent — it is evidence pointing the wrong way.
+    #
+    # Keyed on the template, lower-cased. Anything not named here falls
+    # through to its category.
+    TEMPLATE_AXES: dict[str, tuple[list[str], list[str]]] = {
+        # Storage belongs to things that store.
+        "smartphone":       (["128GB", "256GB", "512GB"], []),
+        "tablet":           (["64GB", "128GB", "256GB"], []),
+        "laptop":           (["256GB", "512GB", "1TB", '13"', '15"'], []),
+        # …and not to these — but they still need a discriminator, and
+        # it has to be one the product really varies by. Emptying the
+        # axis and stopping there cost 7 points at 100% overlap: the
+        # nonsense token was nonsense AND load-bearing, because
+        # "Wireless Earbuds Black" is less distinctive than "Wireless
+        # Earbuds 128GB Black". Removing a bad attribute is only half
+        # the job; the row still has to be tellable from its neighbours.
+        "wireless earbuds": (["ANC", "Sport", "Pro"], []),
+        "smart speaker":    (["Mini", "Max", "Studio"], []),
+        "tv 55\"":          (["4K", "OLED", "QLED"], []),
+        # Homeware the category pool was guessing at. A candle varies by
+        # scent, which is what a catalogue and an invoice both call it.
+        "candle":           (["Vanilla", "Cedar", "Linen"], []),
+        "throw":            (["130x170", "150x200"], []),
+        "cushion":          (["40cm", "45cm", "50cm"], []),
+        # DIY, same story.
+        "wrench set":       (["8-19mm", "10-22mm"], []),
+        "paint roller":     (["10cm", "18cm", "25cm"], []),
+    }
+
     # Origin and grade — the two attributes a real catalogue carries
     # that a WHOLESALER also has an opinion about. They are what make
     # "Ruusu (Kouvola)" and "Kala (kotimainen)" different rows, and what
@@ -808,8 +847,17 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
     # grower invoices Kouvola stock, a premium importer does not sell
     # the budget line. Without something of this shape, `billing_supplier`
     # can only ever narrow the category, never the row.
-    ORIGINS = ["kotimainen", "lähituote", "tuonti", "Kouvola", "Turku",
-               "Tampere", "Oulu"]
+    # ONE axis, mutually exclusive. It used to mix a provenance CLASS
+    # with a provenance PLACE — `kotimainen` and `lähituote` alongside
+    # `Turku` and `Oulu` — and those are not alternatives to each other:
+    # Turku stock IS kotimainen. Two labels for overlapping sets split
+    # the vendor->origin correlation between them, which is precisely
+    # the signal a first-time vendor has nothing else to lean on. The
+    # class word still appears, in the DESCRIPTION, where it reads as
+    # the hierarchy it actually is: Turku implies kotimainen, and a line
+    # quoting either one narrows rather than contradicts.
+    ORIGINS = ["Kouvola", "Turku", "Tampere", "Oulu", "Tallinn", "Riga"]
+    DOMESTIC = {"Kouvola", "Turku", "Tampere", "Oulu"}
     GRADES = ["premium", "standard", "budget"]
 
     # Alternative phrasings for the size axis. The invoice says
@@ -824,7 +872,16 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
     # measurement, and only the DESCRIPTION connects the two.
     SIZE_WORDS = ["pieni", "keskikoko", "pitkä", "suuri", "erikoissuuri"]
 
+    # Share of base names deliberately left colliding across origins, so
+    # the vendor still has to break a tie somewhere. See the comment at
+    # the assignment below for why this is a knob and not an accident.
+    SHARED_BASE_RATE = 0.12
+
     seen_names: set[tuple[str, str]] = set()
+    used_bases: set[str] = set()
+
+    def rng_share() -> float:
+        return random.random()
 
     while len(products) < persona.n_products:
         counter += 1
@@ -836,7 +893,13 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
 
         # Variant tokens go between the template and the suffix, the way
         # a real catalogue reads: "Tape Measure 5m Yellow 10pk".
-        sizes, colours = VARIANT_AXES.get(cat.lower(), ([], []))
+        cat_sizes, cat_colours = VARIANT_AXES.get(cat.lower(), ([], []))
+        sizes, colours = TEMPLATE_AXES.get(name.lower(),
+                                           (cat_sizes, cat_colours))
+        # A per-product entry overrides the SIZE axis; colour is a
+        # property of the category (a speaker still comes in black) so
+        # it falls back unless the entry names its own.
+        colours = colours or cat_colours
         suffix_pool = SUFFIX_POOL.get(cat.lower(), DEFAULT_SUFFIXES)
         # Beauty and groceries already carry their size in the SUFFIX
         # pool (" 50ml", " 6-pack"), so adding a size variant too
@@ -905,12 +968,26 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
         # goes into the BASE — "Mk2", the way a catalogue really writes
         # one — so it reaches the invoice text. Hiding it in a trailing
         # "#2" the invoice never repeats just moves the ambiguity.
+        # (base, origin) must be unique — that is what makes the row
+        # identifiable at all. Whether the BASE alone repeats across
+        # origins is a separate, deliberate choice: a repeated base is
+        # what forces the vendor to act as discriminator, which is the
+        # whole of route 2 and worth demonstrating.
+        #
+        # It had been left to chance, and chance gave 25.4% of base
+        # names to more than one SKU — 48.6% of held-out lines needing
+        # the vendor to break a tie. That is not a demo of route 2, it
+        # is a corpus where half the answers hinge on one column.
+        # SHARED_BASE_RATE makes it a knob: most rows are identifiable
+        # from their text, and a designed minority are not.
         base = brand + name + variant_text + suffix
         mark = 2
-        while (base, origin) in seen_names:
+        while ((base, origin) in seen_names
+               or (base in used_bases and rng_share() >= SHARED_BASE_RATE)):
             base = f"{brand}{name}{variant_text} Mk{mark}{suffix}"
             mark += 1
         seen_names.add((base, origin))
+        used_bases.add(base)
         full = f"{base} ({origin})"
 
         # A short spec line. It carries the size BOTH ways — the figure
@@ -922,9 +999,15 @@ def generate_products(persona: PersonaSpec) -> list[dict]:
                                     and variant[0] in sizes) else ""
         size_word = SIZE_WORDS[sizes.index(size_token) % len(SIZE_WORDS)] \
             if size_token else ""
+        # `kotimainen` / `tuonti` is DERIVED from the origin rather than
+        # being a rival value for it — see ORIGINS. In the description
+        # it is a broader way to say the same thing, which is how a
+        # catalogue blurb really reads and how a supplier really writes.
+        origin_class = "kotimainen" if origin in DOMESTIC else "tuonti"
         described = [w for w in (
             f"{size_token} tai {size_word}" if size_word else size_token,
-            *(v for v in variant if v != size_token), origin, grade) if w]
+            *(v for v in variant if v != size_token),
+            origin, origin_class, grade) if w]
         description = ", ".join([name.lower()] + described)
 
         products.append({
@@ -2420,7 +2503,12 @@ def write_persona(persona: PersonaSpec) -> None:
     out = DATA / persona.tenant_id
     out.mkdir(parents=True, exist_ok=True)
     # Reseed per-persona so each universe is independently deterministic.
-    random.seed(hash(persona.tenant_id) & 0xFFFFFFFF)
+    # `hash()` on a str is salted per process, so this produced a
+    # DIFFERENT universe on every run — fixtures that could not be
+    # regenerated to match what was loaded into Aito, which is why
+    # regenerating at build time was ruled out rather than fixed.
+    # crc32 is stable across processes and machines.
+    random.seed(zlib.crc32(persona.tenant_id.encode()) & 0xFFFFFFFF)
 
     purchases = generate_purchases(persona)
     products = generate_products(persona)

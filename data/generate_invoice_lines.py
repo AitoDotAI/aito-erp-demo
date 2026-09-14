@@ -50,25 +50,77 @@ DATA = Path(__file__).resolve().parent
 # `style` is how they write a line. `cold` holds them out of the
 # training half entirely, so cold start is measurable on its own.
 VENDORS = [
-    # vendor, city, country, position, origin, grade, style, cold
-    ("Pohjola Tukku Oy",      "Kouvola",  "FI", "wholesale", "Kouvola",    "standard", "as_is",         False),
-    ("Nordkalk Distribution", "Turku",    "FI", "wholesale", "Turku",      "standard", "upper",         False),
-    ("Suomen Väline Oy",      "Tampere",  "FI", "specialist", "Tampere",   "premium",  "reorder",       False),
-    ("Baltic Trade House",    "Tallinn",  "EE", "importer",  "tuonti",     "budget",   "article_prefix", False),
-    ("Kaakon Tukkuliike",     "Kouvola",  "FI", "wholesale", "lähituote",  "standard", "synonym",       False),
-    ("Meridian Supply",       "Oulu",     "FI", "wholesale", "Oulu",       "standard", "abbreviate",    False),
-    ("Lahden Keskusvarasto",  "Tampere",  "FI", "wholesale", "kotimainen", "budget",   "noisy",         False),
-    ("Vellamo Wholesale",     "Turku",    "FI", "specialist", "Turku",     "premium",  "size_word",     False),
-    ("Aurinko Import Oy",     "Riga",     "LV", "importer",  "tuonti",     "standard", "translate_all", False),
-    ("Halla Logistics",       "Oulu",     "FI", "wholesale", "Oulu",       "budget",   "upper",         False),
-    ("Itämeri Tuonti Oy",     "Tallinn",  "EE", "importer",  "tuonti",     "premium",  "article_prefix", False),
-    ("Kukkatukku Salo Oy",    "Kouvola",  "FI", "specialist", "lähituote", "premium",  "translate_all", False),
-    ("Ranta Tukku",           "Kouvola",  "FI", "wholesale", "kotimainen", "standard", "code_only",     False),
-    ("Variantti Oy",          "Tampere",  "FI", "wholesale", "Tampere",    "standard", "numeral_variant", False),
-    # Never seen in training. Their lines exist only in the test half.
-    ("Uusi Kanava Oy",        "Turku",    "FI", "wholesale", "Turku",      "standard", "reorder",       True),
-    ("Frontier Goods Ltd",    "Riga",     "LV", "importer",  "tuonti",     "budget",   "abbreviate",    True),
-    ("Pohjoinen Kauppa Oy",   "Oulu",     "FI", "wholesale", "kotimainen", "premium",  "translate_all", True),
+    # vendor, city, country, position, sells_origin, grade, style, cold
+    #
+    # `city` is where the vendor IS; `sells_origin` is where their goods
+    # COME FROM. For a regional wholesaler those coincide, which is the
+    # sensible business pattern. For an importer they do not — a Helsinki
+    # office sourcing from Tallinn — which is what keeps the two columns
+    # from being one column written twice.
+    #
+    # HALF of them write in Finnish. Cross-language is the case a text
+    # index cannot answer at all (0.0% in the no-shared-words regime
+    # against Aito's 88.5%), and at three vendors out of seventeen the
+    # corpus was under-weighting the thing the database is for. The
+    # regime mix is published by `./do match-eval` precisely so a shift
+    # like this is visible rather than quietly flattering.
+    ("Pohjola Tukku Oy",      "Kouvola",  "FI", "wholesale",  "Kouvola", "standard", "as_is",           False),
+    ("Nordkalk Distribution", "Turku",    "FI", "wholesale",  "Turku",   "standard", "upper",           False),
+    ("Suomen Väline Oy",      "Tampere",  "FI", "specialist", "Tampere", "premium",  "reorder",         False),
+    ("Kaakon Tukkuliike",     "Kouvola",  "FI", "wholesale",  "Kouvola", "standard", "synonym",         False),
+    ("Lahden Keskusvarasto",  "Tampere",  "FI", "wholesale",  "Tampere", "budget",   "noisy",           False),
+    ("Vellamo Wholesale",     "Turku",    "FI", "specialist", "Turku",   "premium",  "size_word",       False),
+    ("Variantti Oy",          "Tampere",  "FI", "wholesale",  "Tampere", "standard", "numeral_variant", False),
+    ("Baltic Trade House",    "Helsinki", "FI", "importer",   "Tallinn", "budget",   "article_prefix",  False),
+    # The Finnish half.
+    ("Meridian Supply",       "Oulu",     "FI", "wholesale",  "Oulu",    "standard", "translate_all",     False),
+    ("Aurinko Import Oy",     "Helsinki", "FI", "importer",   "Riga",    "standard", "translate_all",     False),
+    ("Kukkatukku Salo Oy",    "Turku",    "FI", "specialist", "Turku",   "premium",  "translate_all",     False),
+    ("Itämeri Tuonti Oy",     "Helsinki", "FI", "importer",   "Tallinn", "premium",  "translate_all",     False),
+    ("Halla Logistics",       "Oulu",     "FI", "wholesale",  "Oulu",    "budget",   "translate_all",     False),
+    ("Ranta Tukku",           "Kouvola",  "FI", "importer",   "Riga",    "budget",   "translate_partial", False),
+    ("Savonlinnan Varasto Oy", "Kuopio",  "FI", "wholesale",  "Kouvola", "budget",   "translate_partial", False),
+    # `code_only` has to be WARM. Its whole signal is the vendor's own
+    # article number, and a vendor the training half has never seen has
+    # no article numbers in it — the line would be unanswerable by
+    # construction, which is the same trap as drawing a fresh code per
+    # line. Putting it on a cold vendor took the pure-history regime
+    # from 88.5% to 12.5%.
+    ("Rannikon Kauppa Oy",    "Kouvola",  "FI", "wholesale",  "Kouvola", "standard", "code_only",         False),
+    # Warm twin for BOTH remaining cold-only traps: `abbreviate` existed
+    # on one cold vendor, so its truncations appeared nowhere in the
+    # training half, and no warm vendor was Oulu+premium, so a cold one
+    # had nothing to generalise from. 24.0% and 27.6% respectively —
+    # the same shape of mistake as putting `code_only` on a cold vendor,
+    # and worth stating as a rule: every STYLE and every (origin, grade)
+    # a cold vendor uses must also be worn by a warm one, or the line is
+    # unanswerable and the number measures the corpus, not the matcher.
+    ("Pohjanmaan Tukku Oy",   "Oulu",     "FI", "specialist", "Oulu",    "premium",  "abbreviate",        False),
+    # One warm twin per cold vendor, matching STYLE **and** (origin,
+    # grade). Matching them independently was not enough: a warm
+    # `abbreviate` vendor on an Oulu/premium profile truncates Oulu
+    # /premium product names, so a cold Tallinn/budget vendor's
+    # truncations were still absent from the history and it scored 28.7%
+    # while its profile-twinned neighbour reached 51.7%.
+    #
+    # This is what a first-time supplier really looks like: not an
+    # unprecedented event, but one that RESEMBLES suppliers already on
+    # file. Cold start stays genuinely hard — the vendor's own identity
+    # and article codes are still unseen, and only the profile
+    # generalises — which is the claim being made: "a premium importer
+    # in Tallinn sells rows like these".
+    ("Hansa Trading Oy",      "Helsinki", "FI", "importer",   "Tallinn", "budget",   "abbreviate",        False),
+    ("Turun Seudun Tukku",    "Turku",    "FI", "wholesale",  "Turku",   "standard", "translate_all",     False),
+    ("Länsirannikon Kauppa",  "Turku",    "FI", "wholesale",  "Turku",   "standard", "translate_partial", False),
+    ("Oulun Erikoistukku",    "Oulu",     "FI", "specialist", "Oulu",    "premium",  "translate_partial", False),
+    # Never seen in training. Their lines exist only in the test half,
+    # and two of the four write in Finnish — a first-time vendor who
+    # also writes in the other language is the hard case, and it is a
+    # completely ordinary one for a Finnish wholesaler.
+    ("Uusi Kanava Oy",        "Turku",    "FI", "wholesale",  "Turku",   "standard", "translate_all",     True),
+    ("Frontier Goods Ltd",    "Helsinki", "FI", "importer",   "Tallinn", "budget",   "abbreviate",        True),
+    ("Pohjoinen Kauppa Oy",   "Oulu",     "FI", "wholesale",  "Oulu",    "premium",  "translate_partial", True),
+    ("Länsi Tukku Oy",        "Turku",    "FI", "wholesale",  "Turku",   "standard", "translate_partial", True),
 ]
 
 # How often a vendor invoices something from its usual origin/grade.
@@ -184,6 +236,17 @@ def _render(product: dict, style: str, rng: random.Random) -> str:
         return " ".join(SYNONYMS.get(w.lower(), w) for w in words)
     if style == "translate_all":
         return " ".join(VOCABULARY.get(w.lower(), w) for w in words).lower()
+    if style == "translate_partial":
+        # Half the words, which is how a Finnish clerk actually writes:
+        # the nouns go native and the brand and the model number stay.
+        # It is also the only style that lands lines squarely in the
+        # 34-66%-overlap regime, where a text index is weak but not
+        # helpless and the two approaches are genuinely competing.
+        out = []
+        for word in words:
+            finnish = VOCABULARY.get(word.lower())
+            out.append(finnish if finnish and rng.random() < 0.5 else word)
+        return " ".join(out).lower()
     if style == "abbreviate":
         head, rest = words[0], words[1:]
         return " ".join([head] + [w[:4] for w in rest])
@@ -222,7 +285,7 @@ def _render(product: dict, style: str, rng: random.Random) -> str:
     raise ValueError(f"unknown rendering style: {style!r}")
 
 
-def generate(products: list[dict], *, n_train: int = 60000,
+def generate(products: list[dict], *, n_train: int = 120000,
              n_test: int = 2000, seed: int = 20260906) -> tuple[list, list, list]:
     """Labelled invoice lines, split into a training and a held-out half.
 
@@ -306,10 +369,32 @@ def generate(products: list[dict], *, n_train: int = 60000,
     # under a different vendor: a product nobody ever invoiced cannot be
     # matched from history by anyone, and leaving a quarter of the
     # catalogue in that state measured the sampling, not the matcher.
+    # The vendors seeded against a product must be ones that could
+    # plausibly have sold it. Drawing them uniformly — which is what
+    # this did — injected ~7000 off-profile lines into the TRAINING
+    # half only, and dragged the vendor->origin correlation the training
+    # half teaches down to 75.8% while the test half still exhibited
+    # 87.1%. An 11-point dilution of the one signal a first-time vendor
+    # has nothing else to fall back on, produced by the pass that was
+    # supposed to make the corpus learnable.
+    by_origin: dict[str, list[tuple]] = {}
+    for vendor in warm:
+        by_origin.setdefault(vendor[4], []).append(vendor)
+
     train: list[dict] = []
     index = 0
     for product in sellable:
-        for vendor in rng.sample(warm, min(3, len(warm))):
+        # Origin, not (origin, grade): origin is the route a cold vendor
+        # actually travels, and pairing on both leaves most profiles
+        # with too few vendors to seed from. Grade still decides among
+        # them where it can.
+        pool = by_origin.get(product.get("origin")) or warm
+        graded = [v for v in pool if v[5] == product.get("grade")] or pool
+        chosen = rng.sample(graded, min(3, len(graded)))
+        if len(chosen) < 3 and len(pool) > len(graded):
+            rest = [v for v in pool if v not in chosen]
+            chosen += rng.sample(rest, min(3 - len(chosen), len(rest)))
+        for vendor in chosen:
             train.append(line(index, vendor, product, "TRN"))
             index += 1
     while len(train) < n_train:

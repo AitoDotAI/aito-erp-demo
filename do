@@ -46,6 +46,10 @@ Commands:
   env-drop-v2     Delete each tenant's v2 env.
   load-data-v2    Load the fixtures into the v2 envs as collections
                   (accepts --tenant=<id|all>).
+  env-backup-v2   Branch the CURRENT master under a name, per tenant.
+                  Do this before promoting — it is the only rollback.
+  env-promote-v2  Promote a v2 env into master, per tenant. Replaces
+                  what master held; the previous content is gone.
   match-eval      Score line->SKU matching on the held-out half
   v2-check        Run every view's query shape against v2 and report
                   which pass, which break, and how.
@@ -315,8 +319,44 @@ _env_drop_v2_one() {
     | python3 -m json.tool 2>/dev/null || true
 }
 
+# Promoting REPLACES master, and the content master held before is not
+# recoverable afterwards. So backing up is not a nicety here, it is the
+# only rollback that exists: branch the CURRENT master under a dated
+# name first, and rolling back is promoting that name back over it.
+# Branching is copy-on-write, so it costs nothing and returns at once.
+_env_backup_v2_one() {
+  local prefix="$1" db_url="$2" key="$3" name="$4"
+  echo "[$prefix] branch $name from env.master  ($db_url)"
+  curl -sS -X POST "$db_url/api/v2/_envs" \
+    -H "x-api-key: $key" -H "content-type: application/json" \
+    -d "{\"name\":\"$name\",\"basedOn\":\"master\"}" \
+    | python3 -m json.tool 2>/dev/null || true
+}
+
+_env_promote_v2_one() {
+  local prefix="$1" db_url="$2" key="$3" name="$4"
+  echo "[$prefix] promote $name → master  ($db_url)"
+  curl -sS -X POST "$db_url/api/v2/_envs/$name/promote" \
+    -H "x-api-key: $key" \
+    | python3 -m json.tool 2>/dev/null || true
+}
+
 cmd_env_init_v2() { _for_each_tenant _env_init_v2_one; }
 cmd_env_drop_v2() { _for_each_tenant _env_drop_v2_one; }
+
+cmd_env_backup_v2() {
+  local name="${2:-}"
+  [[ -z "$name" ]] && { echo "usage: ./do env-backup-v2 <name>" >&2; exit 1; }
+  _for_each_tenant _env_backup_v2_one "$name"
+}
+
+cmd_env_promote_v2() {
+  local name="${2:-}"
+  [[ -z "$name" ]] && { echo "usage: ./do env-promote-v2 <env-name>" >&2; exit 1; }
+  echo "This REPLACES env.master on every tenant. Back up first:"
+  echo "  ./do env-backup-v2 pre-\$(date +%Y%m%d)"
+  _for_each_tenant _env_promote_v2_one "$name"
+}
 
 cmd_load_data_v2() {
   cd "$SCRIPT_DIR"
@@ -636,6 +676,8 @@ case "${1:-help}" in
   clear-cache)     cmd_clear_cache ;;
   env-init)        cmd_env_init ;;
   env-promote)     cmd_env_promote ;;
+  env-backup-v2)   cmd_env_backup_v2 "$@" ;;
+  env-promote-v2)  cmd_env_promote_v2 "$@" ;;
   env-drop)        cmd_env_drop ;;
   env-init-v2)     cmd_env_init_v2 ;;
   env-drop-v2)     cmd_env_drop_v2 ;;
