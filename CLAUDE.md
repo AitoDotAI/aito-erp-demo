@@ -538,6 +538,27 @@ retail goods: the case this was drawn from is a flower wholesaler with
 no NDA in place and unconfirmed volumes, so nothing here is modelled
 on it. Generic transfers to every other line-matching prospect anyway.
 
+**The inference preset is named, not inherited** (`INFERENCE_PRESET`).
+The engines default differently — rep1 to And-only, rep2 to Group
+re-expression — so a v1/v2 comparison with no `config.ai` compares two
+PRESETS as much as two engines, which is how a six-point "rep2 is
+behind" reading survived several rounds of measurement here. Setting
+`and` explicitly on both makes the comparison about the engine again,
+and on rep2 it is worth 2.2 points overall and 25% lower latency.
+
+Measured on the full held-out split, rep2: default `group` 74.9% top-1,
+`and` **77.1%**, `high` (and+group) a further ~0.4 for measurably more
+time. Note this contradicts the upstream guidance in `V2QueryDocs`,
+which says And+Group "adds cost without improving accuracy on the
+corpora" — on this corpus And beats Group-only by several points, and
+line matching is the case that doc's own `ProductMatchingTest` exists
+for.
+
+It also fixes the explanations at the source: `$group` bundles
+correlated tokens into one theme and highlights only some members, so
+`{Konfektyr, Fazer}` arrived with no marked terms at all. Under `and`
+the `$why` is `$and`/`$has`, the same shape v1 emits.
+
 **The numbers are per engine, and the view says which it is quoting.**
 rep1 and rep2 answer this query differently and rep2 is ahead in every
 regime (36.5% overall against 30.6%, and 32.9% against 13.5% where the
@@ -592,6 +613,38 @@ held-out half against the claims the view makes. Every one of those
 nine is a mistake this corpus actually shipped with at some point, and
 none of them looked like a bug from the outside: they all looked like a
 mediocre database.
+
+**A prior is Aito saying "I have not seen this row, but I have seen
+rows like it".** The query passes `basedOn: ["supplier"]`, so where a
+catalogue row's own history is too thin to judge a factor, Aito
+generalises across rows sharing its supplier and reports which
+attribute carried it — a `prior` nested inside the factor. That is
+worth +1.7 points overall and +2.0 on familiar vendors, and it is the
+only way to get the explanation at all: without `basedOn` there are no
+priors in the tree to show.
+
+**rep2 only, and that is the one engine branch in these services.**
+The same argument costs rep1 ten points overall and twenty on cold
+start — the opposite sign, an order of magnitude larger. The two
+engines do not mean the same thing by it, so `rank_line` asks
+`client.api_version` and a test fails if that ever stops being true.
+`config.ai=and`, by contrast, helps both; the contrast is the lesson,
+and only measurement separates the two cases.
+
+It is drawn as the weaker claim it is — dashed outline, nested under
+the factor it rescued, `↳ via supplier Fazer Konfektyr`. A
+generalisation painted like direct evidence would have the demo
+claiming the database had SEEN something it inferred, which is the
+same mistake as painting the computed gold chips teal.
+
+**The chips render the proposition, not the highlights.** `highlight`
+marks some members of a group and sometimes none, so a display built
+on the markers showed `{TV, ea, 55"}` as "unit of measure ea" and a
+five-column vendor group as one supplier name — the factor was on
+screen and most of its content was not. This is the second time that
+exact omission shipped. The proposition is the complete inventory;
+highlights only win where they agree on the count, because then they
+add which token in the description matched.
 
 **History has to exist before it can be learned from.** At 10 000 lines
 over 3200 SKUs the corpus averaged 4.2 per product, 795 products had

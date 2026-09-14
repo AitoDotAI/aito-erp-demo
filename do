@@ -490,6 +490,7 @@ cmd_screenshot() {
         ['08-pricing',         '/pricing/'],
         ['09-demand',          '/demand/'],
         ['10-inventory',       '/inventory/'],
+        ['12-matching',        '/matching/'],
         ['13-recommendations', '/recommendations/'],
         ['14-overview',        '/overview/'],
       ],

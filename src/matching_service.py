@@ -47,6 +47,75 @@ from src.why_processor import process_factors
 LINE_FEATURES = ("description", "billing_supplier", "unit_of_measure",
                  "unit_price_eur", "quantity")
 
+# The inference preset, set explicitly rather than inherited.
+#
+# The engines default differently — rep1 to And-only, rep2 to Group
+# re-expression — so leaving it unset meant the "rep2 is six points
+# behind rep1" reading in this file was comparing two PRESETS as much as
+# two engines. Measured on 600 held-out lines against rep2:
+#
+#     default (group)   top-1 69.3%   warm 85.8%   cold 36.5%
+#     and               top-1 75.8%   warm 92.2%   cold 43.0%
+#     high (and+group)  top-1 76.2%   warm 92.5%   cold 43.5%
+#
+# `and` recovers almost all of it for no extra cost — `high` buys a
+# further 0.4 points and is measurably slower, which is not a trade
+# worth making. Naming it here also means the demo scores the same way
+# on both engines, so a v1/v2 comparison is about the engine again.
+#
+# Note this contradicts the upstream guidance in V2QueryDocs, which says
+# And+Group "adds cost without improving accuracy on the corpora". On
+# THIS corpus it improves it by 6.9 points, and line matching is the
+# case that doc's own ProductMatchingTest book exists for.
+INFERENCE_PRESET = "and"
+
+# Generalise candidates by the product's own supplier.
+#
+# A SKU invoiced nineteen times has thin history of its own. `basedOn`
+# lets Aito smooth a factor toward what it knows about products sharing
+# that attribute, and — the part that matters on screen — report WHICH
+# attribute carried it, as a `prior` inside the factor. Without this
+# there are no priors to show at all.
+#
+# It is a SCORING change, not a display one. Measured on 600 held-out
+# lines against rep2 with `and`:
+#
+#     none                  top-1 75.8%   warm 92.2%   cold 43.0%   127s
+#     ["category"]          top-1 76.7%   warm 93.0%   cold 44.0%   148s
+#     ["supplier"]          top-1 76.8%   warm 92.2%   cold 46.0%   176s
+#     ["category","supplier"] 75.8%       warm 92.0%   cold 43.5%   163s
+#
+# `supplier` for the cold-start gain: the one place this case is
+# genuinely weak. Both attributes together is worse than either — more
+# generalisation is not more signal. The cost is real (~40% more time
+# per query), which is why this is named here rather than switched on
+# everywhere.
+#
+# Confirmed on the full held-out 2000 rather than left on the sample:
+#
+#     rep2, and             overall   warm    cold
+#     basedOn none            77.1%   91.1%   49.2%
+#     basedOn ["supplier"]    78.8%   93.1%   50.1%
+#
+# The sample had put cold at +3 and it came in at +0.9. The direction
+# held on all three and the sample's size did not, which is the usual
+# reason a number here is re-run at full size before it is quoted.
+#
+# **rep2 only, and that is measured, not assumed.** The same argument
+# against rep1 on the same 2000 lines and the same build:
+#
+#     rep1                  overall   warm    cold
+#     basedOn none            80.8%   90.5%   61.3%
+#     basedOn ["supplier"]    70.6%   85.4%   41.1%
+#
+# Ten points overall and TWENTY on cold start — the opposite sign and
+# an order of magnitude more of it. The two engines do not mean the
+# same thing by the argument, so the demo cannot send it to both and
+# call the query shared. This is the one place a service module here
+# branches on the engine rather than speaking one dialect, and the
+# numbers above are why it earns the exception.
+BASED_ON = ["supplier"]
+
 # The vendor's own attributes, reached through the link on
 # `billing_supplier`. They matter most exactly where the vendor name is
 # worthless: a vendor invoicing for the FIRST time has no history under
@@ -82,6 +151,11 @@ class Candidate:
     unit_of_measure: str | None
     p: float
     reasons: list[dict] = field(default_factory=list)
+    # Aito's `$why` exactly as it arrived. Not serialised to the
+    # frontend — it is here so a test can compare what the engine said
+    # against what the chips show, which is the drift that hid a
+    # lift-26 factor for a week.
+    why_raw: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +237,72 @@ def _terms(html: str) -> list[str]:
             for t in _MATCHED.findall(html or "") if t.strip()]
 
 
+def _proposition_terms(prop: object) -> list[tuple[str, str]]:
+    """The (field, value) leaves of a `$why` proposition.
+
+    Needed because `highlight` is not a reliable inventory of what a
+    factor is about. Aito marks only some terms of a `$group` — for one
+    real line it marked `cordial` out of `{cordial, Apple}` and marked
+    nothing at all out of `{Konfektyr, Fazer}` — so a chip list built
+    from the markers alone dropped a lift-26 factor entirely and left
+    the match looking as if it had turned on one rare word.
+    """
+    out: list[tuple[str, str]] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            if key.startswith("$"):
+                walk(value)
+            elif isinstance(value, dict):
+                # {"description": {"$has": "cordial"}}
+                for inner in value.values():
+                    out.append((key, str(inner)))
+            else:
+                out.append((key, str(value)))
+
+    walk(prop)
+    return out
+
+
+def _chip_terms(pairs: list[tuple[str, str]]) -> list[str]:
+    """Render a factor's (field, value) leaves for one chip.
+
+    A quoted word is self-explanatory when it came out of the
+    description. Out of `quantity` it is the chip `"6"`, which tells
+    nobody anything, so those carry their field — per LEAF, not per
+    chip: a group can span columns, and labelling the whole group with
+    the first field attributed values to columns they never came from.
+
+    The linked prefix is written once. A vendor group names four
+    `billing_supplier.*` columns, and repeating the prefix on each one
+    made a chip so long it pushed the rest of the evidence off the row.
+    """
+    out: list[str] = []
+    last_root: str | None = None
+    for field, value in pairs:
+        if field == "description":
+            out.append(f'"{value}"')
+            last_root = None
+            continue
+        root, _, leaf = field.partition(".")
+        if leaf and root == last_root:
+            out.append(f"{leaf.replace('_', ' ')} {value}")
+        elif leaf:
+            out.append(
+                f"{root.replace('_', ' ')} {leaf.replace('_', ' ')} {value}")
+            last_root = root
+        else:
+            out.append(f"{field.replace('_', ' ')} {value}")
+            last_root = field
+    return out
+
+
 def _reasons(hit: dict, line: dict) -> list[dict]:
     """The case for one candidate, with each claim's provenance kept.
 
@@ -177,13 +317,32 @@ def _reasons(hit: dict, line: dict) -> list[dict]:
     """
     out: list[dict] = []
     processed = process_factors(hit.get("$why"), hit.get("$p", 0.0))
-    for lift in processed.get("lifts", [])[:3]:
+    for lift in processed.get("lifts", [])[:5]:
         terms, fields = [], []
         for highlight in lift.get("highlights") or []:
             found = _terms(highlight.get("html", ""))
+            # One field PER TERM. It used to be one per highlight, which
+            # left the two lists a different length, and the moment they
+            # were zipped to label each value with its own column the
+            # shorter one silently truncated the chip to its first term.
             terms.extend(found)
-            if found or _ABSENT.search(highlight.get("html", "")):
+            fields.extend([highlight.get("field", "")] * len(found))
+            if not found and _ABSENT.search(highlight.get("html", "")):
                 fields.append(highlight.get("field", ""))
+        # The proposition is the COMPLETE inventory of what a factor is
+        # about; `highlight` is not. Aito marks only some members of a
+        # group and sometimes none, so a chip built from the markers
+        # rendered `{TV, ea, 55"}` as "unit of measure ea" and a
+        # five-member vendor group as a single supplier name — the
+        # factor was on screen and most of its content was not.
+        #
+        # Highlights still win on ties: where the two agree on how many
+        # terms there are, the marked form is the one that shows WHICH
+        # token in the description matched.
+        leaves = _proposition_terms(lift.get("proposition"))
+        if len(leaves) > len(terms):
+            terms = [v for _, v in leaves]
+            fields = [f for f, _ in leaves]
         if not terms and not fields:
             continue
         supports = lift.get("lift", 1.0) >= 1.0
@@ -191,17 +350,41 @@ def _reasons(hit: dict, line: dict) -> list[dict]:
         # description. Out of `quantity` it is the chip `"6"`, which
         # tells nobody anything, so those carry their field.
         field = fields[0] if fields else ""
-        if terms and field == "description":
-            text = " · ".join(f'"{t}"' for t in terms[:4])
-        elif terms:
-            text = f"{field.replace('_', ' ')} {' · '.join(terms[:3])}"
+        if terms:
+            text = " · ".join(_chip_terms(list(zip(fields, terms))[:4]))
         else:
             text = ", ".join(f.replace("_", " ") for f in fields if f)
+
+        # A `prior` means Aito could not judge this candidate from its
+        # own history and leaned on what it knows about rows sharing an
+        # attribute — see BASED_ON. That is a different KIND of claim
+        # from the factor it hangs under: a generalisation, not direct
+        # evidence, and painting the two alike would credit the database
+        # with having seen something it inferred. It is NESTED rather
+        # than listed alongside because the two only mean anything
+        # together; a flat list lets a wrap put "via supplier Berner Oy"
+        # under a factor it has nothing to do with.
+        priors = []
+        for prior in (lift.get("prior") or {}).get("factors") or []:
+            # A prior of 1.0 moved nothing. Same reason the near-1.0
+            # lifts are dropped upstream: a chip reads as evidence, and
+            # a fallback that changed no number is not evidence.
+            value = prior.get("value")
+            if not isinstance(value, (int, float)) or abs(value - 1.0) < 0.05:
+                continue
+            leaves = _proposition_terms(prior.get("proposition"))
+            if not leaves:
+                continue
+            named = " · ".join(
+                f"{f.replace('_', ' ')} {v}" for f, v in leaves[:2])
+            priors.append({"text": f"via {named}", "lift": round(value, 3)})
+
         out.append({
             "kind": "aito" if supports else "against",
             "text": text,
             "field": field,
             "lift": lift.get("lift"),
+            "priors": priors[:2],
         })
 
     # Computed here, not by Aito. Both are things a clerk checks by eye,
@@ -209,13 +392,15 @@ def _reasons(hit: dict, line: dict) -> list[dict]:
     if (hit.get("unit_of_measure")
             and hit["unit_of_measure"] == line.get("unit_of_measure")):
         out.append({"kind": "match", "text": f"unit {hit['unit_of_measure']}",
-                    "field": "unit_of_measure", "lift": None})
+                    "field": "unit_of_measure", "lift": None,
+                    "priors": []})
 
     list_price, invoiced = hit.get("unit_price"), line.get("unit_price_eur")
     if list_price and invoiced:
         drift = abs(float(invoiced) - float(list_price)) / float(list_price)
         if drift <= 0.15:
             out.append({"kind": "match", "field": "unit_price", "lift": None,
+                        "priors": [],
                         "text": f"price within {drift:.0%} of list"})
     return out
 
@@ -239,7 +424,11 @@ def rank_line(client: AitoClient, line: dict, limit: int = 5,
     started = time.perf_counter()
     try:
         response = client.predict("invoice_lines", where, "sku", limit=limit,
-                                  select_extra=CATALOGUE_FIELDS)
+                                  select_extra=CATALOGUE_FIELDS,
+                                  ai=INFERENCE_PRESET,
+                                  based_on=(BASED_ON
+                                            if client.api_version == "v2"
+                                            else None))
     except AitoError:
         return [], (time.perf_counter() - started) * 1000
     elapsed = (time.perf_counter() - started) * 1000
@@ -257,6 +446,7 @@ def rank_line(client: AitoClient, line: dict, limit: int = 5,
             unit_of_measure=hit.get("unit_of_measure"),
             p=hit.get("$p", 0.0),
             reasons=_reasons(hit, line),
+            why_raw=hit.get("$why"),
         ))
     return candidates, elapsed
 
@@ -412,11 +602,13 @@ def queue_for(client: AitoClient, tenant: str
 # Re-run the harness and update the matching block together, or not at
 # all.
 _MEASURED_SHARED = {
-    "measured_on": "2026-09-12",
-    # The engine the numbers below describe. Two of them moved between
-    # builds this month, so a figure here without a build attached is a
-    # figure nobody can check.
-    "engine_build": "2.8.3 (a4d4903c122d)",
+    "measured_on": "2026-09-14",
+    # The engine AND the query the numbers below describe. Two of them
+    # moved between builds this month, and `config.ai` / `basedOn` each
+    # move them further than a build did — so a figure here without all
+    # three attached is a figure nobody can check.
+    "engine_build":
+        '2.8.4 (6979ad71dfd5), config.ai=and, basedOn=["supplier"] on rep2',
     "n": 2000,
     "catalogue_skus": 3200,
     "labelled_lines_loaded": 60000,
@@ -438,44 +630,44 @@ _MEASURED_SHARED = {
 MEASURED_BY_ENGINE: dict[str, dict] = {
     "v1": {
         "engine": "rep1 (v1)",
-        "overall_top1": 0.809, "overall_top5": 0.929, "overall_top1_name": 0.809,
-        "warm_top1": 0.920, "warm_top5": 0.979, "warm_top1_name": 0.920,
-        "cold_top1": 0.588, "cold_top5": 0.829, "cold_top1_name": 0.588,
-        "throughput_rows_per_s": 3.6, "throughput_workers": 10,
+        "overall_top1": 0.808, "overall_top5": 0.928, "overall_top1_name": 0.808,
+        "warm_top1": 0.905, "warm_top5": 0.981, "warm_top1_name": 0.905,
+        "cold_top1": 0.613, "cold_top5": 0.823, "cold_top1_name": 0.613,
+        "throughput_rows_per_s": 3.7, "throughput_workers": 10,
         "curve": [
-            {"bar": 0.05, "coverage": 1.000, "precision": 0.809},
-            {"bar": 0.10, "coverage": 0.999, "precision": 0.810},
-            {"bar": 0.20, "coverage": 0.991, "precision": 0.816},
-            {"bar": 0.35, "coverage": 0.964, "precision": 0.832},
-            {"bar": 0.50, "coverage": 0.905, "precision": 0.865},
+            {"bar": 0.05, "coverage": 0.999, "precision": 0.808},
+            {"bar": 0.10, "coverage": 0.998, "precision": 0.809},
+            {"bar": 0.20, "coverage": 0.991, "precision": 0.814},
+            {"bar": 0.35, "coverage": 0.964, "precision": 0.834},
+            {"bar": 0.50, "coverage": 0.907, "precision": 0.865},
         ],
         "regimes": [
             {"overlap": "0%", "share": 0.057, "aito": 0.858, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.010, "aito": 0.650, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.224, "aito": 0.705, "tfidf": 0.112},
-            {"overlap": "67-99%", "share": 0.229, "aito": 0.699, "tfidf": 0.391},
-            {"overlap": "100%", "share": 0.480, "aito": 0.907, "tfidf": 0.757},
+            {"overlap": "34-66%", "share": 0.224, "aito": 0.692, "tfidf": 0.112},
+            {"overlap": "67-99%", "share": 0.229, "aito": 0.710, "tfidf": 0.391},
+            {"overlap": "100%", "share": 0.480, "aito": 0.906, "tfidf": 0.757},
         ],
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.749, "overall_top5": 0.868, "overall_top1_name": 0.749,
-        "warm_top1": 0.900, "warm_top5": 0.965, "warm_top1_name": 0.900,
-        "cold_top1": 0.447, "cold_top5": 0.673, "cold_top1_name": 0.447,
-        "throughput_rows_per_s": 3.6, "throughput_workers": 10,
+        "overall_top1": 0.788, "overall_top5": 0.899, "overall_top1_name": 0.788,
+        "warm_top1": 0.931, "warm_top5": 0.979, "warm_top1_name": 0.931,
+        "cold_top1": 0.501, "cold_top5": 0.739, "cold_top1_name": 0.501,
+        "throughput_rows_per_s": 3.1, "throughput_workers": 8,
         "curve": [
-            {"bar": 0.05, "coverage": 0.995, "precision": 0.753},
-            {"bar": 0.10, "coverage": 0.970, "precision": 0.761},
-            {"bar": 0.20, "coverage": 0.905, "precision": 0.787},
-            {"bar": 0.35, "coverage": 0.804, "precision": 0.830},
-            {"bar": 0.50, "coverage": 0.691, "precision": 0.863},
+            {"bar": 0.05, "coverage": 1.000, "precision": 0.788},
+            {"bar": 0.10, "coverage": 0.996, "precision": 0.790},
+            {"bar": 0.20, "coverage": 0.977, "precision": 0.803},
+            {"bar": 0.35, "coverage": 0.909, "precision": 0.834},
+            {"bar": 0.50, "coverage": 0.846, "precision": 0.868},
         ],
         "regimes": [
             {"overlap": "0%", "share": 0.057, "aito": 0.885, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.010, "aito": 0.650, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.224, "aito": 0.627, "tfidf": 0.112},
-            {"overlap": "67-99%", "share": 0.229, "aito": 0.555, "tfidf": 0.391},
-            {"overlap": "100%", "share": 0.480, "aito": 0.884, "tfidf": 0.757},
+            {"overlap": "34-66%", "share": 0.224, "aito": 0.681, "tfidf": 0.112},
+            {"overlap": "67-99%", "share": 0.229, "aito": 0.653, "tfidf": 0.391},
+            {"overlap": "100%", "share": 0.480, "aito": 0.893, "tfidf": 0.757},
         ],
     },
 }

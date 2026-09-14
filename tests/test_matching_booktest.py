@@ -248,9 +248,18 @@ def test_every_rendering_style_is_represented():
 # ── Layer 2: live Aito backtest ─────────────────────────────────────
 
 
+# The fixture reads AURORA's credentials, so that is what the guard has
+# to ask about. It asked about the fallback pair instead, which no
+# multi-tenant .env sets — so every live test in this file skipped on
+# every developer machine and in every run of `./do booktest-matching`,
+# while reporting green. A skip that cannot be distinguished from a pass
+# is worse than a failure.
 needs_aito = pytest.mark.skipif(
-    not (os.environ.get("AITO_API_URL") and os.environ.get("AITO_API_KEY")),
-    reason="AITO_API_URL / AITO_API_KEY not set — skipping live Aito backtest",
+    not (
+        (os.environ.get("AITO_AURORA_API_URL") and os.environ.get("AITO_AURORA_API_KEY"))
+        or (os.environ.get("AITO_API_URL") and os.environ.get("AITO_API_KEY"))
+    ),
+    reason="no Aurora or fallback Aito credentials — skipping live backtest",
 )
 
 SAMPLE = 150
@@ -351,3 +360,168 @@ def test_the_right_answer_is_usually_on_the_shortlist(scored):
     top5 = sum(1 for line, r in scored
                if line["sku"] in [c.sku for c in r[:5]]) / len(scored)
     assert top5 > 0.80, f"top-5 recall {top5:.1%} — the shortlist claim fails"
+
+
+# ── Layer 3: the explanation, in Aito's own words ───────────────────
+#
+# The chips on screen are a rendering of `$why`. A rendering can drift
+# from what the engine actually said, and it did: the chip list was
+# built from `highlight` markers alone, Aito marks only some terms of a
+# `$group` (and sometimes none), so a lift-26 factor naming
+# "Fazer Konfektyr" was dropped silently and the match looked as if it
+# had turned on one rare word. Nothing failed. The screen was just
+# quietly less true than the response behind it.
+
+
+def _why_factors(why: dict | None) -> list[tuple[float, str]]:
+    """Every `relatedPropositionLift` in a `$why`, as (lift, proposition)."""
+    import json as _json
+
+    out: list[tuple[float, str]] = []
+
+    def walk(node):
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "relatedPropositionLift":
+            out.append((float(node.get("value", 1.0)),
+                        _json.dumps(node.get("proposition"), ensure_ascii=False,
+                                    sort_keys=True)))
+        for child in node.get("factors") or []:
+            walk(child)
+
+    walk(why or {})
+    return out
+
+
+@needs_aito
+@needs_fixture
+def test_the_chips_do_not_drop_evidence_aito_gave(scored, capsys):
+    """Every strong factor must survive into the rendered reasons.
+
+    "Strong" is the top five by |lift - 1|, which is what the view
+    shows. The assertion is not that the wording matches — it is that a
+    factor Aito weighted heavily is represented at all, by its field or
+    one of its values. That is the exact failure this test was written
+    after.
+    """
+    import json as _json
+
+    checked = 0
+    for line, candidates in scored[:12]:
+        if not candidates:
+            continue
+        top = candidates[0]
+        factors = sorted(_why_factors(top.why_raw), key=lambda f: -abs(f[0] - 1.0))
+        strong = [f for f in factors[:5] if abs(f[0] - 1.0) >= 0.5]
+        if not strong:
+            continue
+        rendered = " ".join(
+            r["text"] + " " + r.get("field", "")
+            + " " + " ".join(pr["text"] for pr in r.get("priors", []))
+            for r in top.reasons).lower()
+        for lift, proposition in strong:
+            leaves = _leaf_strings(_json.loads(proposition))
+            assert any(leaf.lower() in rendered for leaf in leaves), (
+                f"factor lift x{lift:.1f} {proposition} is in Aito's $why but "
+                f"nothing in the rendered reasons mentions it: {rendered!r}")
+        checked += 1
+    if not checked:
+        pytest.skip("no strongly-weighted factors in this sample")
+
+
+@needs_aito
+@needs_fixture
+def test_a_prior_is_shown_wherever_aito_leaned_on_one(scored):
+    """Every prior that moved a number reaches the screen, under its own
+    factor and nowhere else.
+
+    `basedOn` is a SCORING argument — it changes the ranking, not just
+    the explanation — so a run where Aito generalised and the view did
+    not say so is a view claiming the database had seen something it
+    inferred. That is the same class of mistake as the dropped `$group`
+    members, and it is invisible from the outside: the match is still
+    right, the reason is still plausible, and the provenance is wrong.
+
+    The pairing is checked too. Priors used to be flat siblings, which
+    let a flex wrap put "via supplier Berner Oy" under a factor about
+    the unit of measure.
+    """
+    checked = 0
+    for _line, candidates in scored[:12]:
+        for cand in candidates[:2]:
+            factors = (cand.why_raw or {}).get("factors") or []
+            moved = [
+                pf
+                for f in factors
+                for pf in ((f.get("prior") or {}).get("factors") or [])
+                if isinstance(pf.get("value"), (int, float))
+                and abs(pf["value"] - 1.0) >= 0.05
+            ]
+            shown = [pr for r in cand.reasons for pr in r.get("priors", [])]
+
+            if moved and not shown:
+                pytest.fail(
+                    f"Aito reported {len(moved)} prior(s) that moved the "
+                    f"number for {cand.sku} and none reached the reasons")
+
+            # A prior can only hang off a factor that HAD one. Nothing
+            # computed here (the gold `match` chips) ever generalised.
+            for reason in cand.reasons:
+                if reason["kind"] == "match":
+                    assert not reason.get("priors"), (
+                        f"a chip computed here carries a prior: {reason}")
+
+            for prior in shown:
+                assert prior["text"].startswith("via "), prior
+                assert abs(prior["lift"] - 1.0) >= 0.05, (
+                    f"a prior that moved nothing is on screen: {prior}")
+            checked += len(shown)
+
+    if not checked:
+        pytest.skip("no priors fired in this sample — check BASED_ON is set")
+
+
+def _leaf_strings(prop) -> list[str]:
+    """Every scalar leaf of a proposition, as a string."""
+    out: list[str] = []
+    if isinstance(prop, list):
+        for item in prop:
+            out += _leaf_strings(item)
+    elif isinstance(prop, dict):
+        for key, value in prop.items():
+            if isinstance(value, (dict, list)):
+                out += _leaf_strings(value)
+            elif not key.startswith("$"):
+                out.append(str(value))
+            else:
+                out.append(str(value))
+    return [o for o in out if o]
+
+
+@needs_aito
+@needs_fixture
+def test_print_the_raw_why_for_reading(scored, capsys):
+    """Not an assertion — a transcript.
+
+    Run with `-s` to read what Aito actually returns, in its own shape,
+    next to the chips derived from it. The two are meant to be
+    comparable at a glance; when they stop being, the rendering is
+    wrong, not the engine.
+    """
+    with capsys.disabled():
+        shown = 0
+        for line, candidates in scored:
+            if not candidates or shown >= 2:
+                continue
+            top = candidates[0]
+            print(f"\n  LINE  {line['billing_supplier']} — {line['description']!r}")
+            print(f"  MATCH {top.sku} {top.name!r}  p={top.p:.4f}"
+                  f"  {'correct' if top.sku == line['sku'] else 'WRONG'}")
+            print("  $why, every factor Aito returned:")
+            for lift, proposition in sorted(_why_factors(top.why_raw),
+                                            key=lambda f: -abs(f[0] - 1.0)):
+                print(f"      lift {lift:>10.4f}   {proposition}")
+            print("  rendered as:")
+            for r in top.reasons:
+                print(f"      [{r['kind']:7}] {r['text']}")
+            shown += 1

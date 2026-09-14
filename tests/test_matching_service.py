@@ -178,3 +178,50 @@ def test_a_pick_the_catalogue_calls_the_same_thing_is_its_own_outcome():
     exact = _line(0.5, "SKU-1", "SKU-1", name="Kettle 1.7L",
                   truth_name="Kettle 1.7L").to_dict()
     assert exact["correct"] is True and exact["same_name"] is False
+
+
+class _RecordingClient:
+    """Captures the kwargs `rank_line` sends, and answers with nothing."""
+
+    def __init__(self, api_version):
+        self._api_version = api_version
+        self.calls: list[dict] = []
+
+    @property
+    def api_version(self):
+        return self._api_version
+
+    def predict(self, table, where, field, **kwargs):
+        self.calls.append(kwargs)
+        return {"hits": []}
+
+
+def _rank_with(api_version):
+    from src.matching_service import rank_line
+    client = _RecordingClient(api_version)
+    rank_line(client, {"description": "PESUAINE 5L", "billing_supplier": "X"})
+    return client.calls[0]
+
+
+def test_based_on_goes_to_rep2_and_never_to_rep1():
+    """`basedOn` is not a shared argument. On the same 2000 held-out
+    lines and the same build it is worth +1.7 points overall to rep2 and
+    costs rep1 TEN — and twenty on cold start. Sending it to both
+    because the service modules otherwise speak one dialect would quietly
+    hand v1 users a worse demo than they had.
+    """
+    from src.matching_service import BASED_ON
+
+    assert _rank_with("v2")["based_on"] == BASED_ON
+    assert _rank_with("v1")["based_on"] is None
+
+
+def test_the_inference_preset_goes_to_both():
+    """Unlike `basedOn`, the preset helps both engines and is the
+    reason rep2 leads rep1 on familiar vendors at all. The contrast is
+    the point: one argument generalises across engines and one does
+    not, and only measurement says which."""
+    from src.matching_service import INFERENCE_PRESET
+
+    assert _rank_with("v2")["ai"] == INFERENCE_PRESET
+    assert _rank_with("v1")["ai"] == INFERENCE_PRESET
