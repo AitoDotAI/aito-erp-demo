@@ -33,12 +33,14 @@ def _import_app(monkeypatch, **extra):
     return src.app
 
 
+# No teardown reload. Undoing the fake credentials and re-importing
+# raises the very "no credentials" error these tests exist to work
+# around — which is how this file failed in CI while passing locally,
+# where a .env made the restore survivable. Nothing else in the suite
+# imports `src.app`, so leaving it loaded costs nothing.
 @pytest.fixture
 def app_module(monkeypatch):
-    module = _import_app(monkeypatch)
-    yield module
-    monkeypatch.undo()
-    importlib.reload(module)
+    return _import_app(monkeypatch)
 
 
 def test_cors_is_the_outermost_middleware(app_module):
@@ -72,9 +74,6 @@ def test_a_throttled_response_is_still_readable_by_the_browser(monkeypatch):
         "a 429 came back without CORS headers, so the browser cannot read "
         f"it and reports a network failure instead: {dict(last.headers)}")
 
-    monkeypatch.undo()
-    importlib.reload(module)
-
 
 def test_the_limiter_is_off_when_the_demo_is_not_public(monkeypatch):
     """A developer running the 2000-line eval from a laptop is not the
@@ -83,6 +82,3 @@ def test_the_limiter_is_off_when_the_demo_is_not_public(monkeypatch):
     monkeypatch.delenv("PUBLIC_DEMO", raising=False)
     module = _import_app(monkeypatch)
     assert module._PUBLIC is False
-
-    monkeypatch.undo()
-    importlib.reload(module)
