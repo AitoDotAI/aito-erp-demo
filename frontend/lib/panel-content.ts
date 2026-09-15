@@ -104,6 +104,7 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
 <br/>
 <span class="q-d">// → cost_center: "${c.costCenter}" (p ≈ 0.94)</span>`,
     links: [
+      { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/01-po-queue.md", kind: "doc" },
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       { label: "Confidence thresholds", url: "https://aito.ai/docs/guides/confidence" },
       ...referenceLinks({ useCase: "01-po-queue", source: "src/po_service.py" }),
@@ -138,6 +139,7 @@ export function supplierPanel(tenant: TenantId): AitoPanelConfig {
 <br/>
 <span class="q-d">// → ${c.riskySupplier}: lift × 1.6 (high risk)</span>`,
     links: [
+      { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/05-supplier-intel.md", kind: "doc" },
       { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
       ...referenceLinks({ useCase: "05-supplier-intel", source: "src/supplier_service.py" }),
     ],
@@ -175,6 +177,7 @@ export function anomaliesPanel(tenant: TenantId): AitoPanelConfig {
 <br/>
 <span class="q-d">// p(actual) = 0.04 → flagged</span>`,
     links: [
+      { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/04-anomaly-detection.md", kind: "doc" },
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ...referenceLinks({ useCase: "04-anomaly-detection", source: "src/anomaly_service.py" }),
     ],

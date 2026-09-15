@@ -86,6 +86,7 @@ export default function POQueuePage() {
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
 }`,
       links: [
+        { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/01-po-queue.md", kind: "doc" },
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
     });

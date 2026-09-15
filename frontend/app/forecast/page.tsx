@@ -45,6 +45,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"on_time"</span><br/>
 }`,
   links: [
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/19-revenue-outlook.md", kind: "doc" },
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     {
       label: "Source code",

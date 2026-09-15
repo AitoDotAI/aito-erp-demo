@@ -51,6 +51,7 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
 <br/>
 <span class="q-d">// hits = [] → unknown vendor → score ${item.anomaly_score}</span>`,
       links: [
+        { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/04-anomaly-detection.md", kind: "doc" },
         { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
       ],
     };

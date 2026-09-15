@@ -56,6 +56,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"loss_reason"</span><br/>
 }`,
   links: [
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/18-engagement-planner.md", kind: "doc" },
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     {
       label: "Source code",

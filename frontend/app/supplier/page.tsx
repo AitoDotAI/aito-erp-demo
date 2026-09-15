@@ -74,6 +74,7 @@ export default function SupplierPage() {
 &nbsp;&nbsp;<span class="q-k">"relate"</span>: [<span class="q-p">"on_time"</span>, <span class="q-p">"delivery_days"</span>]<br/>
 }`,
       links: [
+        { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/05-supplier-intel.md", kind: "doc" },
         { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
       ],
     });

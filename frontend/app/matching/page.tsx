@@ -53,6 +53,7 @@ const DEFAULT_PANEL: AitoPanelConfig = {
 <span class="q-d">// basedOn lets a thinly-invoiced row be judged by what</span><br/>
 <span class="q-d">// its SUPPLIER's rows do — the ↳ chips in the shortlist.</span>`,
   links: [
+    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/17-invoice-matching.md", kind: "doc" },
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     {
       label: "Source code",
