@@ -508,6 +508,8 @@ cmd_screenshot() {
     const ROUTES_BY_TENANT = {
       metsa: [
         ['00-landing',     '/'],
+        ['17-planner',     '/planner/'],
+        ['18-forecast',    '/forecast/'],
         ['01-po-queue',    '/po-queue/'],
         ['02-smart-entry', '/smart-entry/'],
         ['03-approval',    '/approval/'],
@@ -531,6 +533,7 @@ cmd_screenshot() {
         ['09-demand',          '/demand/'],
         ['10-inventory',       '/inventory/'],
         ['12-matching',        '/matching/'],
+        ['19-coldstart',       '/coldstart/'],
         ['13-recommendations', '/recommendations/'],
         ['14-overview',        '/overview/'],
       ],

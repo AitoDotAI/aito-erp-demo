@@ -27,7 +27,7 @@ to the new anchor — recursive browsing.
 ### Cross-sell (basket co-occurrence)
 
 ```json
-POST /api/v1/_search
+POST /api/v2/_search
 {
   "from": "orders",
   "where": { "product_id": "SKU-1234" },
@@ -44,7 +44,7 @@ replaces the aggregation.
 ### Similar products (attribute overlap)
 
 ```json
-POST /api/v1/_search
+POST /api/v2/_search
 {
   "from": "products",
   "where": { "category": "Beauty" },
