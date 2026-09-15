@@ -1,6 +1,6 @@
 # Cold Start — Accuracy as a function of history
 
-![Cold Start](../../screenshots/coldstart.png)
+![Cold Start](../../screenshots/19-coldstart.png)
 
 *Slider-driven view of how prediction quality grows from a fresh tenant
 to a mature one — the same Aito DB, queried with a month cutoff that

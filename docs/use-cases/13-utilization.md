@@ -25,7 +25,7 @@ that person on a typical engagement of that kind.
 ## Aito query — what-if forecast
 
 ```json
-POST /api/v1/_predict
+POST /api/v2/_predict
 {
   "from": "assignments",
   "where": {

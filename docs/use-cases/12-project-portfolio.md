@@ -20,7 +20,7 @@ via `_relate`, not configured.
 ## Aito query — success forecast
 
 ```json
-POST /api/v1/_predict
+POST /api/v2/_predict
 {
   "from": "projects",
   "where": {
@@ -45,7 +45,7 @@ chain.
 ## Aito query — staffing factors
 
 ```json
-POST /api/v1/_relate
+POST /api/v2/_relate
 {
   "from": "projects",
   "where": { "success": true },

@@ -23,6 +23,13 @@ on tradeoffs and gotchas.
 | 14 | [Recommendations](14-recommendations.md) *(Aurora-only)* | `_search` co-occurrence + attribute scoring (cross-sell + similar) |
 | 15 | [Cold Start](15-cold-start.md) | `_evaluate` with `testSource` + month cutoff, slider-driven accuracy curve |
 | 16 | [Project Plan](16-project-plan.md) *(Metsä-only)* | Generative plan via `_predict` × N + `_recommend goal:{success: true}` matchmaking + per-phase auto-PO drafts |
+| 17 | [Invoice Matching](17-invoice-matching.md) *(Aurora-only)* | `_predict` on a LINK, run as a batch; `basedOn` priors, `config.ai`, held-out scoring with a published regime mix |
+| 18 | [Engagement Planner](18-engagement-planner.md) *(Metsä + Vire)* | `_predict` × N over `assignments`/`people`/`quotes`; linked-field filters, levers, phased seats |
+| 19 | [Revenue Outlook](19-revenue-outlook.md) *(Metsä + Vire)* | `_predict on_time` / `on_budget` per project, risk-adjusting a percentage-of-completion order book |
+
+Every query shown is written as `POST /api/v2/...` because that is
+what production runs; the shapes are identical on v1 apart from the
+handful of breaks listed in [`docs/v2-migration.md`](../v2-migration.md).
 
 Each guide is self-contained; read in any order. Prerequisites
 (running demo, loaded data) are listed in the project [README](../../README.md).
