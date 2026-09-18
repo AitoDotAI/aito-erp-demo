@@ -322,6 +322,9 @@ async def aito_timing_middleware(request: Request, call_next):
     header_value = timing.render_header()
     if header_value:
         response.headers["X-Aito-Calls"] = header_value
+        totals = timing.render_total_header()
+        if totals:
+            response.headers["X-Aito-Calls-Total"] = totals
     return response
 
 
@@ -373,7 +376,7 @@ app.add_middleware(
     # X-Aito-Calls carries per-request timing data the browser reads
     # to render the latency pill. CORS hides custom response headers
     # from JS unless explicitly exposed.
-    expose_headers=["X-Aito-Calls"],
+    expose_headers=["X-Aito-Calls", "X-Aito-Calls-Total"],
 )
 
 
