@@ -26,7 +26,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+import logging
+
+from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.aito_client import AitoClient, AitoError
@@ -931,6 +933,57 @@ def project_plan_generate(body: dict, request: Request):
         estimated_budget_eur=float(budget) if budget else None,
     )
     return plan.to_dict()
+
+
+@app.post("/api/project-plan/stream")
+def project_plan_stream(body: dict, request: Request):
+    """The same plan as `/generate`, streamed as NDJSON.
+
+    `/generate` does ~328 Aito calls and returns after all of them —
+    sixteen seconds of blank screen, and in production a 502, because
+    the timing header it accumulated outgrew nginx's proxy buffer.
+    Streaming fixes the wait without asking Aito to do less work, which
+    matters because the work IS the demonstration.
+
+    One JSON object per line (`application/x-ndjson`) rather than SSE:
+    this is a POST, and `EventSource` only speaks GET.
+
+    Errors after the first byte cannot be a status code — the response
+    has already begun 200 — so a failed task is an `error` line and the
+    view renders what did arrive.
+    """
+    import json as _json
+
+    from src.task_service import stream_plan
+    _, aito = client_from_request(request)
+    project_type = body.get("project_type", "construction")
+    region = body.get("region", "Helsinki")
+    season = body.get("season", "summer")
+    budget = body.get("estimated_budget_eur")
+
+    def lines():
+        try:
+            for event in stream_plan(
+                aito,
+                project_type=project_type,
+                region=region,
+                season=season,
+                estimated_budget_eur=float(budget) if budget else None,
+            ):
+                yield _json.dumps(event, ensure_ascii=False) + "\n"
+        except Exception as exc:   # noqa: BLE001 — the client is mid-body
+            logging.getLogger(__name__).exception(
+                "project plan stream failed")
+            yield _json.dumps({"type": "error", "fatal": True,
+                               "message": str(exc)}) + "\n"
+
+    return StreamingResponse(
+        lines(),
+        media_type="application/x-ndjson",
+        # Proxies that buffer a response defeat the point of streaming
+        # it; this is the header nginx reads to leave it alone.
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/project-plan/rerank")

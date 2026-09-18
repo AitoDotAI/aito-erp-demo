@@ -163,3 +163,51 @@ export function fetchApiVersion(): Promise<ApiVersion> {
   }
   return _versionPromise;
 }
+
+/** POST and consume an NDJSON stream, one parsed object per line.
+ *
+ * `apiFetch` waits for the whole body; some endpoints produce their
+ * answer over many seconds and there is no reason to withhold the part
+ * that is ready. `/api/project-plan/stream` takes ~17s to finish and
+ * emits its first task at ~7s — the difference between a blank screen
+ * and a plan filling in.
+ *
+ * `onEvent` is called per line, in arrival order. Lines are buffered
+ * across chunk boundaries, because a chunk is not a line: a read can
+ * split one object in half and routinely does.
+ */
+export async function apiStream(
+  path: string,
+  body: unknown,
+  onEvent: (event: Record<string, unknown>) => void,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Tenant": activeTenant(),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
+  if (!res.body) throw new Error(`No stream body: ${path}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    // The last element is whatever came after the final newline — a
+    // partial line, or "" when the chunk ended cleanly. Either way it
+    // stays in the buffer.
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      onEvent(JSON.parse(line));
+    }
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer));
+}
