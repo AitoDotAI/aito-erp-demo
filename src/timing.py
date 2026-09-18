@@ -17,6 +17,11 @@ thread served the request, and the contextvar binding is per-task).
 
 from contextvars import ContextVar
 
+# Twelve, because that is exactly what the latency pill renders — see
+# `LatencyBadge.tsx`, which already sliced to 12 so a big plan "doesn't
+# unfurl forever". The display was capped and the wire was not.
+MAX_HEADER_CALLS = 12
+
 
 # Per-request list of `(endpoint_path, duration_ms)` tuples. The list
 # is reset by the FastAPI middleware on each incoming request. Code
@@ -60,6 +65,33 @@ def render_header() -> str:
     can sum + group as it likes. Empty when no calls were made
     (e.g. cache hit); the middleware skips emitting the header in
     that case.
+
+    CAPPED, and that cap is load-bearing. A generated project plan
+    makes 328 Aito calls, which rendered to a 4882-byte header — and
+    nginx's default `proxy_buffer_size` is 4096, so it answered the
+    whole request with a 502 rather than pass the header on. The view
+    worked locally, where nothing sits in front of uvicorn, and failed
+    in production only for the project types large enough to cross the
+    line: `maintenance` (1186 bytes) served fine while `construction`
+    (4872) did not.
+
+    A response header is a debug channel, not a data channel. The
+    frontend already showed at most twelve entries; it was the other
+    316 that broke the page.
     """
-    return ",".join(f"{name}:{ms:.1f}"
-                    for name, ms in current_calls())
+    calls = current_calls()
+    return ",".join(f"{name}:{ms:.1f}" for name, ms in calls[:MAX_HEADER_CALLS])
+
+
+def render_total_header() -> str:
+    """`<count>,<total_ms>` — the honest totals, whatever the cap.
+
+    The per-call list is truncated, so the pill cannot count entries
+    any more without under-reporting. This carries what it actually
+    wants to show: how many calls the request made and how long they
+    took together.
+    """
+    calls = current_calls()
+    if not calls:
+        return ""
+    return f"{len(calls)},{sum(ms for _, ms in calls):.1f}"

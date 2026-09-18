@@ -24,8 +24,15 @@ export interface AitoCall {
  *  The latency pill subscribes via `window.addEventListener("aito:calls", ...)`. */
 export interface AitoCallsEvent {
   path: string;         // backend route (e.g. "/api/po/pending")
-  calls: AitoCall[];    // empty for cache-hit responses (no header)
+  calls: AitoCall[];    // per-call detail, CAPPED — see totalCalls
   cached: boolean;      // true when no X-Aito-Calls header present
+  /** How many Aito calls the request really made, and their summed
+   *  wall time. `calls` is truncated server-side (a generated project
+   *  plan makes 328 of them and the full list produced a header nginx
+   *  refused to forward), so counting entries under-reports. These come
+   *  from `X-Aito-Calls-Total` and are exact. */
+  totalCalls: number;
+  totalMs: number;
 }
 
 export const AITO_CALLS_EVENT = "aito:calls";
@@ -101,10 +108,20 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   // care can ignore. Done before .json() so the pill updates as soon
   // as the headers land, not after the body parses.
   if (typeof window !== "undefined" && res.ok) {
+    const calls = parseAitoCalls(res.headers.get("X-Aito-Calls"));
+    // `X-Aito-Calls-Total` is "<count>,<total_ms>". Absent on an older
+    // backend, in which case the truncation it describes is absent too
+    // and counting the entries is correct.
+    const [rawCount, rawMs] =
+      (res.headers.get("X-Aito-Calls-Total") ?? "").split(",");
+    const totalCalls = Number(rawCount) || calls.length;
+    const totalMs = Number(rawMs) || calls.reduce((s, c) => s + c.ms, 0);
     const detail: AitoCallsEvent = {
       path,
-      calls: parseAitoCalls(res.headers.get("X-Aito-Calls")),
+      calls,
       cached: !res.headers.has("X-Aito-Calls"),
+      totalCalls,
+      totalMs,
     };
     window.dispatchEvent(new CustomEvent(AITO_CALLS_EVENT, { detail }));
   }

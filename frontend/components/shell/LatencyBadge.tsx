@@ -8,6 +8,7 @@ const WINDOW = 30;
 interface Sample {
   ms: number;        // total ms across every Aito call in the request
   calls: AitoCall[]; // per-call breakdown — drives the popover detail list
+  totalCalls: number; // exact, even though `calls` is capped server-side
   path: string;
   at: number;
 }
@@ -61,11 +62,12 @@ export default function LatencyBadge() {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<AitoCallsEvent>).detail;
       if (detail.cached || detail.calls.length === 0) return;
-      const ms = detail.calls.reduce((s, c) => s + c.ms, 0);
+      const ms = detail.totalMs;
       setSamples((prev) => {
         const next = [...prev, {
           ms,
           calls: detail.calls,
+          totalCalls: detail.totalCalls,
           path: detail.path,
           at: Date.now(),
         }];
@@ -96,8 +98,8 @@ export default function LatencyBadge() {
     >
       <span className="latency-badge-dot" aria-hidden="true" />
       <span>aito {fmtMs(last.ms)}</span>
-      {last.calls.length > 1 && (
-        <span className="latency-badge-count">×{last.calls.length}</span>
+      {last.totalCalls > 1 && (
+        <span className="latency-badge-count">×{last.totalCalls}</span>
       )}
       {hover && (
         <span className="latency-badge-tooltip" role="tooltip">
@@ -116,9 +118,9 @@ export default function LatencyBadge() {
             <span className="latency-badge-stat-label">last</span>
             <span className="latency-badge-stat-val">
               {fmtMs(last.ms)}
-              {last.calls.length > 1 && (
+              {last.totalCalls > 1 && (
                 <span className="latency-badge-stat-aside">
-                  ({last.calls.length} calls)
+                  ({last.totalCalls} calls)
                 </span>
               )}
             </span>
@@ -150,9 +152,9 @@ export default function LatencyBadge() {
                     <span className="latency-badge-call-ms">{fmtMs(c.ms)}</span>
                   </span>
                 ))}
-                {last.calls.length > 12 && (
+                {last.totalCalls > last.calls.length && (
                   <span className="latency-badge-call-more">
-                    +{last.calls.length - 12} more
+                    +{last.totalCalls - last.calls.length} more
                   </span>
                 )}
               </span>
