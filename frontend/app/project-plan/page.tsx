@@ -5,7 +5,7 @@ import Nav from "@/components/shell/Nav";
 import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
-import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { apiFetch, fmtAmount, confClass, apiStream, AITO_CALLS_EVENT, type AitoCall, type AitoCallsEvent } from "@/lib/api";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import type {
   AitoPanelConfig,
@@ -16,6 +16,7 @@ import type {
   NextPhaseResponse,
   NextTasksResponse,
   PhaseOption,
+  PlanMeta,
   SupplierOption,
   SwapSupplierResponse,
   TaskMaterialsResponse,
@@ -151,6 +152,9 @@ export default function ProjectPlanPage() {
   const [mode, setMode] = useState<Mode>("idle");
   const [plan, setPlan] = useState<GeneratedPlanResponse | null>(null);
   const [generating, setGenerating] = useState(false);
+  // How many tasks the stream said to expect, so the view can show
+  // "12 / 24" while they arrive instead of an indeterminate spinner.
+  const [expected, setExpected] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<AitoPanelConfig>(DEFAULT_PANEL);
 
@@ -203,36 +207,87 @@ export default function ProjectPlanPage() {
     setError(null);
     setPanel(DEFAULT_PANEL);
     closeAllPickers();
+    setBuiltTasks([]);
+    setExpected(0);
     try {
-      const result = await apiFetch<GeneratedPlanResponse>(
-        "/api/project-plan/generate/",
+      // Streamed, not awaited whole. The plan takes ~17s to finish and
+      // the first task lands at ~7s; waiting for all of it meant a
+      // blank screen for the entire time. The work is unchanged —
+      // ~328 Aito calls — and that is deliberate: the fan-out IS the
+      // demonstration. Showing it arrive is more of that, not less.
+      await apiStream(
+        "/api/project-plan/stream",
         {
-          method: "POST",
-          body: JSON.stringify({
-            project_type: projectType,
-            region,
-            season,
-            estimated_budget_eur: budget ? Number(budget) : null,
-          }),
+          project_type: projectType,
+          region,
+          season,
+          estimated_budget_eur: budget ? Number(budget) : null,
         },
-      );
-      setPlan(result);
-      setAcceptedPhases(result.phases);
-      setBuiltTasks(
-        result.tasks.map((t) => ({
-          id: nextTaskId(),
-          phase: t.phase,
-          task_name: t.task_name,
-          assignee: {
-            assignee_kind: t.assignee_kind,
-            name: t.assignee,
-            p: t.assignee_confidence,
-            success_p: t.success_p,
-          },
-          typical_days: t.planned_days,
-          typical_cost_eur: t.planned_cost_eur,
-          materials: t.materials,
-        })),
+        (ev) => {
+          const type = ev.type as string;
+          if (type === "meta") {
+            const meta = ev as unknown as PlanMeta;
+            setExpected(meta.expected_tasks);
+            setAcceptedPhases(meta.phases);
+            // Enough of a plan to draw the phase skeleton, ~2s in.
+            setPlan({
+              project_type: meta.project_type,
+              region: meta.region,
+              season: meta.season,
+              estimated_budget_eur: meta.estimated_budget_eur,
+              phases: meta.phases,
+              tasks: [],
+              purchases: [],
+              total_planned_days: 0,
+              total_planned_cost_eur: 0,
+              total_purchases_eur: 0,
+              avg_success_p: 0,
+            });
+          } else if (type === "task") {
+            const t = ev.task as GeneratedPlanResponse["tasks"][number];
+            setBuiltTasks((prev) => [...prev, {
+              id: nextTaskId(),
+              phase: t.phase,
+              task_name: t.task_name,
+              assignee: {
+                assignee_kind: t.assignee_kind,
+                name: t.assignee,
+                p: t.assignee_confidence,
+                success_p: t.success_p,
+              },
+              typical_days: t.planned_days,
+              typical_cost_eur: t.planned_cost_eur,
+              materials: t.materials,
+            }]);
+            // The latency pill reads a response header, and there is no
+            // header to read once the body has begun. The running tally
+            // rides in the stream instead, so the badge ticks up while
+            // the plan builds rather than landing all at once at the end.
+            window.dispatchEvent(new CustomEvent(AITO_CALLS_EVENT, {
+              detail: {
+                path: "/api/project-plan/stream",
+                calls: (ev.calls_recent ?? []) as AitoCall[],
+                cached: false,
+                totalCalls: (ev.calls_total ?? 0) as number,
+                totalMs: (ev.calls_ms ?? 0) as number,
+              } satisfies AitoCallsEvent,
+            }));
+          } else if (type === "done") {
+            setPlan((prev) => prev && ({
+              ...prev,
+              purchases: ev.purchases as GeneratedPlanResponse["purchases"],
+              total_planned_days: ev.total_planned_days as number,
+              total_planned_cost_eur: ev.total_planned_cost_eur as number,
+              total_purchases_eur: (ev.total_purchases_eur as number) ?? 0,
+              avg_success_p: (ev.avg_success_p as number | null) ?? 0,
+            }));
+          } else if (type === "error") {
+            // One task failed, or the whole stream did. Either way the
+            // body is already 200, so this is the only way to say so —
+            // and the tasks that did arrive stay on screen.
+            setError((ev.message as string) || "A task could not be planned");
+          }
+        },
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -662,7 +717,14 @@ export default function ProjectPlanPage() {
                   onClick={handleGenerate}
                   disabled={generating || walkerLoading}
                 >
-                  {generating ? "Drafting…" : "Draft full plan with Aito →"}
+                  {generating
+                    // The count comes from the stream's `meta` line, so
+                    // the wait is legible rather than indeterminate: a
+                    // plan takes ~17s and the user can watch it fill.
+                    ? (expected
+                        ? `Drafting… ${builtTasks.length}/${expected}`
+                        : "Drafting…")
+                    : "Draft full plan with Aito →"}
                 </button>
                 <button
                   type="button"

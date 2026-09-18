@@ -840,6 +840,17 @@ export interface PlannerOptions {
 /** One claim about a candidate, with who made it. `aito` came out of
  *  the `$why` tree, `against` came out of it as evidence AGAINST,
  *  `match` was computed in the service and argued by nobody. */
+/** First line of the project-plan stream: enough to draw the phase
+ *  skeleton (~2s in) before any task has been predicted. */
+export interface PlanMeta {
+  project_type: string;
+  region: string;
+  season: string;
+  estimated_budget_eur: number | null;
+  phases: string[];
+  expected_tasks: number;
+}
+
 export interface MatchReason {
   kind: "aito" | "against" | "match";
   text: string;

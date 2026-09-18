@@ -107,6 +107,42 @@ _predict from=purchases where={category} predict=supplier
 _search  from=purchases where={category, supplier}    # historical typical amount
 ```
 
+## The plan is streamed, and the reason is the point
+
+Drafting a plan is ~328 Aito calls: 8 phases × 4 tasks, ~8 predicts per
+task, plus one `_search` per purchase category. That takes ~17 seconds,
+and the obvious reaction is to make it do less.
+
+That would be the wrong fix. The fan-out IS the demonstration — a
+visitor watching the latency badge climb past three hundred calls sees
+that "Aito drafts this plan" is real database work and not one offline
+LLM call. Cutting it to look fast would remove the thing worth showing.
+
+So `/api/project-plan/stream` sends NDJSON, one object per line, and
+the view renders each task the moment its own predicts return:
+
+  - `meta` at ~2s — phases and expected task count, enough to draw the
+    skeleton before any task exists
+  - `task` × N from ~6s to ~16s — each one appears as it lands, and the
+    button counts `Drafting… 12/24`
+  - `done` — the phase roll-up and totals
+
+NDJSON rather than SSE because this is a POST and `EventSource` only
+speaks GET. `X-Accel-Buffering: no` because a proxy that buffers the
+response defeats the point of streaming it.
+
+The running Aito tally rides in the stream too. The latency pill
+normally reads the `X-Aito-Calls` response header, and there is no
+header left to read once the body has begun — so each `task` line
+carries the count and elapsed total, and the badge ticks up while the
+plan builds instead of arriving all at once at the end. More of the
+demonstration visible, not less.
+
+`/api/project-plan/generate` still exists and returns the whole plan in
+one response. Both paths share `_plan_scaffold` and the same per-task
+predictor, and a test asserts they produce the same tasks, totals and
+purchases — they cannot drift.
+
 ## Tradeoffs and gotchas
 
 - **`task_name` as Text.** The full-plan generator uses `_search` +

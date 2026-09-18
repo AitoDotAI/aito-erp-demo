@@ -33,10 +33,11 @@ from __future__ import annotations
 import contextvars
 import logging
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Iterator, TypeVar
 
+from src import timing
 from src.aito_client import AitoClient
 from src.why_processor import process_factors
 
@@ -1170,6 +1171,38 @@ def generate_plan(
     is the point: visitors *see* that "Aito drafts this plan" is
     real database work, not a single offline LLM call.
     """
+    plan, work, descriptions_by_category = _plan_scaffold(
+        client, project_type, region, season, estimated_budget_eur)
+    if not work:
+        return plan
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        plan.tasks = _ctx_map(
+            pool,
+            lambda pt: _predict_task_assignment(
+                client, project_type, pt[0], pt[1], region, season,
+                descriptions_by_category,
+            ),
+            work,
+        )
+    _roll_up_purchases(plan)
+    return plan
+
+
+def _plan_scaffold(
+    client: AitoClient,
+    project_type: str,
+    region: str,
+    season: str,
+    estimated_budget_eur: float | None,
+) -> tuple[GeneratedPlan, list[tuple[str, str]], dict[str, list[str]]]:
+    """Everything before the per-task fan-out: which phases, which
+    tasks, and the per-category descriptions the fan-out reuses.
+
+    Extracted so `generate_plan` and `stream_plan` cannot drift. The
+    fan-out is the only thing that differs between them — one waits for
+    all of it, the other yields as it lands.
+    """
     history = _completed_tasks_for_type(client, project_type)
     if not history:
         return GeneratedPlan(
@@ -1179,7 +1212,7 @@ def generate_plan(
             estimated_budget_eur=estimated_budget_eur,
             phases=[],
             tasks=[],
-        )
+        ), [], {}
 
     typical = _typical_tasks_per_phase(history, limit=MAX_TASKS_PER_PHASE)
     phases = _ordered_phases(list(typical.keys()))
@@ -1220,20 +1253,13 @@ def generate_plan(
         for task_name in typical.get(phase, []):
             work.append((phase, task_name))
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        plan.tasks = _ctx_map(
-            pool,
-            lambda pt: _predict_task_assignment(
-                client, project_type, pt[0], pt[1], region, season,
-                descriptions_by_category,
-            ),
-            work,
-        )
+    return plan, work, descriptions_by_category
 
-    # Phase-level purchases are derived from task-level materials so
-    # the legacy `purchases` field still summarises spend at the phase
-    # for any downstream consumers (KPIs, exports). Same shape as the
-    # old per-phase predictor, just rolled up from the new flow.
+
+def _roll_up_purchases(plan: GeneratedPlan) -> None:
+    """Phase-level purchases derived from task-level materials, so the
+    legacy `purchases` field still summarises spend at the phase for
+    downstream consumers (KPIs, exports)."""
     rollup: dict[tuple[str, str], list[MaterialSuggestion]] = {}
     for t in plan.tasks:
         for m in t.materials:
@@ -1254,7 +1280,113 @@ def generate_plan(
             coverage=sum(m.coverage for m in in_top),
         ))
 
-    return plan
+
+def stream_plan(
+    client: AitoClient,
+    project_type: str,
+    region: str,
+    season: str,
+    estimated_budget_eur: float | None = None,
+) -> Iterator[dict]:
+    """The same plan, yielded as it lands rather than after all of it.
+
+    Identical work to `generate_plan` — the scaffold is shared and the
+    fan-out is the same ~328 Aito calls. What changes is that a task
+    reaches the screen the moment its own predicts return, instead of
+    every task waiting on the slowest.
+
+    That matters twice over. Sixteen seconds of blank screen was the
+    actual complaint, and the fix for it is not to ask Aito to do less:
+    the chattiness IS the demonstration, and a visitor watching thirty
+    tasks appear one after another sees more of it than one who waits
+    and is then handed a finished table.
+
+    Yields plain dicts, one per NDJSON line:
+      `meta`  — phases and how many tasks to expect, first, so the view
+                can draw the skeleton before any work lands
+      `task`  — one finished task, with the running Aito call tally
+      `done`  — the phase roll-up and totals
+      `error` — one task failed. The body has already begun, so no
+                status code can carry this; the stream has to.
+    """
+    plan, work, descriptions_by_category = _plan_scaffold(
+        client, project_type, region, season, estimated_budget_eur)
+
+    yield {
+        "type": "meta",
+        "project_type": plan.project_type,
+        "region": plan.region,
+        "season": plan.season,
+        "estimated_budget_eur": plan.estimated_budget_eur,
+        "phases": plan.phases,
+        "expected_tasks": len(work),
+    }
+    if not work:
+        yield {"type": "done", "purchases": [], "total_planned_days": 0,
+               "total_planned_cost_eur": 0.0, "total_purchases_eur": 0.0,
+               "avg_success_p": None}
+        return
+
+    # `as_completed`, not `_ctx_map`, which waits for every future
+    # before returning anything. The context-copy rule is unchanged:
+    # the copy has to be taken on THIS thread, before submitting, or
+    # the worker records its Aito calls into an empty context.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {}
+        for phase, task_name in work:
+            ctx = contextvars.copy_context()
+            futures[pool.submit(
+                ctx.run, _predict_task_assignment, client, project_type,
+                phase, task_name, region, season, descriptions_by_category,
+            )] = (phase, task_name)
+
+        seen = 0
+        for fut in as_completed(futures):
+            phase, task_name = futures[fut]
+            try:
+                task = fut.result()
+            except Exception as exc:   # noqa: BLE001 — reported, not swallowed
+                log.exception("plan task failed: %s / %s", phase, task_name)
+                yield {"type": "error", "phase": phase,
+                       "task_name": task_name, "message": str(exc)}
+                continue
+            plan.tasks.append(task)
+            seen += 1
+            calls = timing.current_calls()
+            yield {
+                "type": "task",
+                "index": seen,
+                "expected_tasks": len(work),
+                "task": task.to_dict(),
+                # The latency pill cannot read a response header here:
+                # headers are long gone by the time the first task
+                # lands. The tally rides in the stream instead and the
+                # pill ticks up live — more visible than the header
+                # was, not less.
+                "calls_total": len(calls),
+                "calls_ms": round(sum(ms for _, ms in calls), 1),
+                "calls_recent": [
+                    {"endpoint": name, "ms": round(ms, 1)}
+                    for name, ms in calls[-timing.MAX_HEADER_CALLS:]
+                ],
+            }
+
+    # Tasks completed out of order. Put them back in plan order so the
+    # roll-up — and anything else reading `plan.tasks` — sees exactly
+    # what the non-streaming path produces.
+    order = {pair: i for i, pair in enumerate(work)}
+    plan.tasks.sort(key=lambda t: order.get((t.phase, t.task_name), 0))
+    _roll_up_purchases(plan)
+
+    full = plan.to_dict()
+    yield {
+        "type": "done",
+        "purchases": full["purchases"],
+        "total_planned_days": full["total_planned_days"],
+        "total_planned_cost_eur": full["total_planned_cost_eur"],
+        "total_purchases_eur": full["total_purchases_eur"],
+        "avg_success_p": full.get("avg_success_p"),
+    }
 
 
 def rerank_assignees(
