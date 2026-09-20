@@ -45,6 +45,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from statistics import median
 
+import logging
+
 from src.aito_client import AitoClient, AitoError
 from src.availability_service import (WindowAvailability,
                                       availability_in_window, month_label,
@@ -52,6 +54,8 @@ from src.availability_service import (WindowAvailability,
                                       window_months)
 from src.utilization_service import get_overview as get_utilization
 from src.why_processor import process_factors
+
+log = logging.getLogger(__name__)
 
 
 # Where a quote sits against the going rate for comparable work. The
@@ -575,21 +579,61 @@ PERSON_FIELDS = ["title", "discipline", "skills", "certifications",
                  "domains", "site", "seniority", "years_experience"]
 
 
+def _site_key(client: AitoClient) -> str:
+    """Which spelling of the job's `site` this engine will accept.
+
+    See the call site for why the two disagree. Kept as a function so
+    there is exactly one place to delete when the upstream 500 is
+    fixed and both engines take the bare name again.
+    """
+    return "assignments.site" if client.api_version == "v2" else "site"
+
+
 def _hits(client: AitoClient, table: str, where: dict,
           predict_field: str, limit: int = 6,
           select_extra: list[str] | None = None) -> list[dict]:
-    """`_predict`, tolerating a table this tenant doesn't carry.
+    """`_predict`, tolerating a table this tenant doesn't carry — and
+    ONLY that.
 
     `quotes` is optional per persona (see data_loader.OPTIONAL_TABLES),
-    so the planner degrades to "no sales read" rather than 500ing on a
-    tenant that only has delivery data.
+    so the planner degrades to "no sales read" rather than failing on a
+    tenant that only has delivery data. That is the whole of what this
+    is meant to absorb.
+
+    It used to absorb every `AitoError`, which turned a **500** on the
+    person query into an empty shortlist: every seat rendered
+    "unstaffed / did well — / done 0", which reads as "Aito had no
+    opinion" rather than "the query failed". The planner looked like it
+    was working and was quietly answering nothing. An error nobody can
+    see is worse than one that reaches the screen, so anything that is
+    not a missing table is logged and re-raised.
     """
     try:
         response = client.predict(table, where, predict_field, limit=limit,
                                   select_extra=select_extra)
-    except AitoError:
-        return []
+    except AitoError as exc:
+        if _is_missing_table(exc, table):
+            return []
+        log.error("predict %s.%s failed, where=%s: %s",
+                  table, predict_field, where, exc)
+        raise
     return response.get("hits") or []
+
+
+def _is_missing_table(exc: AitoError, table: str) -> bool:
+    """Whether this error means "no such table", as opposed to anything
+    else going wrong.
+
+    Matched on the message because neither API version carries a
+    machine-readable code for it. Deliberately narrow: a phrase that
+    fails to match costs a visible error, while one that matches too
+    much costs a silent wrong answer, and only one of those is
+    recoverable by looking at the screen.
+    """
+    text = str(exc).lower()
+    return (("not found" in text or "does not exist" in text
+             or "unknown table" in text or "no such table" in text)
+            and table.lower() in text)
 
 
 def _p_of(hits: list[dict], value) -> tuple[float | None, dict]:
@@ -764,7 +808,22 @@ def plan_engagement(
         # dropped here.
         where: dict = {"project_type": project_type, "role": role}
         if site:
-            where["site"] = site
+            # QUALIFIED on rep2, bare on rep1, and neither engine
+            # accepts the other's form.
+            #
+            # `site` is a column on `assignments`, on `people` and on
+            # `projects`, and `assignments` links to both of the latter.
+            # Asking rep2 to `_predict person` with a bare `site`
+            # clause returns **500 [internal]** — filed upstream. The
+            # qualified name answers fine, as does `_search` with the
+            # identical where, as does `_predict role` (not a link)
+            # with a bare `site`. rep1 is the mirror image: bare works,
+            # and `assignments.site` is rejected with a 400.
+            #
+            # So this cannot be one query shape, and the branch is
+            # named here rather than hidden in the client, which has no
+            # way to know which column names are ambiguous.
+            where[_site_key(client)] = site
         if technology:
             where["technology"] = technology
         if domain:
