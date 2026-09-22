@@ -32,7 +32,7 @@ import os
 import sys
 
 from src.aito_client import AitoClient, AitoError
-from src.config import TENANT_IDS, TenantId, load_config
+from src.config import _TENANT_ENV_PREFIX, TENANT_IDS, TenantId, load_config
 from src.data_loader import SCHEMAS, load_fixture
 
 # Tables whose absence or emptiness would visibly break a view. The rest
@@ -66,6 +66,20 @@ def _row_count(client: AitoClient, table: str) -> int | None:
         return None
 
 
+def _explicit_v2_url_var(tenant: TenantId) -> str | None:
+    """The `AITO_<T>_V2_API_URL` variable overriding `AITO_V2_ENV` for
+    this tenant, if one is set.
+
+    Both halves have to be present: `config.load_config` only takes an
+    explicit pair when it has a URL *and* a key, so reporting on a
+    half-set pair would name a variable that is not actually in effect.
+    """
+    prefix = _TENANT_ENV_PREFIX[tenant]
+    url = os.environ.get(f"{prefix}_V2_API_URL", "").strip()
+    key = os.environ.get(f"{prefix}_V2_API_KEY", "").strip()
+    return f"{prefix}_V2_API_URL" if url and key else None
+
+
 def check_tenant(tenant: TenantId, api_version: str | None) -> list[str]:
     """Return a list of problems. Empty means ready."""
     problems: list[str] = []
@@ -85,7 +99,17 @@ def check_tenant(tenant: TenantId, api_version: str | None) -> list[str]:
         problems.append(_MASTER)
         print(f"  [ note ] {tenant:7} no /env/ segment — this is MASTER")
     else:
-        print(f"  [  ok  ] {tenant:7} env={env}")
+        # Say WHERE the env came from when it did not come from
+        # `AITO_V2_ENV`. An explicit `AITO_<T>_V2_API_URL` wins — by
+        # design, someone who wrote six URLs meant them — but an
+        # exported one left over in a long-lived shell wins just as
+        # silently, and then this tool reports "api v2 (from
+        # AITO_V2_ENV=master)" directly above a line reading "env=v2".
+        # That contradiction cost an afternoon; naming the override
+        # costs one line.
+        override = _explicit_v2_url_var(tenant)
+        suffix = f"  ← from {override}, not AITO_V2_ENV" if override else ""
+        print(f"  [  ok  ] {tenant:7} env={env}{suffix}")
 
     # 2. Schema drift: what this build declares versus what is loaded.
     for table, schema in SCHEMAS.items():

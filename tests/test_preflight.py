@@ -47,3 +47,34 @@ def test_the_gate_checks_the_schemas_this_build_actually_declares():
     be looking for them."""
     products = SCHEMAS["products"]["columns"]
     assert {"origin", "grade", "description"} <= set(products)
+
+
+def test_an_explicit_pair_is_named_when_it_overrides_the_env_var(monkeypatch):
+    """`AITO_V2_ENV=master` with a stale `AITO_<T>_V2_API_URL` exported
+    in a long-lived shell reported "api v2 (from AITO_V2_ENV=master)"
+    directly above "env=v2", and nothing said why. The explicit pair
+    winning is by design; it silently winning is not."""
+    from src.preflight import _explicit_v2_url_var
+
+    monkeypatch.setenv("AITO_AURORA_V2_API_URL", "https://example.invalid/env/v2")
+    monkeypatch.setenv("AITO_AURORA_V2_API_KEY", "k")
+    assert _explicit_v2_url_var("aurora") == "AITO_AURORA_V2_API_URL"
+
+
+def test_a_half_set_pair_is_not_reported(monkeypatch):
+    """`load_config` only takes an explicit pair when it has BOTH
+    halves, so naming a URL with no key would point at a variable that
+    is not in effect."""
+    from src.preflight import _explicit_v2_url_var
+
+    monkeypatch.setenv("AITO_AURORA_V2_API_URL", "https://example.invalid/env/v2")
+    monkeypatch.delenv("AITO_AURORA_V2_API_KEY", raising=False)
+    assert _explicit_v2_url_var("aurora") is None
+
+
+def test_no_override_means_no_notice(monkeypatch):
+    from src.preflight import _explicit_v2_url_var
+
+    monkeypatch.delenv("AITO_METSA_V2_API_URL", raising=False)
+    monkeypatch.delenv("AITO_METSA_V2_API_KEY", raising=False)
+    assert _explicit_v2_url_var("metsa") is None
