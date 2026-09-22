@@ -619,13 +619,13 @@ def queue_for(client: AitoClient, tenant: str
 # Re-run the harness and update the matching block together, or not at
 # all.
 _MEASURED_SHARED = {
-    "measured_on": "2026-09-14",
+    "measured_on": "2026-09-22",
     # The engine AND the query the numbers below describe. Two of them
     # moved between builds this month, and `config.ai` / `basedOn` each
     # move them further than a build did — so a figure here without all
     # three attached is a figure nobody can check.
     "engine_build":
-        '2.8.4 (6979ad71dfd5), config.ai=and, basedOn=["supplier"] on rep2, '
+        '2.10.0 (05d647466bd7), config.ai=and, basedOn=["supplier"] on rep2, '
         'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
         '120k lines, warm twins for every cold vendor)',
     "n": 2000,
@@ -677,23 +677,23 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.900, "overall_top5": 0.977, "overall_top1_name": 0.900,
-        "warm_top1": 0.899, "warm_top5": 0.973, "warm_top1_name": 0.899,
-        "cold_top1": 0.904, "cold_top5": 0.984, "cold_top1_name": 0.904,
-        "throughput_rows_per_s": 3.0, "throughput_workers": 8,
+        "overall_top1": 0.839, "overall_top5": 0.950, "overall_top1_name": 0.839,
+        "warm_top1": 0.833, "warm_top5": 0.941, "warm_top1_name": 0.833,
+        "cold_top1": 0.852, "cold_top5": 0.970, "cold_top1_name": 0.852,
+        "throughput_rows_per_s": 3.4, "throughput_workers": 8,
         "curve": [
-            {"bar": 0.05, "coverage": 1.000, "precision": 0.900},
-            {"bar": 0.10, "coverage": 0.999, "precision": 0.901},
-            {"bar": 0.20, "coverage": 0.994, "precision": 0.905},
-            {"bar": 0.35, "coverage": 0.970, "precision": 0.916},
-            {"bar": 0.50, "coverage": 0.925, "precision": 0.935},
+            {"bar": 0.05, "coverage": 0.999, "precision": 0.840},
+            {"bar": 0.10, "coverage": 0.996, "precision": 0.842},
+            {"bar": 0.20, "coverage": 0.982, "precision": 0.851},
+            {"bar": 0.35, "coverage": 0.936, "precision": 0.874},
+            {"bar": 0.50, "coverage": 0.864, "precision": 0.906},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.038, "aito": 0.853, "tfidf": 0.0},
+            {"overlap": "0%", "share": 0.038, "aito": 0.840, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.009, "aito": 0.789, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.256, "aito": 0.914, "tfidf": 0.286},
-            {"overlap": "67-99%", "share": 0.386, "aito": 0.911, "tfidf": 0.566},
-            {"overlap": "100%", "share": 0.311, "aito": 0.886, "tfidf": 0.934},
+            {"overlap": "34-66%", "share": 0.256, "aito": 0.853, "tfidf": 0.286},
+            {"overlap": "67-99%", "share": 0.386, "aito": 0.863, "tfidf": 0.566},
+            {"overlap": "100%", "share": 0.311, "aito": 0.799, "tfidf": 0.934},
         ],
     },
 }
