@@ -320,3 +320,60 @@ def test_a_requirement_of_only_separators_filters_nothing():
     from src.planner_service import _resolve_skills
 
     assert _resolve_skills(", ,", {"react": "React"}) == ([], [])
+
+
+# ── The 500 that looked like "Aito had no opinion" ──────────────────
+
+class _Boom:
+    """A client whose person query fails the way rep2's did."""
+
+    api_version = "v2"
+
+    def predict(self, table, where, field, **kw):
+        from src.aito_client import AitoError
+        raise AitoError("Aito v2 returned 500 [internal]: null")
+
+
+class _NoTable:
+    api_version = "v2"
+
+    def predict(self, table, where, field, **kw):
+        from src.aito_client import AitoError
+        raise AitoError(f"Table '{table}' not found")
+
+
+def test_a_failed_predict_is_not_an_empty_shortlist():
+    """`_hits` absorbed every AitoError, so a 500 on the person query
+    rendered as four seats reading "unstaffed / did well — / done 0".
+    That is indistinguishable from Aito having no candidates, and it is
+    how the planner shipped broken while looking fine.
+    """
+    from src.aito_client import AitoError
+    from src.planner_service import _hits
+
+    with pytest.raises(AitoError):
+        _hits(_Boom(), "assignments", {"site": "Helsinki"}, "person")
+
+
+def test_an_optional_table_still_degrades_quietly():
+    """The one case `_hits` exists to absorb: `quotes` is optional per
+    persona, so a tenant without it loses the sales read rather than
+    the whole plan."""
+    from src.planner_service import _hits
+
+    assert _hits(_NoTable(), "quotes", {}, "won") == []
+
+
+def test_the_site_clause_is_spelled_per_engine():
+    """Neither engine accepts the other's form. rep2 returns 500 on a
+    bare `site` when predicting the `person` LINK — `site` is a column
+    on assignments, people and projects — and rep1 rejects the
+    qualified name with a 400. Delete `_site_key` when the upstream 500
+    is fixed, not before."""
+    from src.planner_service import _site_key
+
+    class _V(object):
+        def __init__(self, v): self.api_version = v
+
+    assert _site_key(_V("v2")) == "assignments.site"
+    assert _site_key(_V("v1")) == "site"
