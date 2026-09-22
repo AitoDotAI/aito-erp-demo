@@ -696,13 +696,32 @@ none of them looked like a bug from the outside: they all looked like a
 mediocre database.
 
 **A prior is Aito saying "I have not seen this row, but I have seen
-rows like it".** The query passes `basedOn: ["supplier"]`, so where a
+rows like it".** The query passes `basedOn: ["name"]`, so where a
 catalogue row's own history is too thin to judge a factor, Aito
 generalises across rows sharing its supplier and reports which
 attribute carried it — a `prior` nested inside the factor. That is
 worth +1.7 points overall and +2.0 on familiar vendors, and it is the
 only way to get the explanation at all: without `basedOn` there are no
 priors in the tree to show.
+
+**The `basedOn` choice is engine-specific, and was re-measured.**
+`["supplier"]` was picked on 2.8.4, where it was worth +1.7 overall. On
+2.10.0 it is worth less than nothing — a plain `basedOn: none` beats it
+— while declaring the Text `name` gives 88.2% against its 83.9%, and
+90.7% on first-time vendors. That is most of the 2.8.4 → 2.10.0
+regression recovered, though it is a mitigation and not the fix (core
+#1464 / #1465). The cost is ~35% throughput.
+
+`base_name` — the catalogue name with its trailing `(origin)` stripped
+— was tried on the theory that the qualifier is a token no invoice can
+quote, so scoring a name against the query text was scoring against an
+unreachable string. Every name ends that way and **zero** of 5000
+training lines equal their product's full name, so the premise was
+right; the conclusion was wrong. It scored 80.0% against `name`'s
+88.8%, and the verbatim band fell to 67.4%. The qualifier is not noise:
+origin correlates with the vendor, which is exactly the signal route 2
+needs. Measured before adopting, which is the only reason it is not in
+the demo.
 
 **rep2 only, and that is the one engine branch in these services.**
 The same argument costs rep1 ten points overall and twenty on cold
