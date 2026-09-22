@@ -69,52 +69,45 @@ LINE_FEATURES = ("description", "billing_supplier", "unit_of_measure",
 # case that doc's own ProductMatchingTest book exists for.
 INFERENCE_PRESET = "and"
 
-# Generalise candidates by the product's own supplier.
+# Generalise candidates by the product's own NAME.
 #
-# A SKU invoiced nineteen times has thin history of its own. `basedOn`
-# lets Aito smooth a factor toward what it knows about products sharing
-# that attribute, and — the part that matters on screen — report WHICH
-# attribute carried it, as a `prior` inside the factor. Without this
-# there are no priors to show at all.
+# `basedOn` declares which of the candidate's attributes Aito may
+# generalise over, and — the part that shows on screen — reports which
+# one carried a factor, as a `prior` inside it.
 #
-# It is a SCORING change, not a display one. Measured on 600 held-out
-# lines against rep2 with `and`:
+# It names `name`, a Text column, which is the case core's own
+# retirement note describes: "a declared basedOn Text field is scored
+# by the text-token prior alone". Measured on the full 2000-line split,
+# engine 2.10.0:
 #
-#     none                  top-1 75.8%   warm 92.2%   cold 43.0%   127s
-#     ["category"]          top-1 76.7%   warm 93.0%   cold 44.0%   148s
-#     ["supplier"]          top-1 76.8%   warm 92.2%   cold 46.0%   176s
-#     ["category","supplier"] 75.8%       warm 92.0%   cold 43.5%   163s
+#     basedOn              overall   warm    cold   verbatim band
+#     ["supplier"]           83.9%  83.3%   85.2%      79.9%
+#     ["name"]               88.2%  87.0%   90.7%      84.6%
+#     ["base_name"]          80.0%      —       —      67.4%   (400-line sample)
+#     none                   85.8%      —       —      82.9%   (400-line sample)
 #
-# `supplier` for the cold-start gain: the one place this case is
-# genuinely weak. Both attributes together is worse than either — more
-# generalisation is not more signal. The cost is real (~40% more time
-# per query), which is why this is named here rather than switched on
-# everywhere.
+# `["supplier"]` was chosen on 2.8.4, where it was worth +1.7 overall
+# and +0.9 cold. On 2.10.0 it is worth LESS than nothing — a plain
+# `basedOn: none` beats it — and the Text field beats both. A `basedOn`
+# choice is evidently engine-specific, which is worth knowing before
+# the next one is treated as settled.
 #
-# Confirmed on the full held-out 2000 rather than left on the sample:
+# It recovers most of the 2.8.4 -> 2.10.0 regression: 83.9% -> 88.2%
+# against the 90.0% that build scored. See core #1464 / #1465; this is
+# a mitigation, not the fix.
 #
-#     rep2, and             overall   warm    cold
-#     basedOn none            77.1%   91.1%   49.2%
-#     basedOn ["supplier"]    78.8%   93.1%   50.1%
+# `base_name` — the catalogue name with its trailing `(origin)`
+# stripped — was tried on the theory that the qualifier is a token no
+# invoice can quote, so scoring against it was scoring against an
+# unreachable string. The theory was wrong and the measurement said so
+# immediately: 80.0% against `name`'s 88.8%, and the verbatim band fell
+# to 67.4%. The qualifier is not noise. Origin correlates with the
+# vendor, so it carries exactly the signal the vendor route needs.
 #
-# The sample had put cold at +3 and it came in at +0.9. The direction
-# held on all three and the sample's size did not, which is the usual
-# reason a number here is re-run at full size before it is quoted.
-#
-# **rep2 only, and that is measured, not assumed.** The same argument
-# against rep1 on the same 2000 lines and the same build:
-#
-#     rep1                  overall   warm    cold
-#     basedOn none            80.8%   90.5%   61.3%
-#     basedOn ["supplier"]    70.6%   85.4%   41.1%
-#
-# Ten points overall and TWENTY on cold start — the opposite sign and
-# an order of magnitude more of it. The two engines do not mean the
-# same thing by the argument, so the demo cannot send it to both and
-# call the query shared. This is the one place a service module here
-# branches on the engine rather than speaking one dialect, and the
-# numbers above are why it earns the exception.
-BASED_ON = ["supplier"]
+# The cost is throughput: 3.4 -> 2.5 rows/s at 8 workers, ~35% slower
+# per line. Named here rather than switched on everywhere for that
+# reason.
+BASED_ON = ["name"]
 
 # The vendor's own attributes, reached through the link on
 # `billing_supplier`. They matter most exactly where the vendor name is
@@ -625,7 +618,7 @@ _MEASURED_SHARED = {
     # move them further than a build did — so a figure here without all
     # three attached is a figure nobody can check.
     "engine_build":
-        '2.10.0 (05d647466bd7), config.ai=and, basedOn=["supplier"] on rep2, '
+        '2.10.0 (05d647466bd7), config.ai=and, basedOn=["name"] on rep2, '
         'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
         '120k lines, warm twins for every cold vendor)',
     "n": 2000,
@@ -677,23 +670,23 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "overall_top1": 0.839, "overall_top5": 0.950, "overall_top1_name": 0.839,
-        "warm_top1": 0.833, "warm_top5": 0.941, "warm_top1_name": 0.833,
-        "cold_top1": 0.852, "cold_top5": 0.970, "cold_top1_name": 0.852,
-        "throughput_rows_per_s": 3.4, "throughput_workers": 8,
+        "overall_top1": 0.882, "overall_top5": 0.959, "overall_top1_name": 0.882,
+        "warm_top1": 0.870, "warm_top5": 0.951, "warm_top1_name": 0.870,
+        "cold_top1": 0.907, "cold_top5": 0.973, "cold_top1_name": 0.907,
+        "throughput_rows_per_s": 2.5, "throughput_workers": 8,
         "curve": [
-            {"bar": 0.05, "coverage": 0.999, "precision": 0.840},
-            {"bar": 0.10, "coverage": 0.996, "precision": 0.842},
-            {"bar": 0.20, "coverage": 0.982, "precision": 0.851},
-            {"bar": 0.35, "coverage": 0.936, "precision": 0.874},
-            {"bar": 0.50, "coverage": 0.864, "precision": 0.906},
+            {"bar": 0.05, "coverage": 0.999, "precision": 0.884},
+            {"bar": 0.10, "coverage": 0.995, "precision": 0.887},
+            {"bar": 0.20, "coverage": 0.982, "precision": 0.897},
+            {"bar": 0.35, "coverage": 0.953, "precision": 0.915},
+            {"bar": 0.50, "coverage": 0.917, "precision": 0.930},
         ],
         "regimes": [
-            {"overlap": "0%", "share": 0.038, "aito": 0.840, "tfidf": 0.0},
+            {"overlap": "0%", "share": 0.038, "aito": 0.880, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.009, "aito": 0.789, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.256, "aito": 0.853, "tfidf": 0.286},
-            {"overlap": "67-99%", "share": 0.386, "aito": 0.863, "tfidf": 0.566},
-            {"overlap": "100%", "share": 0.311, "aito": 0.799, "tfidf": 0.934},
+            {"overlap": "34-66%", "share": 0.256, "aito": 0.910, "tfidf": 0.286},
+            {"overlap": "67-99%", "share": 0.386, "aito": 0.896, "tfidf": 0.566},
+            {"overlap": "100%", "share": 0.311, "aito": 0.846, "tfidf": 0.934},
         ],
     },
 }
