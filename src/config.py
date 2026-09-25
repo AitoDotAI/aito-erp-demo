@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 
 TenantId = Literal["metsa", "aurora", "studio"]
@@ -171,21 +171,39 @@ def v2_url_for(base_url: str, env_name: str) -> str:
     return root if env_name == "master" else f"{root}/env/{env_name}"
 
 
+def _load_dotenv(path: Path) -> None:
+    """Fill the environment from a dotenv file without overriding it.
+
+    A variable the caller set wins over the file, so
+    `AITO_API_URL=http://localhost:8080 uv run ...` really reaches the
+    local engine. This used `load_dotenv(override=True)`, where the file
+    won: on 2026-09-20 a loader run pointed at localhost silently wrote to
+    the production instance (shared.aito.ai) instead.
+
+    An empty variable counts as unset, so a blank export still picks up
+    the file's value rather than shadowing it.
+    """
+    for key, value in dotenv_values(path).items():
+        if value is not None and not os.environ.get(key):
+            os.environ[key] = value
+
+
 def load_config(*, use_dotenv: bool = True,
                 api_version: str | None = None) -> Config:
     """Load config from environment, with .env file fallback.
+
+    An explicitly set environment variable wins over `.env`.
 
     Set use_dotenv=False in tests to prevent .env from interfering
     with monkeypatched environment variables.
 
     `api_version` overrides both `.env` and the process environment.
-    `.env` is loaded with `override=True`, so a caller that only
-    exported `AITO_API_VERSION` would be silently overruled by a value
-    in the file — tools that mean a specific version (`./do
-    load-data-v2`, `./do v2-check`) pass it here instead.
+    Tools that mean a specific version (`./do load-data-v2`, `./do
+    v2-check`) pass it here, so an `AITO_API_VERSION` exported in the
+    shell cannot redirect them either.
     """
     if use_dotenv:
-        load_dotenv(_PROJECT_ROOT / ".env", override=True)
+        _load_dotenv(_PROJECT_ROOT / ".env")
 
     default_url = os.environ.get("AITO_API_URL", "").rstrip("/")
     default_key = os.environ.get("AITO_API_KEY", "")
