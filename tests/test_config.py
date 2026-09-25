@@ -1,7 +1,11 @@
 """Tests for configuration loading."""
 
 import os
+import subprocess
+from pathlib import Path
+
 import pytest
+from src import config as config_module
 from src.config import TENANT_IDS, load_config
 
 
@@ -211,3 +215,40 @@ def test_v2_without_any_credentials_says_both_ways_out(monkeypatch):
     monkeypatch.setenv("AITO_API_VERSION", "v2")
     with pytest.raises(ValueError, match="AITO_V2_ENV"):
         load_config(use_dotenv=False)
+
+
+def test_explicit_env_var_wins_over_dotenv(monkeypatch, tmp_path):
+    """The 2026-09-20 incident: a loader run with AITO_API_URL pointing at
+    localhost had it silently replaced by the file's production URL."""
+    _clear_aito_env(monkeypatch)
+    monkeypatch.setattr(config_module, "_PROJECT_ROOT", tmp_path)
+    (tmp_path / ".env").write_text(
+        "AITO_API_URL=https://shared.aito.ai/db/prod\n"
+        "AITO_API_KEY=file-key\n"
+        "AITO_API_VERSION=v2\n")
+    monkeypatch.setenv("AITO_API_URL", "http://localhost:8080")
+    monkeypatch.setenv("AITO_API_KEY", "")  # blank counts as unset
+    monkeypatch.setenv("AITO_API_VERSION", "v1")
+
+    cfg = load_config()
+
+    assert cfg.aito_api_url == "http://localhost:8080"
+    assert cfg.aito_api_key == "file-key"
+    assert cfg.api_version == "v1"
+
+
+def test_do_script_lets_explicit_env_win_over_dotenv(tmp_path):
+    """`./do` sources .env itself, before Python runs."""
+    do = (Path(__file__).resolve().parent.parent / "do").read_text()
+    helper = do[do.index("_source_env_files() {"):]
+    helper = helper[:helper.index("\n}\n") + 3]
+    (tmp_path / "dotenv").write_text("AITO_API_URL=https://prod\nAITO_API_KEY=file-key\n")
+    script = helper + '_source_env_files "$1/dotenv" "$1/missing"\n' \
+        'echo "$AITO_API_URL $AITO_API_KEY"\n'
+    env = {k: v for k, v in os.environ.items() if not k.startswith("AITO_")}
+    env.update(AITO_API_URL="http://localhost:8080", AITO_API_KEY="")
+
+    out = subprocess.run(["bash", "-euo", "pipefail", "-c", script, "_", str(tmp_path)],
+                         env=env, capture_output=True, text=True, check=True).stdout
+
+    assert out.split() == ["http://localhost:8080", "file-key"]

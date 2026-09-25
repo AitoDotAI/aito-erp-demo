@@ -3,12 +3,31 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source .env if present
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
-  set -a
-  source "$SCRIPT_DIR/.env"
-  set +a
-fi
+# Source dotenv files without overriding the caller's environment. A variable
+# that was already set (non-empty) when ./do started wins over every file, so
+# `AITO_API_URL=http://localhost:8080 ./do load-data` really targets
+# localhost; among the files, a later one wins over an earlier one. Plain
+# `set -a; source` let the file win: on 2026-09-20 a loader pointed at a
+# local engine silently wrote to production (shared.aito.ai) instead.
+_source_env_files() {
+  local file name kv
+  local -a explicit=()
+  for file in "$@"; do
+    [[ -f "$file" ]] || continue
+    while IFS= read -r name; do
+      [[ -n "${!name:-}" ]] && explicit+=("$name=${!name}")
+    done < <(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$file")
+  done
+  for file in "$@"; do
+    [[ -f "$file" ]] || continue
+    set -a
+    # shellcheck disable=SC1090
+    source "$file"
+    set +a
+  done
+  for kv in ${explicit[@]+"${explicit[@]}"}; do export "$kv"; done
+}
+_source_env_files "$SCRIPT_DIR/.env"
 
 # Ports: frontend on 8400 (user-facing), backend on 8401 (internal)
 PORT_FRONTEND=8400
