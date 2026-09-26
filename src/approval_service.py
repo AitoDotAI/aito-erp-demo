@@ -131,13 +131,18 @@ def predict_approval(client: AitoClient, item: dict) -> ApprovalPrediction:
     predicted_level = str(level_top.get("$value", ""))
     confidence = approver_top.get("$p", 0.0)
 
-    # Check escalation rules — override Aito prediction if triggered
+    # Check escalation rules — override Aito's predicted LEVEL if triggered.
+    # The rule decides the level, not the approver, so `confidence` stays
+    # the approver's own `$p`. It used to become 0.99 here, which showed
+    # Aito's approver pick as 99% certain next to an explanation that
+    # multiplies out to its real probability: a `$p` carried onto a
+    # decision it does not describe (org/demo-why-integrity-audit.md,
+    # "substitute-and-keep"). The escalation badge marks the rule.
     escalation_reason = None
     for rule in ESCALATION_RULES:
         if rule["match"](item):
             escalation_reason = rule["reason"]
             predicted_level = rule["level"]
-            confidence = 0.99  # Rule-based = high confidence
             break
 
     return ApprovalPrediction(
