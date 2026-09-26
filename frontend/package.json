@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test --experimental-strip-types --no-warnings lib/*.test.mjs"
   },
   "dependencies": {
     "@amplitude/analytics-browser": "^2.42.3",

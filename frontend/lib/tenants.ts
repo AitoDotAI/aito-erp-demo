@@ -72,3 +72,38 @@ export const DEFAULT_TENANT_ID: TenantId = "metsa";
 export function getTenant(id: TenantId): TenantProfile {
   return TENANTS.find((t) => t.id === id) ?? TENANTS[0];
 }
+
+export function isTenantId(value: unknown): value is TenantId {
+  return TENANTS.some((t) => t.id === value);
+}
+
+/** Does `tenant` hide the view at `pathname`? `/matching` and
+ *  `/matching/` (static export adds the slash) both match. */
+export function hidesRoute(tenant: TenantProfile, pathname: string): boolean {
+  return tenant.hideRoutes.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+}
+
+/** The tenant a page load starts in.
+ *
+ *  1. `?tenant=<id>` in the URL, so a link can open a view for a given
+ *     tenant (catalog deep links);
+ *  2. otherwise the choice persisted in localStorage;
+ *  3. otherwise the default.
+ *
+ *  Then, if that tenant hides the page being opened, the first tenant
+ *  that shows it. The nav already hides such views, but a direct link
+ *  bypasses the nav: a cold visit to /matching/ rendered EMPTY under the
+ *  default tenant, and /recommendations/ errored, because only Aurora
+ *  has a product catalogue. */
+export function resolveInitialTenant(
+  pathname: string,
+  search: string,
+  stored: string | null,
+): TenantId {
+  const fromUrl = new URLSearchParams(search).get("tenant");
+  const chosen: TenantId = isTenantId(fromUrl)
+    ? fromUrl
+    : isTenantId(stored) ? stored : DEFAULT_TENANT_ID;
+  if (!hidesRoute(getTenant(chosen), pathname)) return chosen;
+  return TENANTS.find((t) => !hidesRoute(t, pathname))?.id ?? chosen;
+}

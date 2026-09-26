@@ -1,17 +1,34 @@
-import { DEFAULT_TENANT_ID, TenantId } from "./tenants";
+import { DEFAULT_TENANT_ID, TenantId, isTenantId, resolveInitialTenant } from "./tenants";
 
 const API_BASE = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.host}`
   : "";
 
-const TENANT_STORAGE_KEY = "demoTenant";
+export const TENANT_STORAGE_KEY = "demoTenant";
+
+let tenantResolved = false;
 
 /** Read the active tenant from localStorage so apiFetch can stamp the
- * X-Tenant header without each call having to thread context through. */
-function activeTenant(): TenantId {
+ * X-Tenant header without each call having to thread context through.
+ *
+ * The first read of a page load resolves it from the URL and the route
+ * (`resolveInitialTenant`: `?tenant=`, then storage, then a tenant that
+ * shows this view) and persists the result. It has to happen here, not
+ * in TenantProvider's effect: pages fetch in their own effects, which
+ * run first, so a deep link's first request would otherwise go out under
+ * the wrong tenant and could land after the right one. Once per load, so
+ * a later switch in the TenantSwitcher is not overridden by the URL. */
+export function activeTenant(): TenantId {
   if (typeof window === "undefined") return DEFAULT_TENANT_ID;
-  const stored = window.localStorage.getItem(TENANT_STORAGE_KEY);
-  return (stored as TenantId | null) ?? DEFAULT_TENANT_ID;
+  const storage = window.localStorage;
+  if (!tenantResolved) {
+    tenantResolved = true;
+    storage.setItem(TENANT_STORAGE_KEY, resolveInitialTenant(
+      window.location.pathname, window.location.search,
+      storage.getItem(TENANT_STORAGE_KEY)));
+  }
+  const stored = storage.getItem(TENANT_STORAGE_KEY);
+  return isTenantId(stored) ? stored : DEFAULT_TENANT_ID;
 }
 
 /** One Aito API call's wall time, parsed from `X-Aito-Calls`. */

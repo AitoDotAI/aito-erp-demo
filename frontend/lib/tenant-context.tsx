@@ -11,13 +11,12 @@ import {
 
 import {
   DEFAULT_TENANT_ID,
-  TENANTS,
   TenantId,
   TenantProfile,
   getTenant,
 } from "./tenants";
 
-const STORAGE_KEY = "demoTenant";
+import { TENANT_STORAGE_KEY as STORAGE_KEY, activeTenant } from "./api";
 
 interface TenantContextValue {
   tenant: TenantProfile;
@@ -32,13 +31,11 @@ const TenantContext = createContext<TenantContextValue | null>(null);
 export function TenantProvider({ children }: { children: ReactNode }) {
   const [tenantId, setTenantIdState] = useState<TenantId>(DEFAULT_TENANT_ID);
 
-  // Load persisted choice on mount.
+  // Load the tenant on mount: `?tenant=`, else the persisted choice, else
+  // one that shows this view (see activeTenant / resolveInitialTenant).
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && TENANTS.some((t) => t.id === stored)) {
-      setTenantIdState(stored as TenantId);
-    }
+    setTenantIdState(activeTenant());
   }, []);
 
   const setTenantId = useCallback((id: TenantId) => {
