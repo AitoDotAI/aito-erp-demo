@@ -43,28 +43,16 @@ pkgs.mkShell {
     # Without this, importing src.aito_client dies at `import numpy`.
     export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
 
-    # Load .env if present. A variable already exported when the shell
-    # starts wins over the file (same rule as ./do and src/config.py):
-    # a plain `set -a; source .env` let the file win, which is how on
-    # 2026-09-20 a run pointed at a local engine wrote to production.
-    _load_env_file() {
-      local name kv
-      local -a explicit=()
-      while IFS= read -r name; do
-        [ -n "''${!name:-}" ] && explicit+=("$name=''${!name}")
-      done < <(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$1")
-      set -a; source "$1"; set +a
-      for kv in ''${explicit[@]+"''${explicit[@]}"}; do export "$kv"; done
-    }
-    if [ -f .env ]; then
-      _load_env_file .env
-      echo "  .env loaded"
-    elif [ -f .env.example ]; then
+    # .env is NOT exported into this shell. ./do and src/config.py read it
+    # on every run, and a variable exported in the shell wins over the file
+    # (so `AITO_API_URL=... ./do load-data` really goes there). Exporting the
+    # file here would make every value in it count as "exported by you":
+    # an edit to .env inside an open shell would then be silently ignored,
+    # and a switch from prod to a dev instance would keep writing to prod.
+    if [ ! -f .env ] && [ -f .env.example ]; then
       cp .env.example .env
-      _load_env_file .env
       echo "  .env created from .env.example"
     fi
-    unset -f _load_env_file
 
     # Dependencies live in frontend/ (npm) and .venv/ (uv)
     if [ ! -d "frontend/node_modules" ] || [ ! -d ".venv" ]; then
