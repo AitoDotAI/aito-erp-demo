@@ -70,8 +70,7 @@ def predict_approval(client: AitoClient, item: dict) -> ApprovalPrediction:
     for rule in ESCALATION_RULES:
         if rule["match"](item):
             escalation_reason = rule["reason"]
-            predicted_level = rule["level"]
-            confidence = 0.99
+            predicted_level = rule["level"]   # the rule sets the level only
             break
 
     return ApprovalPrediction(
@@ -129,12 +128,15 @@ CFO / Board); `approver` is the named individual. They can disagree
 for the actual Director — and the popover shows both confidences so
 the user knows which is the weak link.
 
-### 3. Confidence pinned at 0.99 for rule-routed POs
-When a rule fires we set confidence to `0.99`, not `1.00`. There's
-no such thing as 100% in this system; the rule could be wrong, the
-amount could be miscoded, the category could be off. Pinning at
-0.99 reminds the reviewer that the upstream data could be wrong
-even when the rule fired.
+### 3. A rule overrides the level, never the approver's confidence
+When a rule fires it sets the approval *level* (and the escalation
+badge says which rule). The confidence shown stays the *approver's*
+own `$p`, because that is the number the approver's explanation adds
+up to. This used to be pinned at `0.99` for rule-routed POs, which
+showed Aito's approver pick as near-certain next to an explanation
+that multiplied out to, say, 31% — a probability carried onto a
+decision it did not describe. The rule is certain about the level;
+it knows nothing about who approves.
 
 ### 4. Patterns flow to Rule Mining, not directly to policy
 If Aito notices that Wärtsilä spend over €4,500 always routes to
