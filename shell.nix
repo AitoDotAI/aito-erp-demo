@@ -43,13 +43,14 @@ pkgs.mkShell {
     # Without this, importing src.aito_client dies at `import numpy`.
     export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
 
-    # Load .env if present
-    if [ -f .env ]; then
-      set -a; source .env; set +a
-      echo "  .env loaded"
-    elif [ -f .env.example ]; then
+    # .env is NOT exported into this shell. ./do and src/config.py read it
+    # on every run, and a variable exported in the shell wins over the file
+    # (so `AITO_API_URL=... ./do load-data` really goes there). Exporting the
+    # file here would make every value in it count as "exported by you":
+    # an edit to .env inside an open shell would then be silently ignored,
+    # and a switch from prod to a dev instance would keep writing to prod.
+    if [ ! -f .env ] && [ -f .env.example ]; then
       cp .env.example .env
-      set -a; source .env; set +a
       echo "  .env created from .env.example"
     fi
 
