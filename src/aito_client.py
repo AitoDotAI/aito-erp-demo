@@ -148,6 +148,19 @@ def _canonical_predicted_values(response: dict, api_version: ApiVersion) -> dict
     return response
 
 
+def _canonical_estimate(resp) -> dict:
+    """A v2 `_estimate` in v1's shape: `{"estimate": n, "why": {...}}`.
+
+    With `select: ["estimate", "why"]` v2 already answers in that shape;
+    without it, the number arrives as `value` and there is no `why`.
+    Both are accepted, so a caller passing its own `select` still gets
+    the keys it reads.
+    """
+    data = resp.json.get("data") or {}
+    value = data.get("estimate", data.get("value"))
+    return {"estimate": value, "why": data.get("why") or {}}
+
+
 def _canonical_relate_hits(response: dict, api_version: ApiVersion) -> dict:
     """Normalise a `_relate` response onto the canonical shape.
 
@@ -478,14 +491,22 @@ class AitoClient:
             _canonical_predicted_values(response, self._api_version),
             table, predict_field)
 
-    def estimate(self, table: str, where: dict, estimate_field: str) -> dict:
+    def estimate(self, table: str, where: dict, estimate_field: str,
+                 select: list[str] | None = None) -> dict:
         """Run an `_estimate` query — a numeric value from neighbours.
 
-        Returns `{"estimate": <number>, "why": {...}}`. The `why` is a
-        `weightedAverage` whose components are `neighborContext` entries
-        — the comparable rows and how much each counted — so an estimate
-        can be shown next to the projects it came from rather than as a
-        number from nowhere.
+        Returns `{"estimate": <number>, "why": {...}}` on both API
+        versions. The `why` is a `weightedAverage` whose components are
+        `neighborContext` entries — the comparable rows and how much each
+        counted — so an estimate can be shown next to the projects it
+        came from rather than as a number from nowhere.
+
+        `select` passes through unchanged. When omitted, v2 is asked for
+        `["estimate", "why"]` explicitly, because its default answers
+        `{"value": n}` with no `why` at all, so any caller counting
+        neighbours read 0. That spelling was checked on 2.10.3 and is
+        also what v1 returns by default; `$value` / `$why` are rejected
+        by `_estimate` on both engines.
 
         Example:
             client.estimate(
@@ -495,11 +516,24 @@ class AitoClient:
                 estimate_field="actual_cost_eur",
             )
         """
-        query = {"from": table, "where": where, "estimate": estimate_field}
         if self._v2 is not None:
+            v2_select = select if select is not None else ["estimate", "why"]
             return self._v2_result("estimate", table,
-                                   lambda: self._v2.estimate(query),
-                                   extract=lambda resp: resp.data)
+                                   # By name. This passed the query dict
+                                   # positionally, which the SDK read as
+                                   # `from_table` and then raised TypeError
+                                   # for the missing `estimate` — before any
+                                   # request left, and past every caller's
+                                   # `except AitoError`.
+                                   lambda: self._v2.estimate(
+                                       from_table=table,
+                                       estimate=estimate_field,
+                                       where=where,
+                                       select=v2_select),
+                                   extract=_canonical_estimate)
+        query: dict = {"from": table, "where": where, "estimate": estimate_field}
+        if select is not None:
+            query["select"] = select
         try:
             return self._request("POST", "/_estimate", json=query)
         except AitoError as exc:

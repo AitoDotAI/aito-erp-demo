@@ -271,3 +271,37 @@ def test_relate_v2_keeps_the_servers_own_ps():
     ]}))
     hits = client.relate("purchases", {"delivery_late": True}, "supplier")["hits"]
     assert hits[0]["ps"]["pCondition"] == 0.2
+
+
+def test_estimate_on_v2_sends_the_query_the_sdk_expects():
+    """`estimate()` passed one positional dict to an SDK method that takes
+    `(from_table, estimate, where)`. Every `_estimate` on v2 raised a
+    TypeError before any request left the process — a TypeError, not an
+    AitoError, so the callers' `except AitoError` never saw it either."""
+    # As shared (2.10.3) answers when `select: ["estimate", "why"]`.
+    client, session = _v2_client(_FakeResponse(200, {"kind": "estimate", "data": {
+        "estimate": 4.2, "why": {"type": "weightedAverage", "components": [{}, {}]}}}))
+    result = client.estimate("products", {"category": "Tools"}, "weight_kg")
+    assert session.calls, "no request was sent"
+    body = session.calls[-1]["json"]
+    assert (body["from"], body["estimate"], body["where"]) == (
+        "products", "weight_kg", {"category": "Tools"})
+    assert result["estimate"] == 4.2
+
+
+def test_estimate_on_v2_asks_for_why_so_neighbours_can_be_counted():
+    """v2's default answers `{"value": n}` with no `why`, so every caller
+    that counts comparable rows read 0. The client asks for it by default."""
+    client, session = _v2_client(_FakeResponse(200, {"kind": "estimate", "data": {
+        "estimate": 4.2, "why": {"components": [{}, {}, {}]}}}))
+    result = client.estimate("products", {}, "weight_kg")
+    assert session.calls[-1]["json"]["select"] == ["estimate", "why"]
+    assert len(result["why"]["components"]) == 3
+
+
+def test_estimate_on_v2_reads_the_bare_value_shape_too():
+    """A caller passing its own select can get v2's `{"value": n}` back."""
+    client, session = _v2_client(_FakeResponse(200, {"kind": "estimate", "data": {"value": 7.5}}))
+    result = client.estimate("products", {}, "weight_kg", select=["estimate"])
+    assert session.calls[-1]["json"]["select"] == ["estimate"]
+    assert result == {"estimate": 7.5, "why": {}}
