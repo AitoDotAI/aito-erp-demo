@@ -612,13 +612,18 @@ def queue_for(client: AitoClient, tenant: str
 # Re-run the harness and update the matching block together, or not at
 # all.
 _MEASURED_SHARED = {
-    "measured_on": "2026-09-22",
+    "measured_on": "2026-09-27",
+    # Re-measured on 2.10.3 against env.master: identical to 2.10.0 to
+    # the decimal — overall, per regime and every point of the curve —
+    # so only this attribution changed. Re-run on every engine bump
+    # anyway; 2.8.4 -> 2.10.0 moved these by six points without a line
+    # of this repo changing.
     # The engine AND the query the numbers below describe. Two of them
     # moved between builds this month, and `config.ai` / `basedOn` each
     # move them further than a build did — so a figure here without all
     # three attached is a figure nobody can check.
     "engine_build":
-        '2.10.0 (05d647466bd7), config.ai=and, basedOn=["name"] on rep2, '
+        '2.10.3 (88786b4dc970), config.ai=and, basedOn=["name"] on rep2, '
         'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
         '120k lines, warm twins for every cold vendor)',
     "n": 2000,
@@ -673,7 +678,7 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
         "overall_top1": 0.882, "overall_top5": 0.959, "overall_top1_name": 0.882,
         "warm_top1": 0.870, "warm_top5": 0.951, "warm_top1_name": 0.870,
         "cold_top1": 0.907, "cold_top5": 0.973, "cold_top1_name": 0.907,
-        "throughput_rows_per_s": 2.5, "throughput_workers": 8,
+        "throughput_rows_per_s": 2.6, "throughput_workers": 8,
         "curve": [
             {"bar": 0.05, "coverage": 0.999, "precision": 0.884},
             {"bar": 0.10, "coverage": 0.995, "precision": 0.887},
