@@ -182,6 +182,11 @@ def get_overview(client: AitoClient, top_n_products: int = 60) -> Recommendation
     return RecommendationOverview(products=products, trending=trending_items)
 
 
+# The product columns a cross-sell card shows, named explicitly — see
+# get_cross_sell for why the default projection is not enough on v2.
+CROSS_SELL_FIELDS = ["name", "category", "supplier", "unit_price"]
+
+
 def get_cross_sell(
     client: AitoClient,
     product_id: str,
@@ -199,25 +204,32 @@ def get_cross_sell(
     if customer_segment:
         where["customer_segment"] = customer_segment
 
-    try:
-        # No explicit select: Aito traverses the link automatically and
-        # returns every column from the linked `products` row on each
-        # hit. One call, full payload — no follow-up `_search` to
-        # resolve names. (See aito-accounting-demo guide 01.)
-        response = client.recommend(
-            table="impressions",
-            where=where,
-            recommend_field="product_id",
-            goal={"clicked": True},
-            limit=limit + 4,   # over-fetch in case the anchor itself appears
-        )
-    except Exception:
-        return []
+    # Name the product columns. On v2 a `_recommend` over a link returns
+    # `$p` and `$value` per hit and NOTHING else unless the columns are
+    # selected; the linked-row expansion this code used to rely on is v1
+    # behaviour. Reading `hit["sku"]` on v2 found None on every hit, so
+    # "frequently bought together" was empty for every product while the
+    # query was answering correctly. The SKU is `$value` — it is the
+    # value being recommended — and this select works on both engines.
+    #
+    # No try/except. An empty list tells the viewer "nothing is bought
+    # with this"; a failed query has not said that, and a blanket except
+    # here is what kept this bug invisible.
+    response = client.recommend(
+        table="impressions",
+        where=where,
+        recommend_field="product_id",
+        goal={"clicked": True},
+        select=["$p", "$value", *CROSS_SELL_FIELDS],
+        limit=limit + 4,   # over-fetch in case the anchor itself appears
+    )
 
     items: list[CrossSellItem] = []
     for hit in response.get("hits", []):
-        sku = hit.get("sku")
-        if not sku or sku == product_id:
+        sku = hit.get("$value")
+        if sku is None:
+            raise ValueError(f"_recommend hit without `$value`: {hit}")
+        if sku == product_id:
             # Skip the anchor — recommending a product against itself
             # is a trivially correct but useless answer.
             continue

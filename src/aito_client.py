@@ -664,12 +664,12 @@ class AitoClient:
         probability that `goal` is satisfied given `where`. The hits
         come back ranked by that probability.
 
-        When `recommend_field` is a `link` column, Aito's default `select`
-        already returns every column from the linked table on each hit
-        — so the typical caller leaves `select=None` and reads
-        `hit["name"]`, `hit["category"]`, etc. straight off the result.
-        Passing an explicit `select` is mostly useful when you want to
-        narrow the payload or pull `$why`.
+        When `recommend_field` is a `link` column, name the linked
+        columns you want in `select`. v1's default projection returned
+        the whole linked row; v2's returns only `$p` and `$value`, so a
+        caller that relied on the default reads None for every column
+        on v2. `select=["$p", "$value", "name", ...]` returns the same
+        shape on both engines, with the recommended value in `$value`.
 
         Example:
             client.recommend(
@@ -677,9 +677,10 @@ class AitoClient:
                 where={"prev_product_id": "SKU-1234"},
                 recommend_field="product_id",
                 goal={"clicked": True},
+                select=["$p", "$value", "name", "category"],
                 limit=8,
             )
-            # hit fields: $p + every column of products.* including sku
+            # hit fields: $p, $value (the sku), name, category
         """
         if self._v2 is not None:
             return self._v2_result("recommend", table, lambda: self._v2.recommend(
