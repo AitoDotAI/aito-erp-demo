@@ -13,6 +13,8 @@ from src.planner_service import _band_for, _role_slots, _p_of
 class _FakeClient:
     """Returns a canned `_predict` response per (table, predict_field)."""
 
+    api_version = "v2"
+
     def __init__(self, responses):
         self._responses = responses
         self.calls = []
@@ -365,9 +367,11 @@ def test_an_optional_table_still_degrades_quietly():
 
 
 def test_the_person_predict_carries_no_job_site_clause():
-    """No engine accepts the job's `site` on `_predict person`: the bare
-    name 500s (`site` is on assignments, people and projects; aito-core
-    #1463) and 2.10.3 rejects `assignments.site` with a 400. So the job
+    """On engine 2.10.3 the job's `site` on `_predict person` fails in
+    both spellings: the bare name 500s (`site` is on assignments, people
+    and projects; aito-core #1463) and `assignments.site` is a 400. The
+    clause is dropped on v1 too, where the bare name last worked on
+    2.10.0 but is unverified since, to keep one query shape. So the job
     site stays out of the person predict. It is NOT swapped for
     `person.site`: that is where the candidate is based, which is what
     `local_only` asks for and nothing else. Restore the clause when

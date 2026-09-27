@@ -289,7 +289,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     singleton — without anyone hard-coding which roles are management.
 
     **The candidate number is not a quality score.** It is
-    `P(person | role, site, stack, sector)` — how often they are the
+    `P(person | role, stack, sector)` — how often they are the
     one who does work like this. The column says "Usual pick" and the
     picker says so in words, because "Fit 43%" invited the reading
     that Aito rates how well someone does their job. It does not, and
@@ -304,7 +304,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     implied the database had endorsed someone's certifications.
 
     **Two kinds of clause, and the difference is the lesson.**
-    `project_type` / `role` / `site` describe the JOB and are
+    `project_type` / `role` describe the JOB (the job's `site` is suspended from the person ranking until aito-core#1463 is fixed) and are
     *evidence* — they let Aito rank on how such work was staffed
     before. The `person.*` clauses are linked-field *filters* on the
     candidate: `person.site` (where someone is based, not where the job
@@ -352,7 +352,7 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     delivery-risk rows — and nowhere else.
 
     **Two columns, two questions.** "Usual pick" is
-    `P(person | role, site, stack, sector)` — who does this. "Did well"
+    `P(person | role, stack, sector)` — who does this. "Did well"
     is `_recommend person goal={went_well: true}` — who did well when
     they did. They diverge, and the gap is the conversation: the second
     most usual project manager scores 16% usual and 28% did-well.

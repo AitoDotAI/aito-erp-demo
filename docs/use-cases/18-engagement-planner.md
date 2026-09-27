@@ -61,7 +61,7 @@ POST /api/v2/_predict
 is what the match chips show.
 
 **Two kinds of clause, and the difference is the lesson.**
-`project_type` / `role` / `site` describe the JOB and are *evidence*.
+`project_type` / `role` describe the JOB and are *evidence* (the job's `site` is suspended from the person ranking until aito-core#1463 is fixed).
 The `person.*` clauses are linked-field *filters* on the candidate, and
 Aito applies them in the query, so a filtered-out person never reaches
 the shortlist. Requirements are held **per role** — a proposal-wide
@@ -103,7 +103,7 @@ is what a salesperson argues about anyway.
 
 | column | query | question |
 |---|---|---|
-| **Usual pick** | `P(person \| role, site, stack, sector)` | who *does* this work |
+| **Usual pick** | `P(person \| role, stack, sector)` | who *does* this work |
 | **Did well** | `_predict went_well` with the person in the `where` | who did well when they did |
 
 They diverge, and the gap is the conversation: the second most usual
