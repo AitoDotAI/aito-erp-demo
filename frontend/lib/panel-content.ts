@@ -113,8 +113,26 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
 }
 
 
-export function supplierPanel(tenant: TenantId): AitoPanelConfig {
+/** The supplier row the panel quotes. Taken from the SAME payload the
+ *  header counts, so the panel can never say "high risk" over a header
+ *  that says 0 high risk — which it did, from a hardcoded line. */
+export interface SupplierRiskExample {
+  supplier: string;
+  lift: number;
+  late_rate: number;
+  risk_level: string;
+}
+
+export function supplierPanel(
+  tenant: TenantId,
+  top?: SupplierRiskExample,
+): AitoPanelConfig {
   const c = CONTEXT[tenant];
+  const example = top?.supplier ?? c.riskySupplier;
+  const result = top
+    ? `// → ${top.supplier}: lift × ${top.lift.toFixed(2)}, ` +
+      `late ${(top.late_rate * 100).toFixed(1)}% (${top.risk_level} risk)`
+    : `// → suppliers ranked by lift`;
   return {
     operation: "_relate",
     endpoints: ["_relate"],
@@ -126,7 +144,7 @@ export function supplierPanel(tenant: TenantId): AitoPanelConfig {
     description:
       `Supplier intelligence uses <em>aito.._relate</em> to find statistical ` +
       `links between supplier attributes and delivery outcomes. For ${c.industry}, ` +
-      `this surfaces patterns like &ldquo;<em>${c.riskySupplier}</em> orders ` +
+      `this surfaces patterns like &ldquo;<em>${example}</em> orders ` +
       `correlate with late delivery&rdquo; — discovered, not configured. ` +
       `The lift score tells you how much more likely the bad outcome is, ` +
       `compared to baseline.`,
@@ -137,7 +155,7 @@ export function supplierPanel(tenant: TenantId): AitoPanelConfig {
 &nbsp;&nbsp;<span class="q-k">"relate"</span>: [<span class="q-p">"supplier"</span>, <span class="q-p">"category"</span>]<br/>
 }<br/>
 <br/>
-<span class="q-d">// → ${c.riskySupplier}: lift × 1.6 (high risk)</span>`,
+<span class="q-d">${result}</span>`,
     links: [
       { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/05-supplier-intel.md", kind: "doc" },
       { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },

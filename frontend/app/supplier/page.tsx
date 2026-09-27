@@ -40,8 +40,10 @@ export default function SupplierPage() {
       return;
     }
     const high = data.delivery_risks.filter((r) => r.risk_level === "high").length;
+    // Rows arrive ranked by lift, so the first is the one to quote.
+    const top = data.delivery_risks[0];
     setPanel({
-      ...base,
+      ...(top ? supplierPanel(tenantId, top) : base),
       stats: [
         { label: "Suppliers", value: String(data.top_suppliers.length) },
         { label: "Risk factors", value: String(data.delivery_risks.length) },
