@@ -306,8 +306,7 @@ export default function PlannerPage() {
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
 &nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
 &nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"${projectType}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"role"</span>: <span class="q-v">"${role}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"site"</span>: <span class="q-v">"${site}"</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"role"</span>: <span class="q-v">"${role}"</span><br/>
 &nbsp;&nbsp;},<br/>
 &nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"person"</span><br/>
 }<br/>

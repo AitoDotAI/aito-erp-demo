@@ -579,16 +579,6 @@ PERSON_FIELDS = ["title", "discipline", "skills", "certifications",
                  "domains", "site", "seniority", "years_experience"]
 
 
-def _site_key(client: AitoClient) -> str:
-    """Which spelling of the job's `site` this engine will accept.
-
-    See the call site for why the two disagree. Kept as a function so
-    there is exactly one place to delete when the upstream 500 is
-    fixed and both engines take the bare name again.
-    """
-    return "assignments.site" if client.api_version == "v2" else "site"
-
-
 def _hits(client: AitoClient, table: str, where: dict,
           predict_field: str, limit: int = 6,
           select_extra: list[str] | None = None) -> list[dict]:
@@ -794,10 +784,11 @@ def plan_engagement(
         # the match itself.
         # Two kinds of clause here, and the difference matters.
         #
-        # `project_type` / `role` / `site` describe the JOB, and they
-        # are evidence: they say "work like this" and let Aito rank on
-        # how such work was staffed before. Note `site` is the
-        # PROJECT's site, denormalised onto the assignment.
+        # `project_type` / `role` (and, once #1463 is fixed, `site`)
+        # describe the JOB, and they are evidence: they say "work like
+        # this" and let Aito rank on how such work was staffed before.
+        # Note `site` is the PROJECT's site, denormalised onto the
+        # assignment.
         #
         # The `person.*` clauses are linked-field filters on the
         # CANDIDATE, and they are constraints: `person.site` is where
@@ -807,23 +798,14 @@ def plan_engagement(
         # never reaches the shortlist rather than being ranked and then
         # dropped here.
         where: dict = {"project_type": project_type, "role": role}
-        if site:
-            # QUALIFIED on rep2, bare on rep1, and neither engine
-            # accepts the other's form.
-            #
-            # `site` is a column on `assignments`, on `people` and on
-            # `projects`, and `assignments` links to both of the latter.
-            # Asking rep2 to `_predict person` with a bare `site`
-            # clause returns **500 [internal]** — filed upstream. The
-            # qualified name answers fine, as does `_search` with the
-            # identical where, as does `_predict role` (not a link)
-            # with a bare `site`. rep1 is the mirror image: bare works,
-            # and `assignments.site` is rejected with a 400.
-            #
-            # So this cannot be one query shape, and the branch is
-            # named here rather than hidden in the client, which has no
-            # way to know which column names are ambiguous.
-            where[_site_key(client)] = site
+        # The job's `site` is deliberately NOT in this where. `site` is
+        # a column on `assignments`, `people` and `projects`, and
+        # `assignments` links to both of the latter: a bare `site` on
+        # `_predict person` returns 500 (aito-core #1463, unfixed), and
+        # the engine now rejects `assignments.site` with a 400. Do not
+        # swap in `person.site` — that is where the CANDIDATE is based,
+        # which is what `local_only` below asks for and nothing more.
+        # Restore `where["site"] = site` once #1463 is fixed.
         if technology:
             where["technology"] = technology
         if domain:

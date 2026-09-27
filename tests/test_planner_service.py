@@ -13,6 +13,8 @@ from src.planner_service import _band_for, _role_slots, _p_of
 class _FakeClient:
     """Returns a canned `_predict` response per (table, predict_field)."""
 
+    api_version = "v2"
+
     def __init__(self, responses):
         self._responses = responses
         self.calls = []
@@ -364,16 +366,30 @@ def test_an_optional_table_still_degrades_quietly():
     assert _hits(_NoTable(), "quotes", {}, "won") == []
 
 
-def test_the_site_clause_is_spelled_per_engine():
-    """Neither engine accepts the other's form. rep2 returns 500 on a
-    bare `site` when predicting the `person` LINK — `site` is a column
-    on assignments, people and projects — and rep1 rejects the
-    qualified name with a 400. Delete `_site_key` when the upstream 500
-    is fixed, not before."""
-    from src.planner_service import _site_key
+def test_the_person_predict_carries_no_job_site_clause():
+    """On engine 2.10.3 the job's `site` on `_predict person` fails in
+    both spellings: the bare name 500s (`site` is on assignments, people
+    and projects; aito-core #1463) and `assignments.site` is a 400. The
+    clause is dropped on v1 too, where the bare name last worked on
+    2.10.0 but is unverified since, to keep one query shape. So the job
+    site stays out of the person predict. It is NOT swapped for
+    `person.site`: that is where the candidate is based, which is what
+    `local_only` asks for and nothing else. Restore the clause when
+    #1463 is fixed."""
+    from src.planner_service import plan_engagement
 
-    class _V(object):
-        def __init__(self, v): self.api_version = v
+    def person_wheres(local_only):
+        client = _FakeClient({})
+        plan_engagement(
+            client, customer="C", scope="s", project_type="implementation",
+            quoted_eur=1000.0, duration_days=30, team_size=1,
+            site="Helsinki", local_only=local_only,
+            roles_override=[{"role": "engineer", "count": 1}],
+        )
+        return [where for table, where, field in client.calls
+                if table == "assignments" and field == "person"]
 
-    assert _site_key(_V("v2")) == "assignments.site"
-    assert _site_key(_V("v1")) == "site"
+    for where in person_wheres(local_only=False):
+        assert not any(k.endswith("site") for k in where), where
+    assert [w.get("person.site") for w in person_wheres(local_only=True)] \
+        == ["Helsinki"]
