@@ -572,17 +572,27 @@ def queue_for(client: AitoClient, tenant: str
     if cached and (time.monotonic() - cached[0]) < _QUEUE_TTL_SECONDS:
         return cached[1]
 
+    # No except. "This tenant has no queue" and "the read failed" look
+    # identical once caught, and the second must not be cached as the
+    # first: a cold start whose first read timed out against a waking
+    # shared instance used to be remembered as an empty queue for the
+    # whole TTL. A failed `invoice_lines` read was worse — `seen` came
+    # back empty, so every vendor on screen read as a first-time
+    # supplier, also for ten minutes.
+    #
+    # A missing table is still a quiet empty: the app's clients run with
+    # `tolerate_missing`, which answers "no such table" with no rows and
+    # raises everything else. So a failure reaches the endpoint, nothing
+    # is cached, and the next request tries again.
     def rows(table: str, limit: int) -> list[dict]:
-        try:
-            return client.search(table, {}, limit=limit).get("hits") or []
-        except AitoError:
-            return []
+        return client.search(table, {}, limit=limit).get("hits") or []
 
     held_out = rows("invoice_lines_holdout", 2000)
     if not held_out:
         # This tenant has no invoice lines — the view does not apply to
         # it and the nav hides it. A deep link gets an empty queue
-        # rather than a 500.
+        # rather than a 500. This IS a fact about the tenant, so it is
+        # cached like any other answer.
         empty: tuple = ([], frozenset(), {}, {})
         _QUEUE[tenant] = (time.monotonic(), empty)
         return empty

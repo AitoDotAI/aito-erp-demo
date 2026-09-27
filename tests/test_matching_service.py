@@ -7,6 +7,8 @@ claim, that a routing decision follows the confidence, and that the
 held-out label is scored rather than assumed.
 """
 
+import pytest
+
 from src.matching_service import (
     MEASURED_BY_ENGINE, PRESELECT_THRESHOLD, BatchResult, Candidate,
     MatchedLine, _reasons, _terms, measured_for,
@@ -225,3 +227,68 @@ def test_the_inference_preset_goes_to_both():
 
     assert _rank_with("v2")["ai"] == INFERENCE_PRESET
     assert _rank_with("v1")["ai"] == INFERENCE_PRESET
+
+
+# ── A failed read is not an empty queue ────────────────────────────
+
+class _FlakyClient:
+    """Fails the first `fail_times` reads of `fail_table`, then answers."""
+
+    api_version = "v2"
+
+    def __init__(self, fail_table, fail_times=1):
+        self.fail_table, self.left = fail_table, fail_times
+
+    def search(self, table, where, limit=10):
+        from src.aito_client import AitoError
+        if table == self.fail_table and self.left > 0:
+            self.left -= 1
+            raise AitoError("Aito v2 returned 504: upstream timed out")
+        return {"hits": {
+            "invoice_lines_holdout": [{"billing_supplier": "Warm Oy", "sku": "S1"},
+                                      {"billing_supplier": "Cold Oy", "sku": "S2"}],
+            "invoice_lines": [{"billing_supplier": "Warm Oy"}],
+            "products": [{"sku": "S1", "name": "One"}],
+            "vendors": [{"vendor": "Warm Oy"}],
+        }.get(table, [])}
+
+
+@pytest.fixture
+def fresh_queue():
+    from src import matching_service
+    matching_service._QUEUE.clear()
+    yield matching_service
+    matching_service._QUEUE.clear()
+
+
+def test_a_failed_holdout_read_raises_and_is_not_remembered(fresh_queue):
+    """A cold start whose first read timed out used to be cached as "this
+    tenant has no queue" for the whole TTL: the view showed nothing for
+    ten minutes after the database had woken up."""
+    from src.aito_client import AitoError
+    client = _FlakyClient("invoice_lines_holdout")
+    with pytest.raises(AitoError):
+        fresh_queue.queue_for(client, "aurora")
+    held_out, _, _, _ = fresh_queue.queue_for(client, "aurora")
+    assert len(held_out) == 2, "the retry was served a cached empty queue"
+
+
+def test_a_failed_history_read_does_not_mark_every_vendor_cold(fresh_queue):
+    """`seen` came from the training half. When that read failed it was
+    empty, so every vendor on screen read as a first-time supplier."""
+    from src.aito_client import AitoError
+    client = _FlakyClient("invoice_lines")
+    with pytest.raises(AitoError):
+        fresh_queue.queue_for(client, "aurora")
+    _, cold, _, _ = fresh_queue.queue_for(client, "aurora")
+    assert cold == frozenset({"Cold Oy"})
+
+
+def test_an_absent_queue_is_still_a_quiet_empty(fresh_queue):
+    """The legitimate case: a tenant with no invoice lines. The client's
+    `tolerate_missing` answers a missing table with an empty result, and
+    that is a fact about the tenant, not a failure."""
+    class _Empty(_FlakyClient):
+        def search(self, table, where, limit=10):
+            return {"hits": []}
+    assert fresh_queue.queue_for(_Empty("x", 0), "metsa")[0] == []
