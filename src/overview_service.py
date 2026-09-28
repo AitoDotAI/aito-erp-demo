@@ -202,7 +202,8 @@ def get_prediction_quality(client: AitoClient) -> list[PredictionQuality]:
 
     For each predictable field we run a held-out test:
 
-      testSource: 200 random purchases
+      testSource: the first 200 purchases (no ordering, so the same
+                  rows every run and the bands are reproducible)
       evaluate:   predict <field> from supplier + description + amount
 
     Aito hides the target column on each test row, predicts it, and

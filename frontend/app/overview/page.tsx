@@ -52,13 +52,14 @@ const defaultPanel: AitoPanelConfig = {
 const CALIBRATION_TOLERANCE = 0.05;
 
 function calibrationSummary(bands: ConfidenceBand[]): string {
-  const judged = bands.filter((b) => !b.thin && b.accuracy !== null && b.mean_p !== null);
+  // `!= null` also covers a payload cached before these fields existed.
+  const judged = bands.filter((b) => !b.thin && b.count > 0 && b.accuracy != null && b.mean_p != null);
   if (judged.length === 0) return "No band has enough cases to judge calibration yet.";
   const gap = (b: ConfidenceBand) => b.accuracy! - b.mean_p!;
   const matched = judged.filter((b) => Math.abs(gap(b)) <= CALIBRATION_TOLERANCE).length;
   const under = judged.filter((b) => gap(b) > CALIBRATION_TOLERANCE).length;
   const over = judged.filter((b) => gap(b) < -CALIBRATION_TOLERANCE).length;
-  const parts = [`${matched} of ${judged.length} bands with enough cases are right within 5 points of what $p claimed`];
+  const parts = [`${matched} of ${judged.length} bands with enough cases are right within ${Math.round(CALIBRATION_TOLERANCE * 100)} points of what $p claimed`];
   if (under) parts.push(`${under} ${under === 1 ? "is" : "are"} right more often than claimed (conservative)`);
   if (over) parts.push(`${over} ${over === 1 ? "is" : "are"} right less often than claimed`);
   return parts.join("; ") + ".";
@@ -325,11 +326,11 @@ export default function OverviewPage() {
                             <td className="mono">{pq.field_name}</td>
                             {pq.bands.map((b) => (
                               <td key={b.label} style={{ opacity: b.thin ? 0.45 : 1 }}>
-                                <strong style={{ color: b.accuracy === null ? "var(--mid)" : "var(--ink)" }}>
-                                  {b.accuracy === null ? "—" : `${Math.round(b.accuracy * 100)}%`}
+                                <strong style={{ color: b.count === 0 || b.accuracy == null ? "var(--mid)" : "var(--ink)" }}>
+                                  {b.count === 0 || b.accuracy == null ? "—" : `${Math.round(b.accuracy * 100)}%`}
                                 </strong>
                                 <div style={{ fontSize: 10, color: "var(--mid)" }}>
-                                  {b.mean_p !== null && `claimed ${Math.round(b.mean_p * 100)}% · `}n={b.count}
+                                  {b.count > 0 && b.mean_p != null && `claimed ${Math.round(b.mean_p * 100)}% · `}n={b.count}
                                   {b.thin && b.count > 0 ? ", too few" : ""}
                                 </div>
                               </td>
