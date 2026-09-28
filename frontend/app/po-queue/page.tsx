@@ -151,21 +151,25 @@ export default function POQueuePage() {
                   </div>
                 )}
 
+                {/* Every figure is about the queue on this screen, computed by
+                    the backend from the predictions it just made. The strip
+                    used to show "47 POs today", "82% auto-coded" and "91%
+                    confidence" — constants the rows below contradicted. */}
                 <div className="kpi-row">
                   <div className="kpi">
-                    <div className="kpi-label">POs Today</div>
-                    <div className="kpi-val">47</div>
-                    <div className="kpi-sub">↑ 12% vs avg</div>
+                    <div className="kpi-label">In queue</div>
+                    <div className="kpi-val">{metrics!.total}</div>
+                    <div className="kpi-sub">pending POs</div>
                   </div>
                   <div className="kpi">
-                    <div className="kpi-label">Auto-coded MTD</div>
-                    <div className="kpi-val">82%</div>
-                    <div className="kpi-sub">vs 21% rules-only</div>
+                    <div className="kpi-label">Coded without review</div>
+                    <div className="kpi-val">{Math.round(metrics!.automation_rate * 100)}%</div>
+                    <div className="kpi-sub">{metrics!.rule_count} by rule · {metrics!.aito_count} by Aito</div>
                   </div>
                   <div className="kpi">
                     <div className="kpi-label">Avg Confidence</div>
-                    <div className="kpi-val">91%</div>
-                    <div className="kpi-sub">on auto-coded POs</div>
+                    <div className="kpi-val">{Math.round(metrics!.avg_confidence * 100)}%</div>
+                    <div className="kpi-sub">across the queue</div>
                   </div>
                   <div className="kpi">
                     <div className="kpi-label">Pending Review</div>

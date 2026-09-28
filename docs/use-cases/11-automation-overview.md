@@ -2,8 +2,8 @@
 
 ![Automation Overview](../../screenshots/11-overview.png)
 
-*Headline: €220K savings YTD (labor + miscoding-prevented), 72%
-automation rate, 29-month learning curve filtered to months with
+*Headline: 72% automation rate and measured accuracy against a
+most-common-value baseline, 29-month learning curve filtered to months with
 ≥5 POs — the ramp is real, not a slope-fitting trick*
 
 ## Overview
@@ -37,7 +37,7 @@ constants (labor minutes per PO, cost per miscoding prevented).
 **With Aito (this view):**
 - Group `routed_by × order_month` from the actual purchases table
 - Filter to months with ≥5 POs so small samples don't dominate
-- EUR savings have explicit constants in the code, not in a slide
+- No euro figure: counts and measurements only (see below)
 - Per-field prediction quality from a live sample, not a benchmark
 
 ### Implementation
@@ -83,22 +83,13 @@ def get_learning_curve(client: AitoClient) -> list[dict]:
     return curve
 ```
 
-The money-saved calibration:
-
-```python
-# Calibrated for an SMB procurement org
-minutes_per_po = 5.0
-cost_per_minute = 0.80         # ~€48/hr loaded cost
-miscode_cost_per_event = 120
-
-miscodes_prevented = total_automated * accuracy
-miscode_savings   = miscodes_prevented * miscode_cost_per_event
-labor_savings     = total_automated * minutes_per_po * cost_per_minute
-```
-
-Total savings = `labor_savings + miscode_savings`, rounded to whole
-EUR. The constants live in the file, not in a config — anyone
-reading the code can check the assumptions.
+**Why there is no savings figure.** This view used to lead with
+"€220K estimated savings YTD": a real count of automated POs multiplied
+by three invented rates (5 min per PO, €0.80 a minute, €120 per
+mis-coding), and it counted *accuracy* as *mis-codings prevented*, which
+it is not. A procurement head saw through it in seconds. Every number
+now on the page is a count from `purchases` or a measurement from
+`_evaluate`; a reader who wants euros brings their own rates.
 
 The aggregation query:
 
@@ -176,28 +167,14 @@ to match the routing decisions a real run of the system would make.
   `rule + aito_high`. `aito_reviewed` shows up in `manual_pct`
   on the curve. Consistency between views requires reading the
   code.
-- **`labor_savings` assumes every automated PO saved exactly 5
-  minutes**. No discount for the Aito-reviewed path, where a
-  human still spent some minutes. Honest version would split the
-  bucket.
-- **Annualised projection in the demo** divides observed savings
-  by months elapsed. With 24 months of data, the YTD figure is
-  half the annualised; we report YTD because it's what the user
-  actually sees. The constant is in the code.
 
 ## What this demo abstracts away
 
-- **Per-tenant savings calculation**. The demo shows aggregate
-  savings. Each customer wants their own dollar figure, computed
-  with their own labor cost, their own miscoding-rate baseline,
-  their own pre-Aito ceiling. Production reads `cost_per_minute`,
-  `baseline_automation_rate`, and `miscoding_cost_eur` per tenant
-  from a config table; the math is unchanged.
-- **Real wage data integration**. The "5min/PO" labor figure is a
-  demo constant. Production pulls from the customer's HRIS or
-  finance system (average loaded buyer cost / minute). The
-  methodology footnote already discloses the assumption — production
-  needs the input live, not hardcoded.
+- **A euro figure.** Turning automation into money needs the
+  customer's own rates — loaded buyer cost, mis-coding clean-up cost,
+  pre-Aito baseline — from their HRIS and finance systems. The demo
+  has none of those, so it shows counts and measured accuracy instead
+  of inventing them.
 - **A/B comparison vs. a counterfactual**. The demo's learning
   curve compares to itself over time. CFOs want "what would
   automation be if Aito were turned off today?" — that requires a
@@ -208,8 +185,8 @@ to match the routing decisions a real run of the system would make.
 ## Try it live
 
 [**Open Automation Overview**](http://localhost:8400/overview/)
-and expand the methodology footnote under the savings headline.
-The constants are clickable links into the source.
+and compare the automation rate and measured accuracy with the
+learning curve below them.
 
 ```bash
 ./do dev   # starts backend + frontend

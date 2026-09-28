@@ -327,24 +327,14 @@ def get_overview(client: AitoClient) -> OverviewMetrics:
     total_automated = automation.rules_count + automation.aito_high_count
     total = automation.total_purchases
 
-    # Money saved estimates — calibrated for a procurement org with these volumes.
-    # Each automated PO saves ~5 minutes of manual coding (loaded cost €0.80/min).
-    # Each prevented mis-coding saves an estimated €120 (avg cleanup cost in close).
-    # Aggregate inventory + pricing wins from other services for the headline.
-    minutes_per_po = 5.0
-    cost_per_minute = 0.80  # ~€48/hr loaded cost
-    miscode_cost_per_event = 120
-    # Use *measured* accuracy from `_evaluate` (mean over the predictable
-    # fields). When evaluation is unavailable, treat accuracy as 0 — better
-    # to under-claim than to fabricate a savings number.
+    # No euro figure. The headline used to be "€234k estimated savings",
+    # a real count of automated POs multiplied by three invented rates
+    # (5 min/PO, €0.80/min, €120 per mis-coding) — and it treated
+    # accuracy as "mis-codings prevented", which it is not. Every figure
+    # below is a count or a measurement; a reader brings their own rates.
     measured_accuracies = [q.accuracy for q in quality if q.sample_size > 0]
     avg_accuracy = (sum(measured_accuracies) / len(measured_accuracies)
                     if measured_accuracies else 0.0)
-    # Mis-postings prevented = automated × accuracy
-    miscodes_prevented = total_automated * avg_accuracy
-    miscode_savings = miscodes_prevented * miscode_cost_per_event
-    labor_savings = total_automated * minutes_per_po * cost_per_minute
-    hours_saved = total_automated * minutes_per_po / 60
 
     avg_baseline = (sum(q.base_accuracy for q in quality
                         if q.sample_size > 0) / len(measured_accuracies)
@@ -362,11 +352,6 @@ def get_overview(client: AitoClient) -> OverviewMetrics:
         "model_accuracy": round(avg_accuracy, 3),
         "baseline_accuracy": round(avg_baseline, 3),
         "accuracy_gain": round(avg_accuracy - avg_baseline, 3),
-        # Money metrics
-        "labor_savings_eur": round(labor_savings, 0),
-        "miscode_savings_eur": round(miscode_savings, 0),
-        "hours_saved": round(hours_saved, 1),
-        "total_savings_eur": round(labor_savings + miscode_savings, 0),
     }
 
     return OverviewMetrics(

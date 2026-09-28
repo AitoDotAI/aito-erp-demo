@@ -340,10 +340,6 @@ export interface OverviewMetrics {
     model_accuracy?: number;
     baseline_accuracy?: number;
     accuracy_gain?: number;
-    labor_savings_eur?: number;
-    miscode_savings_eur?: number;
-    hours_saved?: number;
-    total_savings_eur?: number;
   };
 }
 

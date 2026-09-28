@@ -135,40 +135,9 @@ export default function OverviewPage() {
         <TopBar title="Automation Overview" breadcrumb="Overview" />
         <div className="content-area">
           <div className="content">
-            {/* Savings Strip — money first, then automation metrics */}
+            {/* Counts and measurements only. A euro "savings" card stood
+                here, built from invented labour and clean-up rates. */}
             <div className="savings-strip">
-              <div className="savings-card" style={{ background: "var(--gold-light)", borderColor: "var(--gold)" }}>
-                <div className="savings-icon">{"\uD83D\uDCB0"}</div>
-                <div>
-                  <div className="savings-val" style={{ color: "var(--gold-dark)" }}>
-                    {summary.total_savings_eur != null
-                      ? "\u20AC" + Math.round(summary.total_savings_eur).toLocaleString("fi-FI")
-                      : "\u2014"}
-                  </div>
-                  <div className="savings-label" style={{ color: "var(--gold-dark)" }}>
-                    estimated savings YTD
-                    {summary.hours_saved != null && (
-                      <span style={{ display: "block", fontSize: 10, color: "var(--mid)", marginTop: 2 }}>
-                        {summary.hours_saved}h labor + miscoding prevented
-                      </span>
-                    )}
-                    <details style={{ marginTop: 4, fontSize: 10, color: "var(--mid)" }}>
-                      <summary style={{ cursor: "pointer", color: "var(--mid)" }}>methodology</summary>
-                      <div style={{ marginTop: 4, lineHeight: 1.5 }}>
-                        <strong>Labor</strong>: {summary.total_automated} POs × 5 min × €0.80/min ={" "}
-                        €{summary.labor_savings_eur != null ? Math.round(summary.labor_savings_eur).toLocaleString("fi-FI") : "—"}
-                        <br/>
-                        <strong>Mis-coding</strong>: {summary.total_automated} × {Math.round((summary.model_accuracy ?? summary.avg_prediction_confidence) * 100)}% measured accuracy ×{" "}
-                        €120 cleanup cost ={" "}
-                        €{summary.miscode_savings_eur != null ? Math.round(summary.miscode_savings_eur).toLocaleString("fi-FI") : "—"}
-                        <br/>
-                        <em>Constants are conservative SMB benchmarks. Adjust in
-                        <code> overview_service.py</code> for your org&apos;s loaded cost.</em>
-                      </div>
-                    </details>
-                  </div>
-                </div>
-              </div>
               <div className="savings-card">
                 <div className="savings-icon">{"\u23F1\uFE0F"}</div>
                 <div>
