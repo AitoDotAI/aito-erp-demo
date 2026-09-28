@@ -203,7 +203,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("demand_forecast", lambda: get_demand_forecast(aito, tenant=tenant_id))
 
     def warm_inventory():
-        warm_or_load("inventory_status", lambda: get_inventory_status(aito, tenant=tenant_id).to_dict())
+        warm_or_load("inventory_status", lambda: get_inventory_status(aito, tenant=tenant_id))
 
     def warm_overview():
         warm_or_load("overview_metrics", lambda: get_overview(aito).to_dict())
@@ -708,7 +708,7 @@ def inventory_status(request: Request):
     tenant, aito = client_from_request(request)
     return cache.get_or_compute(
         _tk(tenant, "inventory_status"),
-        lambda: get_inventory_status(aito, tenant=tenant).to_dict(),
+        lambda: get_inventory_status(aito, tenant=tenant),
     )
 
 

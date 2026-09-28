@@ -1,271 +1,178 @@
-"""Demand forecasting — predict future order volumes from history.
+"""Demand Forecast — `_estimate units_sold`, checked against what happened.
 
-Searches the orders table for historical sales data, computes a
-baseline average, and uses Aito's _predict to estimate future demand.
-Provides trend direction and confidence for inventory planning.
+Reads `monthly_demand` (history up to the cutoff) and forecasts the six
+months in `monthly_demand_holdout`, which `_estimate` has never seen, so
+each forecast is shown next to the actual and next to the two rules a
+buyer already has: same month last year, and the trailing three-month
+average a plain ERP reorder rule uses.
+
+Why these tables and not `orders`: `orders` draws units uniformly at
+random, so there was nothing to forecast and the view filled the gap
+with a rule-of-thumb "confidence" and invented euro savings. See
+data/generate_demand.py.
+
+The measured accuracy below is quoted on screen and is the only claim
+the view makes. On this corpus Aito is at PARITY with the seasonal
+naive rule and well ahead of the trailing average — it does not beat
+every rule, and the view says so.
 """
 
+from __future__ import annotations
+
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from src.aito_client import AitoClient
 
+# The `where` of every forecast. Which product, when in the year, and
+# what that product sold in the same month last year (banded). `month`
+# itself is left out: it is unique per product, so it names a row
+# rather than describing one.
+#
+# Chosen by `./do demand-eval`, and the search stopped at ten shapes on
+# purpose: past that, picking the best is fitting the holdout.
+# `last_year_band` is what moved it — without recency evidence
+# `_estimate` averaged every past December equally and lost to the
+# seasonal naive rule by 6-9 points; with it, the two are at parity.
+FEATURES = ("sku", "season", "last_year_band")
 
-@dataclass
-class DemandForecast:
-    product_id: str
-    product_name: str
-    month: str
-    baseline: float  # Average monthly demand
-    forecast: float  # Predicted demand
-    trend: str  # "up" | "down" | "stable"
-    confidence: float
-    history: list[dict]  # Recent monthly volumes
+PRODUCTS_SHOWN = 4
+HISTORY_SHOWN = 24   # months of history on the chart
 
-    def to_dict(self) -> dict:
-        return {
-            "product_id": self.product_id,
-            "product_name": self.product_name,
-            "month": self.month,
-            "baseline": self.baseline,
-            "forecast": self.forecast,
-            "trend": self.trend,
-            "confidence": self.confidence,
-            "history": self.history,
-        }
-
-
-def _compute_trend(history_values: list[float]) -> str:
-    """Determine trend from recent history.
-
-    Compares the average of the last 3 months to the previous 3 months.
-    """
-    if len(history_values) < 4:
-        return "stable"
-
-    recent = history_values[-3:]
-    earlier = history_values[-6:-3] if len(history_values) >= 6 else history_values[:-3]
-
-    if not earlier:
-        return "stable"
-
-    recent_avg = sum(recent) / len(recent)
-    earlier_avg = sum(earlier) / len(earlier)
-
-    if earlier_avg == 0:
-        return "stable"
-
-    change = (recent_avg - earlier_avg) / earlier_avg
-    if change > 0.10:
-        return "up"
-    elif change < -0.10:
-        return "down"
-    else:
-        return "stable"
-
-
-def forecast_demand(
-    client: AitoClient,
-    product_id: str,
-    month: str,
-) -> DemandForecast:
-    """Forecast demand for a product in a given month.
-
-    1. Search orders for this product's history.
-    2. Compute baseline (average monthly volume).
-    3. Try _predict on orders table for units_sold.
-    4. Return forecast with trend and confidence.
-
-    Args:
-        client: Aito API client.
-        product_id: Product SKU.
-        month: Target month (e.g. "2025-06").
-
-    Returns:
-        DemandForecast with baseline, forecast, and trend.
-    """
-    # Get historical orders
-    result = client.search("orders", {"product_id": product_id}, limit=200)
-    hits = result.get("hits", [])
-
-    # Build monthly history
-    monthly: dict[str, int] = {}
-    for order in hits:
-        m = order.get("month", "")
-        units = order.get("units_sold", 0)
-        monthly[m] = monthly.get(m, 0) + units
-
-    history = [{"month": m, "units": u} for m, u in sorted(monthly.items())]
-    history_values = [h["units"] for h in history]
-
-    baseline = sum(history_values) / len(history_values) if history_values else 0
-    trend = _compute_trend(history_values)
-
-    # Seasonality: average historical demand for the same calendar month.
-    # This captures yearly patterns — workwear August spike, fuel July dip,
-    # maintenance March/September peaks — directly from the data.
-    target_month_suffix = month.split("-")[1] if "-" in month else ""
-    seasonal_values = [
-        h["units"] for h in history
-        if h["month"].split("-")[1] == target_month_suffix
-    ]
-    seasonal_avg = sum(seasonal_values) / len(seasonal_values) if seasonal_values else baseline
-
-    # Compute a seasonality factor and apply to baseline
-    seasonal_lift = (seasonal_avg / baseline) if baseline > 0 else 1.0
-    forecast_value = baseline * seasonal_lift
-
-    # Confidence based on sample size — more historical data points = higher confidence
-    sample_size = len(seasonal_values)
-    if sample_size >= 3:
-        confidence = 0.85
-    elif sample_size >= 2:
-        confidence = 0.70
-    elif sample_size >= 1:
-        confidence = 0.55
-    else:
-        confidence = 0.40
-        forecast_value = baseline
-
-    # Try Aito _predict for explanation factors and to validate the seasonal estimate
-    try:
-        pred_result = client.predict(
-            "orders",
-            {"product_id": product_id, "month": month},
-            "units_sold",
-        )
-        pred_hits = pred_result.get("hits", [])
-        if pred_hits and pred_hits[0].get("$p", 0.0) > 0.30:
-            top = pred_hits[0]
-            predicted = top.get("$value", 0)
-            if isinstance(predicted, (int, float)) and predicted > 0:
-                # Blend Aito prediction with seasonal estimate
-                aito_conf = top.get("$p", 0.0)
-                forecast_value = 0.5 * forecast_value + 0.5 * float(predicted)
-                confidence = max(confidence, aito_conf)
-    except Exception:
-        pass
-
-    # Recompute trend based on whether forecast is up/down from baseline
-    if baseline > 0:
-        change_pct = (forecast_value - baseline) / baseline
-        if change_pct > 0.10:
-            trend = "up"
-        elif change_pct < -0.10:
-            trend = "down"
-        else:
-            trend = "stable"
-
-    product_name = _product_name_lookup(product_id)
-
-    return DemandForecast(
-        product_id=product_id,
-        product_name=product_name,
-        month=month,
-        baseline=round(baseline, 1),
-        forecast=round(forecast_value, 1),
-        trend=trend,
-        confidence=round(confidence, 3),
-        history=history,
-    )
-
-
-def _product_name_lookup(product_id: str) -> str:
-    """Walk every tenant's product map to find a friendly name.
-
-    `forecast_demand()` is called from inventory_service which doesn't
-    know the tenant. Falls back to the SKU id if no entry is found.
-    """
-    for tenant_map in DEMO_PRODUCTS_BY_TENANT.values():
-        info = tenant_map.get(product_id)
-        if info:
-            return info["name"]
-    return product_id
-
-
-# Per-tenant hero SKUs for the Demand Forecast view. Picked to match
-# the same SKUs used by Pricing + Inventory (same SKUs ⇒ consistent
-# stories across the three views) and verified against each tenant's
-# `orders` table for sample-size coverage.
-DEMO_PRODUCTS_BY_TENANT: dict[str, dict[str, dict]] = {
-    "metsa": {
-        "SKU-1027": {"name": "AdBlue v2 (10L)", "monthly_avg": 2},
-        "SKU-1271": {"name": "Engine Oil v2 (5L)", "monthly_avg": 1},
-        "SKU-1213": {"name": "Equipment Calibration #231", "monthly_avg": 1},
-        "SKU-1038": {"name": "Electrical Inspection (hr)", "monthly_avg": 1},
-    },
-    "aurora": {
-        "SKU-1231": {"name": "Yogurt 4-pack", "monthly_avg": 1},
-        "SKU-1122": {"name": "Multi-Surface Cleaner 10pk", "monthly_avg": 1},
-        "SKU-1267": {"name": "Paint Roller (refill set)", "monthly_avg": 3},
-        "SKU-1289": {"name": "Body Lotion 250ml", "monthly_avg": 1},
-    },
-    "studio": {
-        "SKU-1087": {"name": "Adobe CC Seat (monthly)", "monthly_avg": 1},
-        "SKU-1029": {"name": "Tea Bags (office pack)", "monthly_avg": 1},
-        "SKU-1113": {"name": "Whiteboard Markers (set of 12)", "monthly_avg": 1},
-        "SKU-1134": {"name": "Pens Pack Pro (50pk)", "monthly_avg": 1},
+# `./do demand-eval`, 2026-09-28, WAPE over the six held-out months.
+# Restated here because the view quotes it; re-run and update together.
+MEASURED = {
+    "measured_on": "2026-09-28",
+    "engine_build": "2.10.3 (88786b4dc970), rep2",
+    "metric": "WAPE: total |forecast - actual| / total actual units",
+    "by_tenant": {
+        "metsa":  {"n": 282, "aito": 0.168, "last_year": 0.185, "trailing": 0.292},
+        "aurora": {"n": 300, "aito": 0.188, "last_year": 0.177, "trailing": 0.240},
+        "studio": {"n": 174, "aito": 0.204, "last_year": 0.176, "trailing": 0.239},
     },
 }
 
 
-def demo_products_for(tenant: str | None) -> dict[str, dict]:
-    return DEMO_PRODUCTS_BY_TENANT.get(tenant or "metsa",
-                                        DEMO_PRODUCTS_BY_TENANT["metsa"])
+@dataclass
+class HorizonMonth:
+    month: str
+    aito: float          # `_estimate units_sold`
+    last_year: int       # same month last year
+    trailing: float      # mean of the three months before the cutoff
+    actual: int          # what happened (held out from the estimate)
+    neighbours: int      # history rows the estimate weighted
+    where: dict          # the exact `where` sent, so the panel can show it
+
+    def to_dict(self) -> dict:
+        return {"month": self.month, "where": self.where, "aito": round(self.aito, 1),
+                "last_year": self.last_year, "trailing": round(self.trailing, 1),
+                "actual": self.actual, "neighbours": self.neighbours}
 
 
-def demo_forecast_skus_for(tenant: str | None) -> list[str]:
-    return list(demo_products_for(tenant).keys())
+@dataclass
+class ProductForecast:
+    sku: str
+    name: str
+    category: str
+    supplier: str
+    history: list[dict]
+    horizon: list[HorizonMonth]
+
+    def to_dict(self) -> dict:
+        return {"sku": self.sku, "name": self.name, "category": self.category,
+                "supplier": self.supplier, "history": self.history,
+                "horizon": [h.to_dict() for h in self.horizon]}
 
 
-# Backward-compat aliases.
-DEMO_PRODUCTS = DEMO_PRODUCTS_BY_TENANT["metsa"]
-DEMO_FORECAST_SKUS = list(DEMO_PRODUCTS.keys())
+def _whole_table(client: AitoClient, table: str, where: dict | None = None) -> list[dict]:
+    """Every matching row. A short page would silently forecast from a
+    subset, so the count is asserted."""
+    res = client.search(table, where or {}, limit=50_000)
+    hits = res.get("hits") or []
+    if res.get("total") != len(hits):
+        raise RuntimeError(f"{table}: read {len(hits)} of {res.get('total')} rows")
+    return hits
 
 
-def get_demand_forecast(
-    client: AitoClient,
-    month: str = "2025-06",
-    tenant: str | None = None,
-) -> dict:
-    """Get demand forecasts for this tenant's hero SKUs plus aggregate
-    impact metrics."""
-    forecasts = []
-    spike_count = 0
-    drop_count = 0
-    high_conf_count = 0
-    significant_change_pct_sum = 0.0
-    significant_change_count = 0
+def pick_products(history: list[dict], count: int = PRODUCTS_SHOWN) -> list[str]:
+    """The products the view shows, chosen from the data every time.
 
-    for sku in demo_forecast_skus_for(tenant):
-        fc = forecast_demand(client, sku, month)
-        forecasts.append(fc.to_dict())
-        if fc.trend == "up":
-            spike_count += 1
-        elif fc.trend == "down":
-            drop_count += 1
-        if fc.confidence >= 0.70:
-            high_conf_count += 1
-        if fc.baseline > 0:
-            change_pct = abs((fc.forecast - fc.baseline) / fc.baseline)
-            if change_pct >= 0.10:
-                significant_change_pct_sum += change_pct
-                significant_change_count += 1
+    The best seller of each category over the last twelve months, busiest
+    categories first. A list of SKUs typed into the code went stale the
+    moment the catalogue was regenerated: every hard-coded name pointed at
+    a different product and eleven of twelve had no sales at all.
+    """
+    last_months = sorted({r["month"] for r in history})[-12:]
+    units: dict[str, int] = defaultdict(int)
+    category_of: dict[str, str] = {}
+    for r in history:
+        if r["month"] in last_months:
+            units[r["sku"]] += r["units_sold"]
+            category_of[r["sku"]] = r["category"]
+    best: dict[str, str] = {}
+    for sku in sorted(units, key=lambda s: (-units[s], s)):
+        best.setdefault(category_of[sku], sku)
+    ranked = sorted(best.values(), key=lambda s: (-units[s], s))
+    if not ranked:
+        raise RuntimeError("monthly_demand has no sales in its last twelve months")
+    return ranked[:count]
 
-    # Impact estimates: each correctly-predicted spike prevents one stockout
-    # event (€800 avg cost: lost margin + expedite shipping). Each correctly-
-    # predicted drop prevents excess ordering (€400 avg carrying cost).
-    stockouts_prevented_eur = spike_count * 800
-    excess_prevented_eur = drop_count * 400
 
+def forecast_product(client: AitoClient, sku: str, history: list[dict],
+                     holdout: list[dict], product: dict) -> ProductForecast:
+    """Forecast one product across the held-out months."""
+    own = sorted((r for r in history if r["sku"] == sku), key=lambda r: r["month"])
+    by_month = {r["month"]: r["units_sold"] for r in own}
+    trailing = sum(r["units_sold"] for r in own[-3:]) / 3
+    ahead = sorted((r for r in holdout if r["sku"] == sku), key=lambda r: r["month"])
+    if not ahead:
+        raise RuntimeError(f"{sku}: no held-out months to forecast")
+
+    def estimate(row: dict) -> HorizonMonth:
+        where = {k: row[k] for k in FEATURES}
+        res = client.estimate("monthly_demand", where, "units_sold")
+        value = res.get("estimate")
+        if not isinstance(value, (int, float)):
+            raise ValueError(f"_estimate units_sold returned no number for {sku}: {res}")
+        prior = f"{int(row['month'][:4]) - 1}{row['month'][4:]}"
+        if prior not in by_month:
+            raise KeyError(f"{sku}: no sales row for {prior}, so no same-month-last-year baseline")
+        return HorizonMonth(
+            month=row["month"], aito=float(value), last_year=by_month[prior],
+            trailing=trailing, actual=row["units_sold"],
+            neighbours=len((res.get("why") or {}).get("components") or []),
+            where=where)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        horizon = list(pool.map(estimate, ahead))
+
+    return ProductForecast(
+        sku=sku, name=product["name"], category=own[-1]["category"],
+        supplier=own[-1]["supplier"],
+        history=[{"month": r["month"], "units": r["units_sold"]} for r in own[-HISTORY_SHOWN:]],
+        horizon=horizon)
+
+
+def get_demand_forecast(client: AitoClient, tenant: str | None = None) -> dict:
+    history = _whole_table(client, "monthly_demand")
+    holdout = _whole_table(client, "monthly_demand_holdout")
+    products = []
+    for sku in pick_products(history):
+        # Name and history come from the same SKU, read in the same pass:
+        # a price or a forecast under the wrong product name is the
+        # mistake this replaces.
+        rows = client.search("products", {"sku": sku}, limit=1).get("hits") or []
+        if not rows:
+            raise RuntimeError(f"{sku} sells in monthly_demand but is not in products")
+        products.append(forecast_product(client, sku, history, holdout, rows[0]))
+
+    measured = MEASURED["by_tenant"].get(tenant or "metsa")
+    if measured is None:
+        raise KeyError(f"no demand measurement recorded for tenant {tenant!r}")
     return {
-        "forecasts": forecasts,
-        "month": month,
-        "impact": {
-            "spikes_predicted": spike_count,
-            "drops_predicted": drop_count,
-            "high_confidence_count": high_conf_count,
-            "stockouts_prevented_eur": stockouts_prevented_eur,
-            "excess_prevented_eur": excess_prevented_eur,
-            "total_impact_eur": stockouts_prevented_eur + excess_prevented_eur,
-        },
+        "cutoff": min(r["month"] for r in holdout),
+        "products": [p.to_dict() for p in products],
+        "features": list(FEATURES),
+        "measured": {**{k: v for k, v in MEASURED.items() if k != "by_tenant"}, **measured},
     }

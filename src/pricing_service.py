@@ -1,373 +1,153 @@
-"""Price estimation — historical price analysis and quote scoring.
+"""Price Intelligence — is this quote fair, judged only by what came before?
 
-Searches the price_history table for comparable transactions, computes
-statistical estimates, and scores incoming vendor quotes against
-the expected price range. Flags quotes that exceed the estimate by
-more than 20%.
+The incoming quotes are real rows: `price_quotes` holds every
+`price_history` record dated on or after the cutoff, and `price_reference`
+everything before it. Each quote is scored by `_estimate unit_price` over
+`price_reference` alone, so the estimate has never seen the quote it
+judges. Beside it sits the plain rule — the median of what this product
+has cost before — because a buyer has that without Aito.
+
+Measured (`./do price-eval`): on this corpus the estimate is at PARITY
+with the product's own median — within half a point of error on every
+tenant — and both catch every overcharge. That is the claim, and the
+view shows both numbers on every row rather than implying more.
+
+What it is not: a price for a product never bought before. With no
+earlier rows the estimate falls back on supplier and volume alone and
+misses by 46-70%, and `_estimate` on v2 does not accept linked fields
+(`product_id.category`) that could describe the product instead. So the
+view shows products with history only, and says why. It used to score
+hand-typed "quotes" tuned to four products and quoted an invented
+€1,240 saved per flagged quote.
 """
 
-import math
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+import statistics
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 
 from src.aito_client import AitoClient
+from src.demand_service import _whole_table
 
+# What a quote is judged on: the product, who quotes it and at what
+# volume. The date is left out — it is what separates the two tables.
+FEATURES = ("product_id", "supplier", "volume")
+# A quote this far above the estimate is flagged for a buyer to look at.
+FLAG_MARGIN = 0.15
+# What `./do price-eval` counts as a real overcharge: this far over list.
+OVERCHARGE_OVER_LIST = 0.17
+PRODUCTS_SHOWN = 4
 
-QUOTE_FLAG_THRESHOLD = 0.20  # Flag quotes >20% above estimate
-
-
-@dataclass
-class PriceEstimate:
-    product_id: str
-    supplier: str | None
-    volume: int | None
-    estimated_price: float
-    price_min: float
-    price_max: float
-    range_low: float
-    range_high: float
-    sample_size: int
-    confidence: float  # Based on sample size
-    std_dev: float
-
-    def to_dict(self) -> dict:
-        return {
-            "product_id": self.product_id,
-            "supplier": self.supplier,
-            "volume": self.volume,
-            "estimated_price": self.estimated_price,
-            "price_min": self.price_min,
-            "price_max": self.price_max,
-            "range_low": self.range_low,
-            "range_high": self.range_high,
-            "sample_size": self.sample_size,
-            "confidence": self.confidence,
-            "std_dev": self.std_dev,
-        }
+# `./do price-eval`, 2026-09-28. Error is |estimate - list price| / list
+# price; flags are judged against quotes more than 17% over list price.
+MEASURED = {
+    "measured_on": "2026-09-28",
+    "engine_build": "2.10.3 (88786b4dc970), rep2",
+    "by_tenant": {
+        # Quotes on products with earlier prices. `error` is mean
+        # |estimate - list price| / list price; `caught` of `overcharges`.
+        "metsa":  {"n": 118, "aito_error": 0.048, "median_error": 0.047,
+                   "overcharges": 11, "aito_caught": 10, "aito_flagged": 11,
+                   "median_caught": 10, "median_flagged": 10},
+        "aurora": {"n": 843, "aito_error": 0.022, "median_error": 0.021,
+                   "overcharges": 39, "aito_caught": 39, "aito_flagged": 52,
+                   "median_caught": 39, "median_flagged": 57},
+        "studio": {"n": 92, "aito_error": 0.058, "median_error": 0.055,
+                   "overcharges": 6, "aito_caught": 6, "aito_flagged": 12,
+                   "median_caught": 6, "median_flagged": 10},
+    },
+}
 
 
 @dataclass
-class QuoteScore:
+class ScoredQuote:
+    price_id: str
     supplier: str
-    quoted_price: float
-    estimated_price: float
-    deviation_pct: float
-    flagged: bool
-    verdict: str  # "good" | "acceptable" | "overpriced"
+    volume: int
+    order_date: str
+    quoted: float
+    aito: float
+    median: float | None      # None: this product has no earlier price
+    neighbours: int
+
+    @property
+    def deviation(self) -> float:
+        return (self.quoted - self.aito) / self.aito
+
+    @property
+    def flagged(self) -> bool:
+        return self.deviation > FLAG_MARGIN
 
     def to_dict(self) -> dict:
-        return {
-            "supplier": self.supplier,
-            "quoted_price": self.quoted_price,
-            "estimated_price": self.estimated_price,
-            "deviation_pct": self.deviation_pct,
-            "flagged": self.flagged,
-            "verdict": self.verdict,
-        }
+        return {"price_id": self.price_id, "supplier": self.supplier,
+                "volume": self.volume, "order_date": self.order_date,
+                "quoted": self.quoted, "aito": round(self.aito, 2),
+                "median": None if self.median is None else round(self.median, 2),
+                "deviation_pct": round(self.deviation * 100, 1),
+                "flagged": self.flagged, "neighbours": self.neighbours}
 
 
-def _compute_confidence(sample_size: int) -> float:
-    """Compute confidence score based on sample size.
-
-    More data points = higher confidence, with diminishing returns.
-    """
-    if sample_size == 0:
-        return 0.0
-    if sample_size >= 20:
-        return 0.95
-    if sample_size >= 10:
-        return 0.85
-    if sample_size >= 5:
-        return 0.70
-    return 0.40 + (sample_size * 0.06)
+def score_quote(client: AitoClient, quote: dict, earlier: list[float]) -> ScoredQuote:
+    res = client.estimate("price_reference", {k: quote[k] for k in FEATURES}, "unit_price")
+    value = res.get("estimate")
+    if not isinstance(value, (int, float)) or value <= 0:
+        raise ValueError(f"_estimate unit_price returned no usable number for {quote}: {res}")
+    return ScoredQuote(
+        price_id=quote["price_id"], supplier=quote["supplier"], volume=quote["volume"],
+        order_date=quote["order_date"], quoted=float(quote["unit_price"]),
+        aito=float(value),
+        median=statistics.median(earlier) if earlier else None,
+        neighbours=len((res.get("why") or {}).get("components") or []))
 
 
-def estimate_price(
-    client: AitoClient,
-    product_id: str,
-    supplier: str | None = None,
-    volume: int | None = None,
-) -> PriceEstimate:
-    """Estimate price for a product based on historical price data.
-
-    Searches price_history for matching records, computes statistics,
-    and returns an estimate with a confidence range (mean +/- 1.5 std).
-
-    Args:
-        client: Aito API client.
-        product_id: Product SKU to estimate price for.
-        supplier: Optional supplier filter.
-        volume: Optional volume filter (not used as exact match).
-
-    Returns:
-        PriceEstimate with mean, range, and confidence.
-    """
-    where: dict = {"product_id": product_id}
-    if supplier:
-        where["supplier"] = supplier
-
-    result = client.search("price_history", where, limit=100)
-    hits = result.get("hits", [])
-
-    prices = [h.get("unit_price", 0) for h in hits if h.get("unit_price")]
-
-    if not prices:
-        return PriceEstimate(
-            product_id=product_id,
-            supplier=supplier,
-            volume=volume,
-            estimated_price=0.0,
-            price_min=0.0,
-            price_max=0.0,
-            range_low=0.0,
-            range_high=0.0,
-            sample_size=0,
-            confidence=0.0,
-            std_dev=0.0,
-        )
-
-    mean = sum(prices) / len(prices)
-    variance = sum((p - mean) ** 2 for p in prices) / len(prices) if len(prices) > 1 else 0
-    std = math.sqrt(variance)
-
-    range_low = max(0, mean - 1.5 * std)
-    range_high = mean + 1.5 * std
-
-    return PriceEstimate(
-        product_id=product_id,
-        supplier=supplier,
-        volume=volume,
-        estimated_price=round(mean, 2),
-        price_min=round(min(prices), 2),
-        price_max=round(max(prices), 2),
-        range_low=round(range_low, 2),
-        range_high=round(range_high, 2),
-        sample_size=len(prices),
-        confidence=_compute_confidence(len(prices)),
-        std_dev=round(std, 2),
-    )
-
-
-def score_quotes(
-    estimate: PriceEstimate,
-    quotes: list[dict],
-) -> list[QuoteScore]:
-    """Compare incoming quotes against the price estimate.
-
-    Flags quotes that exceed the estimated price by more than 20%.
-
-    Args:
-        estimate: Price estimate from estimate_price().
-        quotes: List of dicts with keys: supplier, quoted_price.
-
-    Returns:
-        List of QuoteScore sorted by deviation (best first).
-    """
-    scores = []
-    for quote in quotes:
-        quoted = quote["quoted_price"]
-        if estimate.estimated_price > 0:
-            deviation = (quoted - estimate.estimated_price) / estimate.estimated_price
-        else:
-            deviation = 0.0
-
-        flagged = deviation > QUOTE_FLAG_THRESHOLD
-
-        if deviation <= 0:
-            verdict = "good"
-        elif deviation <= QUOTE_FLAG_THRESHOLD:
-            verdict = "acceptable"
-        else:
-            verdict = "overpriced"
-
-        scores.append(QuoteScore(
-            supplier=quote["supplier"],
-            quoted_price=quoted,
-            estimated_price=estimate.estimated_price,
-            deviation_pct=round(deviation * 100, 1),
-            flagged=flagged,
-            verdict=verdict,
-        ))
-
-    scores.sort(key=lambda s: s.deviation_pct)
-    return scores
-
-
-# Per-tenant hero products. Each set picks 4 SKUs from that tenant's
-# real `products` table that have meaningful price_history coverage,
-# so `estimate_price()` returns non-zero estimates and the quote-
-# scoring narrative actually works. Picked by querying each tenant's
-# `price_history` for SKUs with the most rows + cross-checking
-# `orders` for demand coverage. See `.ai/issues/01-...md`.
-DEMO_PRODUCTS_BY_TENANT: dict[str, dict[str, dict]] = {
-    "metsa": {
-        "fuel": {"product_id": "SKU-1027", "name": "AdBlue v2 (10L)", "supplier": "Lyreco"},
-        "engine_oil": {"product_id": "SKU-1271", "name": "Engine Oil v2 (5L)", "supplier": "Neste Oyj"},
-        "calibration": {"product_id": "SKU-1213", "name": "Equipment Calibration #231", "supplier": "Lyreco"},
-        "inspection": {"product_id": "SKU-1038", "name": "Electrical Inspection (hr)", "supplier": "Siemens Finland"},
-    },
-    "aurora": {
-        "yogurt": {"product_id": "SKU-1231", "name": "Yogurt 4-pack", "supplier": "Valio Oy"},
-        "cleaner": {"product_id": "SKU-1122", "name": "Multi-Surface Cleaner 10pk", "supplier": "Berner Beauty"},
-        "paint": {"product_id": "SKU-1267", "name": "Paint Roller (refill set)", "supplier": "Bauhaus"},
-        "body_lotion": {"product_id": "SKU-1289", "name": "Body Lotion 250ml", "supplier": "L'Oréal Finland"},
-    },
-    "studio": {
-        "adobe": {"product_id": "SKU-1087", "name": "Adobe CC Seat (monthly)", "supplier": "Adobe Systems"},
-        "tea": {"product_id": "SKU-1029", "name": "Tea Bags (office pack)", "supplier": "Kespro"},
-        "markers": {"product_id": "SKU-1113", "name": "Whiteboard Markers (set of 12)", "supplier": "Lyreco"},
-        "pens": {"product_id": "SKU-1134", "name": "Pens Pack Pro (50pk)", "supplier": "Lyreco"},
-    },
-}
-
-
-def demo_products_for(tenant: str | None) -> dict[str, dict]:
-    return DEMO_PRODUCTS_BY_TENANT.get(tenant or "metsa",
-                                        DEMO_PRODUCTS_BY_TENANT["metsa"])
-
-
-# Mocked competing-supplier quote sets per (tenant, product key).
-# These are the rows the Pricing view scores against the Aito-derived
-# fair-price estimate. Suppliers chosen to feel realistic for each
-# vertical without claiming they correspond to real quotes.
-DEMO_QUOTES_BY_TENANT: dict[str, dict[str, list[dict]]] = {
-    "metsa": {
-        "fuel": [
-            {"supplier": "Lyreco", "quoted_price": 88},
-            {"supplier": "Neste Oyj", "quoted_price": 94},
-            {"supplier": "Shell Finland", "quoted_price": 112},
-        ],
-        "engine_oil": [
-            {"supplier": "Neste Oyj", "quoted_price": 162},
-            {"supplier": "Shell Finland", "quoted_price": 175},
-            {"supplier": "ABC Energy", "quoted_price": 219},
-        ],
-        "calibration": [
-            {"supplier": "Lyreco", "quoted_price": 108},
-            {"supplier": "Caverion Suomi", "quoted_price": 122},
-            {"supplier": "YIT Service", "quoted_price": 145},
-        ],
-        "inspection": [
-            {"supplier": "Siemens Finland", "quoted_price": 119},
-            {"supplier": "ABB Finland", "quoted_price": 128},
-            {"supplier": "Caverion Suomi", "quoted_price": 156},
-        ],
-    },
-    "aurora": {
-        "yogurt": [
-            {"supplier": "Valio Oy", "quoted_price": 24},
-            {"supplier": "Atria Oyj", "quoted_price": 26},
-            {"supplier": "Arla Foods", "quoted_price": 31},
-        ],
-        "cleaner": [
-            {"supplier": "Berner Beauty", "quoted_price": 92},
-            {"supplier": "Lyreco", "quoted_price": 98},
-            {"supplier": "Tikkurila", "quoted_price": 124},
-        ],
-        "paint": [
-            {"supplier": "Bauhaus", "quoted_price": 138},
-            {"supplier": "Tikkurila", "quoted_price": 149},
-            {"supplier": "K-Rauta", "quoted_price": 178},
-        ],
-        "body_lotion": [
-            {"supplier": "L'Oréal Finland", "quoted_price": 7},
-            {"supplier": "Berner Beauty", "quoted_price": 9},
-            {"supplier": "Cocoon Imports", "quoted_price": 14},
-        ],
-    },
-    "studio": {
-        "adobe": [
-            {"supplier": "Adobe Systems", "quoted_price": 16},
-            {"supplier": "Insight Enterprises", "quoted_price": 18},
-            {"supplier": "Atea Finland", "quoted_price": 22},
-        ],
-        "tea": [
-            {"supplier": "Kespro", "quoted_price": 42},
-            {"supplier": "Paulig Group", "quoted_price": 46},
-            {"supplier": "Fazer Food Services", "quoted_price": 58},
-        ],
-        "markers": [
-            {"supplier": "Lyreco", "quoted_price": 64},
-            {"supplier": "Staples Oy", "quoted_price": 71},
-            {"supplier": "Wulff Supplies", "quoted_price": 89},
-        ],
-        "pens": [
-            {"supplier": "Lyreco", "quoted_price": 5},
-            {"supplier": "Staples Oy", "quoted_price": 6},
-            {"supplier": "Wulff Supplies", "quoted_price": 9},
-        ],
-    },
-}
-
-
-def demo_quotes_for(tenant: str | None) -> dict[str, list[dict]]:
-    return DEMO_QUOTES_BY_TENANT.get(tenant or "metsa",
-                                      DEMO_QUOTES_BY_TENANT["metsa"])
-
-
-# Backward-compat aliases (single-tenant callers + tests).
-DEMO_PRODUCTS = DEMO_PRODUCTS_BY_TENANT["metsa"]
-DEMO_QUOTES = DEMO_QUOTES_BY_TENANT["metsa"]
+def pick_products(quotes: list[dict], earlier: dict[str, list[float]]) -> list[str]:
+    """The products with the most incoming quotes, among those with at
+    least three earlier prices. A product with none is left out: see the
+    module docstring for why its estimate is not worth showing."""
+    count: dict[str, int] = defaultdict(int)
+    for q in quotes:
+        count[q["product_id"]] += 1
+    ranked = sorted(count, key=lambda p: (-count[p], -len(earlier.get(p, [])), p))
+    chosen = [p for p in ranked if len(earlier.get(p, [])) >= 3][:PRODUCTS_SHOWN]
+    if not chosen:
+        raise RuntimeError("no quoted product has three earlier prices")
+    return chosen
 
 
 def get_pricing_overview(client: AitoClient, tenant: str | None = None) -> dict:
-    """Get price estimates, quote scores, and PPV (Purchase Price Variance)
-    metrics for all demo products in this tenant's hero set."""
-    products = {}
-    total_quotes = 0
-    flagged_quotes = 0
-    total_overpayment = 0.0  # Sum of deviations on flagged quotes
-    total_savings = 0.0       # Sum of deviations on accepted quotes (negative = savings)
-    ppv_per_product: dict[str, float] = {}
+    reference = _whole_table(client, "price_reference")
+    quotes = _whole_table(client, "price_quotes")
+    earlier: dict[str, list[float]] = defaultdict(list)
+    for r in reference:
+        earlier[r["product_id"]].append(float(r["unit_price"]))
 
-    tenant_products = demo_products_for(tenant)
-    tenant_quotes = demo_quotes_for(tenant)
+    products = []
+    for sku in pick_products(quotes, earlier):
+        rows = client.search("products", {"sku": sku}, limit=1).get("hits") or []
+        if not rows:
+            raise RuntimeError(f"{sku} is quoted but not in products")
+        product = rows[0]   # name, category and list price from the same row as the SKU
+        own = sorted((q for q in quotes if q["product_id"] == sku), key=lambda q: q["order_date"])
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            scored = list(pool.map(lambda q: score_quote(client, q, earlier.get(sku, [])), own))
+        products.append({
+            "sku": sku, "name": product["name"], "category": product.get("category"),
+            "list_price": product.get("unit_price"),
+            "earlier_prices": len(earlier.get(sku, [])),
+            "quotes": [s.to_dict() for s in scored],
+        })
 
-    for key, info in tenant_products.items():
-        # Estimate against the full price-history (all suppliers) — gives
-        # the "market fair price" band rather than one supplier's history.
-        # The product's primary supplier is shown on the card for context
-        # but isn't used as a filter.
-        estimate = estimate_price(client, info["product_id"])
-        quotes = score_quotes(estimate, tenant_quotes.get(key, []))
-
-        # PPV per product = (avg actual price - estimate) / estimate
-        if quotes:
-            avg_quoted = sum(q.quoted_price for q in quotes) / len(quotes)
-            ppv = ((avg_quoted - estimate.estimated_price) / estimate.estimated_price * 100
-                   if estimate.estimated_price > 0 else 0)
-            ppv_per_product[info["product_id"]] = round(ppv, 2)
-
-        for q in quotes:
-            total_quotes += 1
-            deviation_eur = q.quoted_price - q.estimated_price
-            if q.flagged:
-                flagged_quotes += 1
-                total_overpayment += deviation_eur
-            elif deviation_eur < 0:
-                total_savings += abs(deviation_eur)
-
-        products[key] = {
-            "product_id": info["product_id"],
-            "name": info["name"],
-            "supplier": info["supplier"],
-            "estimate": estimate.to_dict(),
-            "quotes": [q.to_dict() for q in quotes],
-        }
-
-    # Aggregate PPV — weighted average across products
-    overall_ppv = (sum(ppv_per_product.values()) / len(ppv_per_product)
-                   if ppv_per_product else 0)
-
+    measured = MEASURED["by_tenant"].get(tenant or "metsa")
+    if measured is None:
+        raise KeyError(f"no price measurement recorded for tenant {tenant!r}")
     return {
+        "cutoff": min(q["order_date"] for q in quotes)[:7],
+        "flag_margin": FLAG_MARGIN,
+        "features": list(FEATURES),
         "products": products,
-        "ppv": {
-            "overall_pct": round(overall_ppv, 2),
-            "by_product": ppv_per_product,
-            "flagged_quotes": flagged_quotes,
-            "total_quotes": total_quotes,
-            "total_overpayment_eur": round(total_overpayment, 2),
-            "total_savings_eur": round(total_savings, 2),
-            # Annualized: assume 10 orders/year per flagged item
-            "annualized_overpayment_eur": round(total_overpayment * 10, 2),
-        },
+        "measured": {"measured_on": MEASURED["measured_on"],
+                     "overcharge_over_list": OVERCHARGE_OVER_LIST,
+                     "engine_build": MEASURED["engine_build"], **measured},
     }

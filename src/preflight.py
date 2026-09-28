@@ -38,7 +38,10 @@ from src.data_loader import SCHEMAS, load_fixture
 # Tables whose absence or emptiness would visibly break a view. The rest
 # are optional per persona (`OPTIONAL_TABLES`), so they are reported but
 # do not fail the gate.
-REQUIRED = ("purchases", "products", "orders", "projects")
+REQUIRED = ("purchases", "products", "orders", "projects",
+            # Demand, Pricing and Inventory read nothing else.
+            "monthly_demand", "monthly_demand_holdout", "stock",
+            "price_reference", "price_quotes")
 
 
 def missing_columns(declared: dict, loaded: dict | None) -> list[str]:

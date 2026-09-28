@@ -164,105 +164,128 @@ export interface CatalogResponse {
 }
 
 /* ─── Price Intelligence ─── */
-export interface PriceEstimate {
-  product_id: string;
+/** Every figure below comes from a query or a measurement; see
+ *  src/pricing_service.py, src/demand_service.py, src/inventory_service.py. */
+export interface PricedQuote {
+  price_id: string;
   supplier: string;
-  volume: number | null;
-  estimated_price: number;
-  price_min: number;
-  price_max: number;
-  range_low: number;
-  range_high: number;
-  confidence?: number;
-  sample_size?: number;
-}
-
-export interface QuoteScore {
-  supplier: string;
-  quoted_price: number;
-  estimated_price: number;
-  deviation_pct: number;
-  flagged: boolean;
-  verdict: string;
+  volume: number;
+  order_date: string;
+  quoted: number;
+  aito: number;               // `_estimate unit_price` over earlier prices only
+  median: number | null;      // the product's own earlier median
+  deviation_pct: number;      // quoted vs aito
+  flagged: boolean;           // deviation above flag_margin
+  neighbours: number;         // earlier price rows the estimate weighted
 }
 
 export interface PricingProduct {
-  product_id: string;
+  sku: string;
   name: string;
-  supplier: string;
-  estimate: PriceEstimate;
-  quotes: QuoteScore[];
+  category: string | null;
+  list_price: number | null;
+  earlier_prices: number;
+  quotes: PricedQuote[];
 }
 
-export interface PricingPPV {
-  overall_pct: number;
-  by_product: Record<string, number>;
-  flagged_quotes: number;
-  total_quotes: number;
-  total_overpayment_eur: number;
-  total_savings_eur: number;
-  annualized_overpayment_eur: number;
+export interface PricingMeasured {
+  measured_on: string;
+  overcharge_over_list: number;    // what the eval counts as an overcharge
+  engine_build: string;
+  n: number;
+  aito_error: number;
+  median_error: number;
+  overcharges: number;
+  aito_caught: number;
+  aito_flagged: number;
+  median_caught: number;
+  median_flagged: number;
 }
 
 export interface PricingResponse {
-  products: Record<string, PricingProduct>;
-  ppv?: PricingPPV;
+  cutoff: string;
+  flag_margin: number;
+  features: string[];
+  products: PricingProduct[];
+  measured: PricingMeasured;
 }
 
 /* ─── Demand Forecast ─── */
-export interface DemandForecast {
-  product_id: string;
-  product_name: string;
+export interface DemandHorizonMonth {
   month: string;
-  baseline: number;
-  forecast: number;
-  trend: "up" | "down" | "stable";
-  confidence: number;
-  history?: Array<{ month: string; units: number }>;
+  where: Record<string, string>;   // the exact `where` sent to `_estimate`
+  aito: number;         // `_estimate units_sold`
+  last_year: number;    // same month last year
+  trailing: number;     // the ERP reorder rule's trailing 3-month mean
+  actual: number;       // held out from the estimate
+  neighbours: number;
 }
 
-export interface DemandImpact {
-  spikes_predicted: number;
-  drops_predicted: number;
-  high_confidence_count: number;
-  stockouts_prevented_eur: number;
-  excess_prevented_eur: number;
-  total_impact_eur: number;
+export interface DemandProduct {
+  sku: string;
+  name: string;
+  category: string;
+  supplier: string;
+  history: Array<{ month: string; units: number }>;
+  horizon: DemandHorizonMonth[];
+}
+
+export interface DemandMeasured {
+  measured_on: string;
+  engine_build: string;
+  metric: string;
+  n: number;
+  aito: number;
+  last_year: number;
+  trailing: number;
 }
 
 export interface DemandResponse {
-  forecasts: DemandForecast[];
-  month: string;
-  impact?: DemandImpact;
+  cutoff: string;
+  products: DemandProduct[];
+  features: string[];
+  measured: DemandMeasured;
 }
 
 /* ─── Inventory Intelligence ─── */
-export interface InventoryItem {
-  product_id: string;
-  product_name: string;
-  stock_on_hand: number;
-  daily_demand: number;
-  days_of_supply: number;
+export interface StockCheck {
+  sku: string;
+  name: string;
+  category: string;
+  supplier: string;
+  unit_price: number | null;
+  on_hand: number;
+  on_order: number;
+  next_delivery_month: string | null;
+  arriving_in_time: number;
   lead_time_days: number;
   reorder_point: number;
+  aito_daily: number;
+  trailing_daily: number;
+  actual_daily: number;
+  days_of_cover: number | null;   // null: no demand forecast, cover unbounded
   status: "critical" | "low" | "ok" | "overstock";
-  forecast_units: number;
-  unit_price?: number;
-  excess_units?: number;
-  tied_capital_eur?: number;
-  stockout_risk_eur?: number;
-  substitutions?: Array<{ product_id: string; name: string; similarity: number }>;
+  aito_short: boolean;
+  rule_short: boolean;
+  actually_short: boolean;
+  neighbours: number;
+  where: Record<string, string>;   // the exact `where` of the forecast
+}
+
+export interface WarningScore {
+  raised: number;
+  right: number;
+  real_shortfalls: number;
+  caught: number;
 }
 
 export interface InventoryResponse {
-  items: InventoryItem[];
-  critical_count: number;
-  low_count: number;
-  overstock_count: number;
-  ok_count: number;
-  total_tied_capital_eur?: number;
-  total_stockout_risk_eur?: number;
-  target_freed_eur?: number;
+  as_of: string;
+  items_checked: number;
+  counts: Record<"critical" | "low" | "ok" | "overstock", number>;
+  warnings: { aito: WarningScore; trailing_rule: WarningScore };
+  synthetic_stock: boolean;
+  items: StockCheck[];
 }
 
 /* ─── Automation Overview ─── */

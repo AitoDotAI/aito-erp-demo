@@ -460,6 +460,86 @@ SCHEMAS = {
             "month": {"type": "String", "nullable": False},
         },
     },
+    # ── Demand, stock and price tables (data/generate_demand.py) ──
+    # `orders` is uniform noise, so the Demand, Pricing and Inventory
+    # views read these instead. See that script's docstring for what
+    # each carries and why.
+    "monthly_demand": {
+        "type": "table",
+        "columns": {
+            "demand_id": {"type": "String", "nullable": False},
+            "sku": {"type": "String", "nullable": False, "link": "products.sku"},
+            "month": {"type": "String", "nullable": False},
+            "month_of_year": {"type": "String", "nullable": False},
+            "season": {"type": "String", "nullable": False},
+            "category": {"type": "String", "nullable": False},
+            "supplier": {"type": "String", "nullable": False},
+            "year": {"type": "String", "nullable": False},
+            # Same month last year, banded (see data/generate_demand.py).
+            "last_year_band": {"type": "String", "nullable": False},
+            "units_sold": {"type": "Int", "nullable": False},
+        },
+    },
+    # The six months after the cutoff. Link-free for the same reason as
+    # `invoice_lines_holdout`: a link would let rows the forecast must
+    # never see feed it through the shared `products` table.
+    "monthly_demand_holdout": {
+        "type": "table",
+        "columns": {
+            "demand_id": {"type": "String", "nullable": False},
+            "sku": {"type": "String", "nullable": False},
+            "month": {"type": "String", "nullable": False},
+            "month_of_year": {"type": "String", "nullable": False},
+            "season": {"type": "String", "nullable": False},
+            "category": {"type": "String", "nullable": False},
+            "supplier": {"type": "String", "nullable": False},
+            "year": {"type": "String", "nullable": False},
+            # Same month last year, banded (see data/generate_demand.py).
+            "last_year_band": {"type": "String", "nullable": False},
+            "units_sold": {"type": "Int", "nullable": False},
+        },
+    },
+    # Synthetic, and the Inventory view says so — but simulated from
+    # `monthly_demand`, so stock is depleted by the sales the forecast sees.
+    "stock": {
+        "type": "table",
+        "columns": {
+            "sku": {"type": "String", "nullable": False, "link": "products.sku"},
+            "supplier": {"type": "String", "nullable": False},
+            "on_hand": {"type": "Int", "nullable": False},
+            "on_order": {"type": "Int", "nullable": False},
+            "next_delivery_month": {"type": "String", "nullable": True},
+            "lead_time_days": {"type": "Int", "nullable": False},
+            "reorder_point": {"type": "Int", "nullable": False},
+            "safety_stock": {"type": "Int", "nullable": False},
+            "last_received_month": {"type": "String", "nullable": True},
+            "as_of_month": {"type": "String", "nullable": False},
+        },
+    },
+    # `price_history` split at the cutoff: the estimate is built from
+    # the reference half only, and scores the quotes half it never saw.
+    "price_reference": {
+        "type": "table",
+        "columns": {
+            "price_id": {"type": "String", "nullable": False},
+            "product_id": {"type": "String", "nullable": False, "link": "products.sku"},
+            "supplier": {"type": "String", "nullable": False},
+            "unit_price": {"type": "Decimal", "nullable": False},
+            "volume": {"type": "Int", "nullable": False},
+            "order_date": {"type": "String", "nullable": False},
+        },
+    },
+    "price_quotes": {
+        "type": "table",
+        "columns": {
+            "price_id": {"type": "String", "nullable": False},
+            "product_id": {"type": "String", "nullable": False},
+            "supplier": {"type": "String", "nullable": False},
+            "unit_price": {"type": "Decimal", "nullable": False},
+            "volume": {"type": "Int", "nullable": False},
+            "order_date": {"type": "String", "nullable": False},
+        },
+    },
 }
 
 # Tables whose fixture file may be absent for some personas. The loader
@@ -624,6 +704,47 @@ def run_tenant(tenant: TenantId, reset: bool = False,
     print(f"[{tenant}] Done. Loaded {total} records.")
 
 
+def add_tables(tenant: TenantId, tables: list[str],
+               api_version: str | None = None) -> None:
+    """Create and fill NEW tables, touching nothing that already exists.
+
+    The full load drops every table first (v2 has no replace-in-place),
+    which is why it refuses a master env. Adding a table needs neither:
+    this creates only the named tables, refuses if any of them already
+    exists, and never deletes. That makes it safe against a database
+    that is serving the live demo — the running build does not read the
+    new tables, and nothing it does read is touched.
+    """
+    unknown = [t for t in tables if t not in SCHEMAS]
+    if unknown:
+        raise ValueError(f"no schema declared for {unknown}")
+    config = load_config(api_version=api_version)
+    creds = config.creds_for(tenant)
+    client = AitoClient.from_creds(creds.api_url, creds.api_key,
+                                   api_version=config.api_version)
+    # The tables sit under "schema"; reading the top level would see one
+    # key and the guard below would never fire.
+    existing = set(client.get_schema()["schema"].keys())
+    clash = [t for t in tables if t in existing]
+    if clash:
+        raise ValueError(f"[{tenant}] refusing to add tables that already exist: {clash}")
+    fixtures = {t: load_fixture(t, tenant=tenant) for t in tables}
+    missing = [t for t, rows in fixtures.items() if not rows]
+    if missing:
+        raise ValueError(f"[{tenant}] no fixture rows for {missing} — run data/generate_demand.py")
+
+    print(f"\n=== Tenant: {tenant} ({config.api_version}), adding {tables} ===")
+    for table_name in tables:
+        create_schema(client, table_name, schema_for(table_name, config.api_version))
+        upload_data(client, table_name, fixtures[table_name])
+        if config.api_version == "v2":
+            optimize_table(client, table_name)
+        total = client.search(table_name, {}, limit=1).get("total")
+        if total != len(fixtures[table_name]):
+            raise RuntimeError(f"[{tenant}] {table_name}: loaded {total}, expected {len(fixtures[table_name])}")
+        print(f"  [{tenant}] {table_name}: {total} rows")
+
+
 def run(reset: bool = False, tenants: list[TenantId] | None = None,
         api_version: str | None = None) -> None:
     """Main entry point for the data loader.
@@ -674,5 +795,15 @@ def _parse_api_version_arg(argv: list[str]) -> str | None:
 if __name__ == "__main__":
     reset = "--reset" in sys.argv
     tenants = _parse_tenants_arg(sys.argv)
-    run(reset=reset, tenants=tenants,
-        api_version=_parse_api_version_arg(sys.argv))
+    # `--add=t1,t2`: create and fill only these tables, never dropping
+    # anything (see `add_tables`). Safe against a live database.
+    add = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--add=")), None)
+    if add:
+        if reset:
+            raise SystemExit("--add never drops anything; it cannot be combined with --reset")
+        for tenant_id in tenants or [DEFAULT_TENANT]:
+            add_tables(tenant_id, add.split(","),
+                       api_version=_parse_api_version_arg(sys.argv))
+    else:
+        run(reset=reset, tenants=tenants,
+            api_version=_parse_api_version_arg(sys.argv))

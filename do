@@ -70,6 +70,8 @@ Commands:
   env-promote-v2  Promote a v2 env into master, per tenant. Replaces
                   what master held; the previous content is gone.
   match-eval      Score line->SKU matching on the held-out half
+  demand-eval     Score the demand forecast on the held-out months
+  price-eval      Score quote pricing against each product's median
   v2-check        Run every view's query shape against v2 and report
                   which pass, which break, and how.
   dev-v2          Start both servers against /api/v2.
@@ -210,6 +212,9 @@ cmd_generate_personas() {
   # before --tenant=all if you change anything in generate_personas.py.
   cd "$SCRIPT_DIR"
   uv run python data/generate_personas.py
+  # Demand, stock and price tables are derived from the fixtures above
+  # (see the script's docstring), so they are regenerated with them.
+  uv run python data/generate_demand.py
 }
 
 cmd_reset_data() {
@@ -387,6 +392,21 @@ cmd_match_eval() {
   # half that was never loaded. Run this BEFORE trusting the view.
   cd "$SCRIPT_DIR"
   uv run python -m src.match_eval "$@"
+}
+
+cmd_demand_eval() {
+  # Demand forecast vs same-month-last-year and the trailing-average
+  # reorder rule, on the six held-out months. The Demand and Inventory
+  # views quote this; re-run before changing their query.
+  cd "$SCRIPT_DIR"
+  uv run python -m src.demand_eval "$@"
+}
+
+cmd_price_eval() {
+  # Price estimate vs the product's own median, on quotes dated after
+  # the cutoff. The Pricing view quotes this.
+  cd "$SCRIPT_DIR"
+  uv run python -m src.price_eval "$@"
 }
 
 cmd_preflight() {
@@ -707,6 +727,8 @@ case "${1:-help}" in
   preflight)       shift; cmd_preflight "$@" ;;
   v2-check)        shift; cmd_v2_check "$@" ;;
   match-eval)      shift; cmd_match_eval "$@" ;;
+  demand-eval)     shift; cmd_demand_eval "$@" ;;
+  price-eval)      shift; cmd_price_eval "$@" ;;
   dev-v2)          cmd_dev_v2 ;;
   backend-dev-v2)  cmd_backend_dev_v2 ;;
   test)            cmd_test ;;
