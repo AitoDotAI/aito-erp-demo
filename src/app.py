@@ -197,13 +197,15 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("catalog_incomplete", compute)
 
     def warm_pricing():
-        warm_or_load("pricing_overview", lambda: get_pricing_overview(aito, tenant=tenant_id))
+        # New keys with the new response shapes: a persisted cache entry
+        # under the old key holds the old shape, and would crash the page.
+        warm_or_load("pricing_quotes_v2", lambda: get_pricing_overview(aito, tenant=tenant_id))
 
     def warm_demand():
-        warm_or_load("demand_forecast", lambda: get_demand_forecast(aito, tenant=tenant_id))
+        warm_or_load("demand_holdout_v2", lambda: get_demand_forecast(aito, tenant=tenant_id))
 
     def warm_inventory():
-        warm_or_load("inventory_status", lambda: get_inventory_status(aito, tenant=tenant_id).to_dict())
+        warm_or_load("inventory_stock_v2", lambda: get_inventory_status(aito, tenant=tenant_id))
 
     def warm_overview():
         warm_or_load("overview_metrics", lambda: get_overview(aito).to_dict())
@@ -689,7 +691,7 @@ def matching_batch(request: Request, size: int = 40, workers: int = 8,
 def pricing_estimate(request: Request):
     tenant, aito = client_from_request(request)
     return cache.get_or_compute(
-        _tk(tenant, "pricing_overview"),
+        _tk(tenant, "pricing_quotes_v2"),
         lambda: get_pricing_overview(aito, tenant=tenant),
     )
 
@@ -698,7 +700,7 @@ def pricing_estimate(request: Request):
 def demand_forecast(request: Request):
     tenant, aito = client_from_request(request)
     return cache.get_or_compute(
-        _tk(tenant, "demand_forecast"),
+        _tk(tenant, "demand_holdout_v2"),
         lambda: get_demand_forecast(aito, tenant=tenant),
     )
 
@@ -707,8 +709,8 @@ def demand_forecast(request: Request):
 def inventory_status(request: Request):
     tenant, aito = client_from_request(request)
     return cache.get_or_compute(
-        _tk(tenant, "inventory_status"),
-        lambda: get_inventory_status(aito, tenant=tenant).to_dict(),
+        _tk(tenant, "inventory_stock_v2"),
+        lambda: get_inventory_status(aito, tenant=tenant),
     )
 
 

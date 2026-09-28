@@ -5,28 +5,120 @@ import Nav from "@/components/shell/Nav";
 import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
-import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
-import type { InventoryResponse, InventoryItem, AitoPanelConfig } from "@/lib/types";
+import type { InventoryResponse, StockCheck, WarningScore, AitoPanelConfig } from "@/lib/types";
 
-const defaultPanel: AitoPanelConfig = {
-  operation: "_estimate + _relate",
-  endpoints: ["_predict", "_relate", "_search"],
-  stats: [
-    { label: "Critical", value: "—" },
-    { label: "Low", value: "—" },
-    { label: "Overstock", value: "—" },
-  ],
-  description:
-    "Demand forecast meets stock levels. aito.._estimate predicts <em>demand per product</em>, then compares against current inventory and lead times to flag stockout risks. aito.._relate finds <em>substitution candidates</em> when primary stock runs low.",
-  query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"inventory"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"status"</span>: <span class="q-v">"active"</span> },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"days_of_supply"</span>\n}\n\n<span class="q-d">// Then for low-stock items:</span>\n<span class="q-k">POST</span> <span class="q-v">/api/{version}/_relate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"category"</span>: <span class="q-v">"same"</span> },\n  <span class="q-k">"relate"</span>: <span class="q-p">"substitution"</span>\n}`,
-  links: [
-    { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
-    { label: "aito.ai/docs/relate", url: "https://aito.ai/docs/api/relate" },
-    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/10-inventory-intelligence.md", kind: "doc" },
-    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/inventory_service.py", kind: "github" },
-  ],
-};
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Below this many shortfalls, a difference of one warning is noise.
+// The page says so rather than letting a 1-vs-0 read as a result.
+const MIN_SHORTFALLS_TO_COMPARE = 10;
+
+function monthOf(yyyyMm: string): number {
+  const m = Number(yyyyMm.split("-")[1]);
+  if (!Number.isInteger(m) || m < 1 || m > 12) {
+    throw new Error(`Unexpected month ${JSON.stringify(yyyyMm)} — expected YYYY-MM`);
+  }
+  return m;
+}
+
+const fmtMonth = (yyyyMm: string) => `${MONTH_NAMES[monthOf(yyyyMm) - 1]} ${yyyyMm.split("-")[0]}`;
+const fmtDaily = (n: number) => n.toFixed(2);
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// A value as it would appear in the JSON body, made safe for the panel's HTML.
+const asJsonHtml = (v: string) => escapeHtml(JSON.stringify(v));
+
+// The forecast body the backend sent for one item, read from the
+// response rather than rebuilt here, so the panel cannot drift from it.
+function forecastQuery(item: StockCheck): string {
+  const where = Object.entries(item.where)
+    .map(([k, v]) => `    <span class="q-k">"${escapeHtml(k)}"</span>: <span class="q-v">${asJsonHtml(v)}</span>`)
+    .join(",\n");
+  return `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n` +
+    `  <span class="q-k">"from"</span>: <span class="q-v">"monthly_demand"</span>,\n` +
+    `  <span class="q-k">"where"</span>: {\n${where}\n  },\n` +
+    `  <span class="q-k">"estimate"</span>: <span class="q-p">"units_sold"</span>\n}`;
+}
+
+const panelDescription =
+  "Will what is on the shelf, plus what lands within the lead time, cover demand until a new order could arrive? " +
+  "The <em>stock</em> table is <strong>synthetic</strong>: simulated from the same sales history, managed by a trailing-average min/max reorder rule." +
+  "<br/><br/>The question is asked twice — with aito.._estimate's forecast for the month, and with the <em>trailing three-month average</em> that rule uses." +
+  "<br/><br/>The month after the cutoff is <em>held out</em>, so each warning is checked against what actually sold.";
+
+const panelLinks: AitoPanelConfig["links"] = [
+  { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
+  { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/10-inventory-intelligence.md", kind: "doc" },
+  { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/inventory_service.py", kind: "github" },
+];
+
+function panelFor(data: InventoryResponse | null, item: StockCheck | null): AitoPanelConfig {
+  const base = { operation: "_estimate", endpoints: ["_estimate", "_search"], links: panelLinks };
+  if (!data || !item) {
+    return {
+      ...base,
+      stats: data
+        ? [
+          { label: "Critical", value: String(data.counts.critical) },
+          { label: "Low", value: String(data.counts.low) },
+          { label: "Overstock", value: String(data.counts.overstock) },
+        ]
+        : [{ label: "Critical", value: "—" }, { label: "Low", value: "—" }, { label: "Overstock", value: "—" }],
+      description: panelDescription,
+      query: data && data.items.length > 0
+        ? forecastQuery(data.items[0])
+        // Before the first response there is no real query to show.
+        : "",
+    };
+  }
+  const cover = item.days_of_cover === null ? "unbounded (no demand forecast)" : `${item.days_of_cover} days`;
+  return {
+    ...base,
+    stats: [
+      { label: "Aito /day", value: fmtDaily(item.aito_daily) },
+      { label: "Rule /day", value: fmtDaily(item.trailing_daily) },
+      { label: "Actual /day", value: fmtDaily(item.actual_daily) },
+    ],
+    description:
+      `<strong>${escapeHtml(item.name)}</strong> (${escapeHtml(item.sku)})<br/><br/>` +
+      `On hand <em>${item.on_hand}</em>, arriving within the ${item.lead_time_days}-day lead time <em>${item.arriving_in_time}</em>. ` +
+      `By Aito's forecast that covers <em>${cover}</em>.<br/><br/>` +
+      `Aito says <em>${item.aito_short ? "will run short" : "covered"}</em>; the trailing rule says <em>${item.rule_short ? "will run short" : "covered"}</em>. ` +
+      `At the held-out month's actual sales rate it <em>${item.actually_short ? "would not last the lead time" : "would last the lead time"}</em>.` +
+      `<br/><br/>${panelDescription}`,
+    query: forecastQuery(item),
+  };
+}
+
+function statusBadge(status: StockCheck["status"]) {
+  switch (status) {
+    case "critical": return <span className="badge b-red">Critical</span>;
+    case "low": return <span className="badge b-gold">Low</span>;
+    case "ok": return <span className="badge b-green">OK</span>;
+    case "overstock": return <span className="badge b-blue">Overstock</span>;
+  }
+}
+
+// Plain words for the comparison, with no winner unless the counts carry one.
+function verdict(aito: WarningScore, rule: WarningScore): string {
+  const shortfalls = aito.real_shortfalls;
+  if (aito.real_shortfalls !== rule.real_shortfalls) {
+    throw new Error("Both methods are scored against the same held-out month; real_shortfalls must match");
+  }
+  const same = aito.raised === rule.raised && aito.right === rule.right && aito.caught === rule.caught;
+  if (same) {
+    return `Both raised the same warnings with the same outcome. ${shortfalls} shortfall${shortfalls === 1 ? "" : "s"} at the actual rate is too few to separate the two methods.`;
+  }
+  if (shortfalls < MIN_SHORTFALLS_TO_COMPARE) {
+    return `The counts differ, but with ${shortfalls} shortfall${shortfalls === 1 ? "" : "s"} at the held-out month's actual rate that difference is too small to separate the two methods.`;
+  }
+  return "The counts differ; compare the right and caught columns directly — each is out of the numbers shown.";
+}
 
 export default function InventoryPage() {
   const { tenantId } = useTenant();
@@ -34,12 +126,12 @@ export default function InventoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<InventoryResponse | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [panel, setPanel] = useState<AitoPanelConfig>(defaultPanel);
   const [bannerOpen, setBannerOpen] = useState(true);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
+    setSelected(null);
     apiFetch<InventoryResponse>("/api/inventory/status")
       .then((res) => setData(res))
       .catch((e) => setError(e.message))
@@ -47,98 +139,7 @@ export default function InventoryPage() {
   }, [tenantId]);
 
   const items = data?.items ?? [];
-  const [reordering, setReordering] = useState<string | null>(null);
-  const [reordered, setReordered] = useState<Record<string, string>>({});
-
-  const supplierFor = (productId: string): string => {
-    const map: Record<string, string> = {
-      "SKU-4421": "Wärtsilä Components",
-      "SKU-FUEL": "Neste Oyj",
-      "SKU-2234": "Lindström Oy",
-      "SKU-HVAC": "Caverion Suomi",
-      "SKU-5560": "Fazer Food Services",
-      "SKU-9901": "Generic Supplier",
-    };
-    return map[productId] ?? "Generic Supplier";
-  };
-
-  const priceFor = (productId: string): number => {
-    const map: Record<string, number> = {
-      "SKU-4421": 148, "SKU-FUEL": 94, "SKU-2234": 89,
-      "SKU-HVAC": 82, "SKU-5560": 25, "SKU-9901": 3.4,
-    };
-    return map[productId] ?? 50;
-  };
-
-  const handleReorder = async (item: InventoryItem) => {
-    setReordering(item.product_id);
-    try {
-      const reorderQty = Math.max(
-        Math.ceil(item.daily_demand * (item.lead_time_days + 14)),
-        Math.ceil(item.forecast_units),
-      );
-      const amount = reorderQty * priceFor(item.product_id);
-      const res = await apiFetch<{ purchase_id: string }>("/api/po/submit", {
-        method: "POST",
-        body: JSON.stringify({
-          supplier: supplierFor(item.product_id),
-          description: `Reorder ${reorderQty}× ${item.product_name}`,
-          amount_eur: Math.round(amount * 100) / 100,
-          category: "reorder",
-          source: "inventory_reorder",
-        }),
-      });
-      setReordered((prev) => ({ ...prev, [item.product_id]: res.purchase_id }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setReordering(null);
-    }
-  };
-
-  useEffect(() => {
-    if (!data) return;
-    setPanel({
-      ...defaultPanel,
-      stats: [
-        { label: "Critical", value: String(data.critical_count) },
-        { label: "Low", value: String(data.low_count) },
-        { label: "Overstock", value: String(data.overstock_count) },
-      ],
-    });
-  }, [data]);
-
-  const handleRowClick = (idx: number) => {
-    const item = items[idx];
-    setSelected(idx);
-    const subText = item.substitutions?.length
-      ? `<br/><br/>Substitution available: <em>${item.substitutions[0].name}</em> (${Math.round(item.substitutions[0].similarity * 100)}% similarity)`
-      : "";
-    setPanel({
-      operation: "_estimate",
-      endpoints: ["_predict", "_search"],
-      stats: [
-        { label: "In stock", value: String(item.stock_on_hand) },
-        { label: "Daily demand", value: String(item.daily_demand) },
-        { label: "Days supply", value: String(item.days_of_supply) },
-      ],
-      description: `<strong>${item.product_name}</strong> (${item.product_id})<br/><br/>Current stock: <em>${item.stock_on_hand}</em><br/>Daily demand: <em>${item.daily_demand}</em><br/>Days of supply: <em>${item.days_of_supply} days</em><br/>Lead time: <em>${item.lead_time_days} days</em><br/>Forecast units: <em>${item.forecast_units}</em>${subText}`,
-      query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"inventory"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"product_id"</span>: <span class="q-v">"${item.product_id}"</span> },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"days_of_supply"</span>\n}\n\n<span class="q-d">// Stockout math:</span>\n<span class="q-d">// ${item.stock_on_hand} units / ${item.daily_demand} per day</span>\n<span class="q-d">// = ${item.days_of_supply} days of supply</span>\n<span class="q-d">// Lead time: ${item.lead_time_days} days</span>`,
-      links: [
-        { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
-      ],
-    });
-  };
-
-  const statusBadge = (status: string) => {
-    switch (status) {
-      case "critical": return <span className="badge b-red">Critical</span>;
-      case "low": return <span className="badge b-gold">Low</span>;
-      case "ok": return <span className="badge b-green">OK</span>;
-      case "overstock": return <span className="badge b-blue">Overstock</span>;
-      default: return <span className="badge b-gray">{status}</span>;
-    }
-  };
+  const panel = panelFor(data, selected === null ? null : items[selected] ?? null);
 
   if (error) {
     return (
@@ -150,12 +151,20 @@ export default function InventoryPage() {
             <div className="content">
               <ErrorState message={error} command="GET /api/inventory/status" />
             </div>
-            <AitoPanel config={defaultPanel} />
+            <AitoPanel config={panelFor(null, null)} />
           </div>
         </div>
       </>
     );
   }
+
+  const asOf = data ? fmtMonth(data.as_of) : "—";
+  const kpis: Array<{ key: StockCheck["status"]; label: string; color: string; sub: string }> = [
+    { key: "critical", label: "Critical", color: "var(--red)", sub: "cover shorter than the lead time" },
+    { key: "low", label: "Low", color: "var(--gold-dark)", sub: "cover under twice the lead time" },
+    { key: "ok", label: "OK", color: "var(--green)", sub: "at least twice the lead time" },
+    { key: "overstock", label: "Overstock", color: "var(--blue)", sub: "more than 90 days of cover" },
+  ];
 
   return (
     <>
@@ -164,113 +173,144 @@ export default function InventoryPage() {
         <TopBar
           title="Inventory Intelligence"
           breadcrumb="Product"
-          kpis={[{ icon: "\uD83C\uDFD7\uFE0F", label: `${data?.critical_count ?? 0} critical` }]}
+          kpis={[{ icon: "🏗️", label: `${data?.counts.critical ?? 0} critical` }]}
         />
         <div className="content-area">
           <div className="content">
             {bannerOpen && (
               <div className="intro-banner">
                 <div className="intro-banner-text">
-                  <strong>Demand forecast meets stock levels.</strong> aito.. combines predicted demand with current inventory and supplier lead times to flag stockout risks before they happen &mdash; and suggests substitutes when primary items run low.
+                  <strong>Will it run out before the next delivery?</strong> For the {data?.items_checked ?? "—"} busiest
+                  stocked items as of {asOf}, stock on hand plus what arrives within the lead time is set against
+                  demand — once with aito..&apos;s forecast, once with the trailing average a plain ERP reorder rule
+                  uses. The following month is held out, so both answers are checked against its actual sales rate: would stock have lasted the lead time at the rate that really sold? One month's rate, projected, not a count of empty-shelf days.
+                  {data?.synthetic_stock && (
+                    <> The stock levels are <strong>synthetic</strong>: simulated from the same sales history, not
+                      taken from a real warehouse.</>
+                  )}
                 </div>
                 <span className="intro-banner-close" onClick={() => setBannerOpen(false)}>&times;</span>
               </div>
             )}
 
             <div className="kpi-row">
-              <div className="kpi">
-                <div className="kpi-label">Critical Stockouts</div>
-                <div className="kpi-val" style={{ color: "var(--red)" }}>{data?.critical_count ?? 0}</div>
-                <div className="kpi-sub">{fmtAmount(data?.total_stockout_risk_eur ?? 0)} weekly margin at risk</div>
-              </div>
-              <div className="kpi">
-                <div className="kpi-label">Low Stock</div>
-                <div className="kpi-val" style={{ color: "var(--gold)" }}>{data?.low_count ?? 0}</div>
-                <div className="kpi-sub">items need attention</div>
-              </div>
-              <div className="kpi">
-                <div className="kpi-label">Overstock Items</div>
-                <div className="kpi-val">{data?.overstock_count ?? 0}</div>
-                <div className="kpi-sub">&gt;90 days supply</div>
-              </div>
-              <div className="kpi" style={{ background: "var(--gold-light)", borderColor: "var(--gold)" }}>
-                <div className="kpi-label" style={{ color: "var(--gold-dark)" }}>Capital Recoverable</div>
-                <div className="kpi-val" style={{ color: "var(--gold-dark)" }}>{fmtAmount(data?.target_freed_eur ?? 0)}</div>
-                <div className="kpi-sub" style={{ color: "var(--gold-dark)" }}>by reducing overstock to 60d target</div>
-              </div>
+              {kpis.map((k) => (
+                <div className="kpi" key={k.key}>
+                  <div className="kpi-label">{k.label}</div>
+                  <div className="kpi-val" style={{ color: k.color }}>{data?.counts[k.key] ?? "—"}</div>
+                  <div className="kpi-sub">{k.sub}, by Aito&apos;s forecast</div>
+                </div>
+              ))}
             </div>
 
+            {data && (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-head">
+                  <span className="card-title">Was the warning right?</span>
+                  <span className="card-meta">&ldquo;will run short&rdquo; warnings, checked against {fmtMonth(data.as_of)} sales (held out)</span>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Forecast</th>
+                        <th>Warnings raised</th>
+                        <th>Right</th>
+                        <th title="Items whose cover at the held-out month's actual rate is below the lead time">Shortfalls caught (actual rate)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {([
+                        ["Aito _estimate", data.warnings.aito],
+                        ["ERP rule: trailing 3-month average", data.warnings.trailing_rule],
+                      ] as const).map(([label, w]) => (
+                        <tr key={label}>
+                          <td>{label}</td>
+                          <td className="mono">{w.raised}</td>
+                          <td className="mono">{w.right} of {w.raised}</td>
+                          <td className="mono">{w.caught} of {w.real_shortfalls}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ padding: "10px 16px", fontSize: 11.5, color: "var(--mid)", borderTop: "1px solid var(--border)" }}>
+                  {verdict(data.warnings.aito, data.warnings.trailing_rule)}
+                </div>
+              </div>
+            )}
+
             <div className="card" style={{ marginBottom: 16 }}>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>Product ID</th>
-                    <th>Product</th>
-                    <th>In Stock</th>
-                    <th>Daily Demand</th>
-                    <th>Days Supply</th>
-                    <th>Lead Time</th>
-                    <th>Status</th>
-                    <th>Cash Impact</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, i) => (
-                    <tr key={item.product_id} className={`clickable${selected === i ? " selected" : ""}`} onClick={() => handleRowClick(i)}>
-                      <td className="mono">{item.product_id}</td>
-                      <td>{item.product_name}</td>
-                      <td className="mono">{item.stock_on_hand}</td>
-                      <td className="mono">{item.daily_demand}</td>
-                      <td>
-                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, fontWeight: 700, color: item.days_of_supply <= 5 ? "var(--red)" : item.days_of_supply <= 14 ? "var(--gold-dark)" : "var(--ink)" }}>
-                          {item.days_of_supply}d
-                        </span>
-                      </td>
-                      <td className="mono">{item.lead_time_days}d</td>
-                      <td>{statusBadge(item.status)}</td>
-                      <td>
-                        {item.status === "overstock" && (item.tied_capital_eur ?? 0) > 0 ? (
-                          <span style={{ color: "var(--blue)", fontWeight: 600, fontSize: 11 }}>
-                            {fmtAmount(item.tied_capital_eur ?? 0)} tied
-                          </span>
-                        ) : item.status === "critical" && (item.stockout_risk_eur ?? 0) > 0 ? (
-                          <span style={{ color: "var(--red)", fontWeight: 600, fontSize: 11 }}>
-                            {fmtAmount(item.stockout_risk_eur ?? 0)}/wk at risk
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--mid)", fontSize: 11 }}>—</span>
-                        )}
-                      </td>
-                      <td>
-                        {reordered[item.product_id] ? (
-                          <span style={{ fontSize: 11, color: "var(--green)" }}>
-                            ✓ {reordered[item.product_id]}
-                          </span>
-                        ) : (item.status === "critical" || item.status === "low") ? (
-                          <button
-                            className="btn btn-primary"
-                            style={{ fontSize: 10.5, padding: "4px 10px" }}
-                            disabled={reordering === item.product_id}
-                            onClick={(e) => { e.stopPropagation(); handleReorder(item); }}
-                          >
-                            {reordering === item.product_id ? "..." : "Reorder now"}
-                          </button>
-                        ) : (
-                          <span style={{ fontSize: 11, color: "var(--mid)" }}>—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {items.length === 0 && !loading && (
+              <div className="card-head">
+                <span className="card-title">Stock check · as of {asOf}</span>
+                {data?.synthetic_stock && <span className="badge b-gray">Synthetic stock</span>}
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table className="tbl">
+                  <thead>
                     <tr>
-                      <td colSpan={9} style={{ textAlign: "center", color: "var(--mid)", padding: 32 }}>
-                        No inventory data available
-                      </td>
+                      <th>Item</th>
+                      <th>Status</th>
+                      <th>On hand</th>
+                      <th>Arriving in time</th>
+                      <th>Lead time</th>
+                      <th>Aito /day</th>
+                      <th>Rule /day</th>
+                      <th title="What actually sold in the held-out month">Actual /day</th>
+                      <th>Days of cover</th>
+                      <th title="Cover at the held-out month's actual daily rate below the lead time">Short at actual rate?</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {items.map((item, i) => (
+                      <tr key={item.sku} className={`clickable${selected === i ? " selected" : ""}`} onClick={() => setSelected(i)}>
+                        <td>
+                          <div>{item.name}</div>
+                          <div style={{ fontSize: 10.5, color: "var(--mid)" }}>
+                            <span className="mono">{item.sku}</span> · {item.category}
+                          </div>
+                        </td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          {statusBadge(item.status)}
+                          {item.aito_short !== item.rule_short && (
+                            <span
+                              className="badge b-purple"
+                              style={{ marginLeft: 4 }}
+                              title={`The trailing rule says ${item.rule_short ? "it will run short" : "it is covered"}`}
+                            >
+                              rule disagrees
+                            </span>
+                          )}
+                        </td>
+                        <td className="mono">{item.on_hand}</td>
+                        <td className="mono">
+                          {item.arriving_in_time}
+                          {item.next_delivery_month && item.arriving_in_time > 0 && (
+                            <span style={{ color: "var(--mid)" }}> · {fmtMonth(item.next_delivery_month)}</span>
+                          )}
+                        </td>
+                        <td className="mono">{item.lead_time_days}d</td>
+                        <td className="mono">{fmtDaily(item.aito_daily)}</td>
+                        <td className="mono">{fmtDaily(item.trailing_daily)}</td>
+                        <td className="mono">{fmtDaily(item.actual_daily)}</td>
+                        <td className="mono">{item.days_of_cover === null ? "∞" : `${item.days_of_cover}d`}</td>
+                        <td>
+                          {item.actually_short
+                            ? <span style={{ color: "var(--red)", fontWeight: 600, fontSize: 11 }}>Yes</span>
+                            : <span style={{ color: "var(--mid)", fontSize: 11 }}>No</span>}
+                        </td>
+                      </tr>
+                    ))}
+                    {items.length === 0 && !loading && (
+                      <tr>
+                        <td colSpan={10} style={{ textAlign: "center", color: "var(--mid)", padding: 32 }}>
+                          No stocked items to check
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 

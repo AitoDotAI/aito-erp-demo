@@ -80,7 +80,9 @@ These never relax.
 │   ├── match_eval.py                  # `./do match-eval` — held-out accuracy
 │   ├── pricing_service.py             # Price Intelligence (_estimate)
 │   ├── demand_service.py              # Demand Forecast (_estimate)
-│   ├── inventory_service.py           # Inventory Intelligence
+│   ├── inventory_service.py           # Inventory Intelligence (stock + _estimate)
+│   ├── demand_eval.py                 # `./do demand-eval` — held-out accuracy
+│   ├── price_eval.py                  # `./do price-eval` — held-out accuracy
 │   ├── forecast_service.py            # Revenue Outlook (_predict on_time)
 │   ├── planner_service.py             # Engagement Planner (staffing + quote risk)
 │   └── overview_service.py            # Automation Overview
@@ -230,9 +232,14 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 
 ### Product
 7. **Catalog Intelligence** — missing product attributes predicted
-8. **Price Intelligence** — fair price estimation + quote scoring
-9. **Demand Forecast** — consumption prediction with seasonality
-10. **Inventory Intelligence** — stockout alerts + reorder recommendations
+8. **Price Intelligence** — real quotes scored by `_estimate` over only
+   earlier prices, next to the product's own median. Measured at parity.
+9. **Demand Forecast** — `_estimate units_sold` on six held-out months,
+   next to same-month-last-year and the trailing reorder rule.
+10. **Inventory Intelligence** — will stock plus deliveries cover demand
+    over the lead time; each warning checked against the held-out month.
+    Stock is a synthetic table, labelled so. See "Demand, price and stock"
+    below.
 11. **Invoice Matching** — a supplier's invoice lines matched to
     catalogue SKUs (`_predict sku`, a link into `products`). Aurora-only:
     it needs a catalogue with metadata worth matching against. See
@@ -408,9 +415,9 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
 | supplier_service | `_relate` | Late delivery predictors |
 | rulemining_service | `_relate` | High-confidence patterns |
 | catalog_service | `_predict` (multi) | Missing product attributes |
-| pricing_service | search + stats | Price range from history |
-| demand_service | `_predict` + search | Units forecast |
-| inventory_service | demand + stock | Days of supply + reorder |
+| pricing_service | `_estimate` | Quote vs estimate from earlier prices only (`price_reference` / `price_quotes`) |
+| demand_service | `_estimate` | Units forecast on held-out months (`monthly_demand` / `_holdout`) |
+| inventory_service | `_estimate` + `_search` | Cover vs lead time from `stock`, checked against the holdout |
 | project_service | `_predict` + `_relate` | Project success forecast + broad success factors (people from `assignments`, categoricals from `projects`) |
 | forecast_service | `_predict` ×2 | `on_time` / `on_budget` per in-flight project → risk-adjusted revenue by month |
 | matching_service | `_predict` (link target) | Invoice line → catalogue SKU, run as a batch |
@@ -754,6 +761,33 @@ chance its product had never been written in Finnish — which was half
 the measured cold-start failure and nothing to do with the engine. It
 is 60 000 lines now, ~19 per SKU, with a seeding pass that guarantees
 every sellable product appears under three different vendors.
+
+### Demand, price and stock, and why they are not `orders`
+
+`orders` draws `units_sold` uniformly from 1-35, independent of product
+and month. There was nothing to forecast, so the Demand, Pricing and
+Inventory views filled the gap with rule-of-thumb confidences, hand-
+typed quotes and invented euro figures. They now read five additive
+tables from `data/generate_demand.py`: `monthly_demand` (+ a link-free
+`_holdout` of the last six months), `stock`, and `price_history` split
+at the same cutoff into `price_reference` / `price_quotes`. `orders` is
+untouched and still feeds the trending ribbon.
+
+**Measured before it was shown, and it did not win everywhere.**
+`./do demand-eval`: Aito is ahead of "same month last year" on Metsä
+and behind it on Aurora and Studio, and has 15-42% less error than the
+trailing-average rule a reorder point uses. `./do price-eval`: parity
+with the product's own median, the median slightly ahead. The views quote those numbers and
+compute their wording from them. Two things that were tried and did
+NOT work are recorded rather than hidden: without a recency feature
+(`last_year_band`) the demand estimate lost to the naive rule by 6-9
+points, and a price for a never-bought product misses by 46-70%, partly
+because `_estimate` on v2 rejects linked fields in its `where`.
+
+Add the tables to a live database with `python -m src.data_loader
+--tenant=all --add=<tables>`: it creates only the named tables, refuses
+if one exists, and never drops anything — unlike the full load, which
+drops every table and so refuses a master env.
 
 ### Why `proposals` is its own table
 

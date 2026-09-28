@@ -108,11 +108,11 @@ VIEWS: tuple[View, ...] = (
     # list is what the view renders and what can go empty.
     View("catalog", "_search + _predict",
          lambda c, t: get_incomplete(c)[0]),
-    View("pricing", "_search + stats",
+    View("pricing", "_estimate",
          lambda c, t: get_pricing_overview(c, tenant=t)),
-    View("demand", "_predict + _search",
+    View("demand", "_estimate",
          lambda c, t: get_demand_forecast(c, tenant=t)),
-    View("inventory", "demand + _search",
+    View("inventory", "_estimate + _search",
          lambda c, t: get_inventory_status(c, tenant=t)),
     # Two lines is enough to prove the query shape survives; this view
     # is the only one whose probe cost scales with the batch size.

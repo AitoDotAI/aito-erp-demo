@@ -1,41 +1,102 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
+import type { ReactNode } from "react";
 import Nav from "@/components/shell/Nav";
 import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
-import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
-import type { PricingResponse, PricingProduct, PriceEstimate, QuoteScore, AitoPanelConfig } from "@/lib/types";
+import type {
+  PricingResponse,
+  PricingProduct,
+  PricedQuote,
+  PricingMeasured,
+  AitoPanelConfig,
+} from "@/lib/types";
+
+// Unit prices run from a few euros to a few hundred, so whole-euro
+// rounding (fmtAmount) would erase the very differences a buyer judges.
+const fmtPrice = (n: number) =>
+  "€ " + n.toLocaleString("fi-FI", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const fmtPct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
+
+const signedPct = (x: number) => `${x > 0 ? "+" : ""}${x.toFixed(1)}%`;
+
+// A value as it would appear in the JSON body, made safe for the panel's
+// HTML: a supplier name must neither end the string early nor open a tag.
+const asJsonHtml = (v: string) =>
+  JSON.stringify(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// The body the backend sends for one quote. The `where` is exactly the
+// response's `features`, filled from the quote's own row — the date is
+// not in it, because the date is what separates history from the quote.
+function estimateQuery(product: PricingProduct, quote: PricedQuote): string {
+  return (
+    `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n` +
+    `  <span class="q-k">"from"</span>: <span class="q-v">"price_reference"</span>,\n` +
+    `  <span class="q-k">"where"</span>: {\n` +
+    `    <span class="q-k">"product_id"</span>: <span class="q-v">${asJsonHtml(product.sku)}</span>,\n` +
+    `    <span class="q-k">"supplier"</span>: <span class="q-v">${asJsonHtml(quote.supplier)}</span>,\n` +
+    `    <span class="q-k">"volume"</span>: <span class="q-v">${quote.volume}</span>\n` +
+    `  },\n` +
+    `  <span class="q-k">"estimate"</span>: <span class="q-p">"unit_price"</span>\n}`
+  );
+}
+
+const PANEL_LINKS: AitoPanelConfig["links"] = [
+  { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
+  { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/08-price-intelligence.md", kind: "doc" },
+  { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/pricing_service.py", kind: "github" },
+];
+
+const PANEL_DESCRIPTION =
+  "aito.._estimate predicts a quote's <em>unit price</em> from the product, the supplier and the volume, " +
+  "using only price records dated before the cutoff &mdash; it never saw the quote it judges. " +
+  "Beside it sits the product's own earlier median, the rule a buyer already has &mdash; " +
+  "the measured strip on the page compares the two.";
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_estimate",
-  endpoints: ["_search"],
-  stats: [
-    { label: "Quotes/mo", value: "38" },
-    { label: "Flagged", value: "4" },
-    { label: "Accuracy", value: "87%" },
-  ],
-  description:
-    "aito.._estimate scores incoming quotes against <em>historical purchase data</em>. It learns fair price ranges from past orders, similar products, and volume tiers &mdash; flagging quotes that deviate beyond the expected range. No pricing rules needed.",
-  query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,\n  <span class="q-k">"where"</span>: {\n    <span class="q-k">"product"</span>: <span class="q-v">"Industrial Relay"</span>,\n    <span class="q-k">"volume"</span>: <span class="q-n">100</span>\n  },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"unit_price"</span>\n}`,
-  links: [
-    { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
-    { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/08-price-intelligence.md", kind: "doc" },
-    { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/pricing_service.py", kind: "github" },
-  ],
+  endpoints: ["_estimate"],
+  description: PANEL_DESCRIPTION,
+  query:
+    `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n` +
+    `  <span class="q-k">"from"</span>: <span class="q-v">"price_reference"</span>,\n` +
+    `  <span class="q-k">"where"</span>: { <span class="q-k">"product_id"</span>, <span class="q-k">"supplier"</span>, <span class="q-k">"volume"</span> },\n` +
+    `  <span class="q-k">"estimate"</span>: <span class="q-p">"unit_price"</span>\n}`,
+  links: PANEL_LINKS,
 };
+
+// One sentence, computed from the measurement rather than written for it:
+// if the numbers move, the claim moves with them.
+function measuredSentence(m: PricingMeasured): string {
+  const gap = (m.median_error - m.aito_error) * 100;
+  const errors =
+    `Aito's estimate misses the list price by ${fmtPct(m.aito_error)} on average, ` +
+    `the product's own earlier median by ${fmtPct(m.median_error)}`;
+  const verdict =
+    Math.abs(gap) < 1
+      ? " — parity, within a point."
+      : gap > 0
+        ? ` — the estimate is closer by ${gap.toFixed(1)} points.`
+        : ` — the median is closer by ${(-gap).toFixed(1)} points.`;
+  const catches =
+    ` Of ${m.overcharges} overcharges, Aito flags ${m.aito_caught} (raising ${m.aito_flagged} flags in all) ` +
+    `and the median ${m.median_caught} (${m.median_flagged} flags).`;
+  return errors + verdict + catches;
+}
 
 export default function PricingPage() {
   const { tenantId } = useTenant();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<PricingResponse | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
-  const [panel, setPanel] = useState<AitoPanelConfig>(defaultPanel);
+  const [selectedSku, setSelectedSku] = useState<string | null>(null);
+  const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [bannerOpen, setBannerOpen] = useState(true);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -43,152 +104,34 @@ export default function PricingPage() {
     apiFetch<PricingResponse>("/api/pricing/estimate")
       .then((res) => {
         setData(res);
-        const keys = Object.keys(res.products);
-        if (keys.length > 0) setSelectedProduct(keys[0]);
+        setSelectedSku(res.products[0]?.sku ?? null);
+        setSelectedQuoteId(null);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [tenantId]);
 
-  const currentProduct: PricingProduct | null = selectedProduct && data ? data.products[selectedProduct] ?? null : null;
+  const product = data?.products.find((p) => p.sku === selectedSku) ?? null;
+  // Default to the flagged quote if there is one: it is the row that asks
+  // a buyer to do something.
+  const quote =
+    product?.quotes.find((q) => q.price_id === selectedQuoteId) ??
+    product?.quotes.find((q) => q.flagged) ??
+    product?.quotes[0] ??
+    null;
 
-  useEffect(() => {
-    if (!currentProduct) return;
-    const est = currentProduct.estimate;
-    setPanel({
-      ...defaultPanel,
-      stats: [
-        { label: "Fair price", value: fmtAmount(est.estimated_price) },
-        { label: "Range", value: `${fmtAmount(est.range_low)} - ${fmtAmount(est.range_high)}` },
-        { label: "Confidence", value: est.confidence != null ? `${Math.round(est.confidence * 100)}%` : "—" },
-      ],
-      query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,\n  <span class="q-k">"where"</span>: {\n    <span class="q-k">"product"</span>: <span class="q-v">"${currentProduct.name}"</span>\n  },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"unit_price"</span>\n}`,
-    });
-  }, [currentProduct]);
-
-  const drawChart = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !currentProduct) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const est = currentProduct.estimate;
-    const quotes = currentProduct.quotes;
-
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    const W = rect.width;
-    const H = rect.height;
-
-    ctx.clearRect(0, 0, W, H);
-
-    const ml = 50, mr = 20, mt = 20, mb = 40;
-    const cw = W - ml - mr;
-    const ch = H - mt - mb;
-
-    const allPrices = [
-      ...quotes.map((q) => q.quoted_price),
-      est.range_low,
-      est.range_high,
-      est.price_min,
-      est.price_max,
-    ];
-    const pMin = Math.min(...allPrices) * 0.9;
-    const pMax = Math.max(...allPrices) * 1.1;
-
-    const xScale = (price: number) => ml + ((price - pMin) / (pMax - pMin)) * cw;
-
-    // Gold band for predicted range
-    const x1 = xScale(est.range_low);
-    const x2 = xScale(est.range_high);
-    ctx.fillStyle = "rgba(212, 160, 48, 0.12)";
-    ctx.fillRect(x1, mt, x2 - x1, ch);
-
-    // Gold dashed lines
-    ctx.setLineDash([5, 4]);
-    ctx.strokeStyle = "rgba(212, 160, 48, 0.6)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(x1, mt);
-    ctx.lineTo(x1, mt + ch);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x2, mt);
-    ctx.lineTo(x2, mt + ch);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Axes
-    ctx.strokeStyle = "#ddd8cc";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(ml, mt + ch);
-    ctx.lineTo(ml + cw, mt + ch);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(ml, mt);
-    ctx.lineTo(ml, mt + ch);
-    ctx.stroke();
-
-    // X-axis labels
-    ctx.fillStyle = "#5a5a4a";
-    ctx.font = "10px 'DM Mono', monospace";
-    ctx.textAlign = "center";
-    const steps = 5;
-    for (let i = 0; i <= steps; i++) {
-      const p = pMin + (i / steps) * (pMax - pMin);
-      const x = xScale(p);
-      ctx.fillText(`\u20AC${p.toFixed(0)}`, x, mt + ch + 16);
-      ctx.strokeStyle = "#f0ede6";
-      ctx.beginPath();
-      ctx.moveTo(x, mt);
-      ctx.lineTo(x, mt + ch);
-      ctx.stroke();
-    }
-
-    // Plot quotes
-    quotes.forEach((q, i) => {
-      const y = mt + (i + 1) * (ch / (quotes.length + 1));
-      const x = xScale(q.quoted_price);
-      const isFlagged = q.flagged;
-      ctx.beginPath();
-      ctx.arc(x, y, isFlagged ? 7 : 5, 0, Math.PI * 2);
-      ctx.fillStyle = isFlagged ? "rgba(192, 57, 43, 0.8)" : "rgba(70, 130, 180, 0.6)";
-      ctx.fill();
-      ctx.strokeStyle = isFlagged ? "#c0392b" : "rgba(50, 100, 150, 0.5)";
-      ctx.lineWidth = isFlagged ? 2 : 1;
-      ctx.stroke();
-
-      if (isFlagged) {
-        ctx.fillStyle = "#c0392b";
-        ctx.font = "bold 12px 'DM Sans', sans-serif";
-        ctx.textAlign = "left";
-        ctx.fillText("\u26A0", x + 10, y + 4);
-        ctx.font = "9px 'DM Sans', sans-serif";
-        ctx.fillText(q.supplier, x + 22, y + 4);
-      }
-    });
-
-    // Predicted mean line
-    const xMean = xScale(est.estimated_price);
-    ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = "rgba(212, 160, 48, 1)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(xMean, mt);
-    ctx.lineTo(xMean, mt + ch);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }, [currentProduct]);
-
-  useEffect(() => {
-    drawChart();
-    window.addEventListener("resize", drawChart);
-    return () => window.removeEventListener("resize", drawChart);
-  }, [drawChart]);
+  const panel: AitoPanelConfig =
+    product && quote
+      ? {
+          ...defaultPanel,
+          stats: [
+            { label: "Quoted", value: fmtPrice(quote.quoted) },
+            { label: "Estimate", value: fmtPrice(quote.aito) },
+            { label: "Neighbours", value: String(quote.neighbours) },
+          ],
+          query: estimateQuery(product, quote),
+        }
+      : defaultPanel;
 
   if (error) {
     return (
@@ -207,8 +150,10 @@ export default function PricingPage() {
     );
   }
 
-  const productKeys = data ? Object.keys(data.products) : [];
-  const flaggedCount = currentProduct?.quotes.filter(q => q.flagged).length ?? 0;
+  const allQuotes = data?.products.flatMap((p) => p.quotes) ?? [];
+  const flaggedShown = allQuotes.filter((q) => q.flagged).length;
+  const m = data?.measured;
+  const marginPct = data ? Math.round(data.flag_margin * 100) : null;
 
   return (
     <>
@@ -217,149 +162,363 @@ export default function PricingPage() {
         <TopBar
           title="Price Intelligence"
           breadcrumb="Product"
-          kpis={[{ icon: "\uD83D\uDCB0", label: `${flaggedCount} flagged` }]}
+          kpis={data ? [{ icon: "⚠", label: `${flaggedShown} of ${allQuotes.length} quotes flagged` }] : []}
         />
         <div className="content-area">
           <div className="content">
-            {bannerOpen && (
+            {bannerOpen && data && (
               <div className="intro-banner">
                 <div className="intro-banner-text">
-                  <strong>Every quote scored against historical data.</strong> aito.._estimate learns fair price ranges from past orders and similar products. Quotes outside the predicted range are flagged for review &mdash; saving an average of &euro;1,240 per flagged quote.
+                  <strong>Is this quote fair, judged only by what came before?</strong>{" "}
+                  Every quote below is a real price record dated on or after {data.cutoff}. Aito estimates
+                  its unit price from earlier records only, and a quote more than {marginPct}% above that
+                  estimate is flagged. Products with no earlier price are not shown: with nothing to anchor
+                  on, the estimate is not reliable enough to judge a quote.
                 </div>
                 <span className="intro-banner-close" onClick={() => setBannerOpen(false)}>&times;</span>
               </div>
             )}
 
-            <div className="kpi-row">
-              <div className="kpi">
-                <div className="kpi-label">PPV (Avg)</div>
-                <div className="kpi-val" style={{ color: (data?.ppv?.overall_pct ?? 0) > 0 ? "var(--red)" : "var(--green)" }}>
-                  {data?.ppv?.overall_pct != null
-                    ? (data.ppv.overall_pct > 0 ? "+" : "") + data.ppv.overall_pct + "%"
-                    : "—"}
-                </div>
-                <div className="kpi-sub">price variance vs estimate</div>
-              </div>
-              <div className="kpi">
-                <div className="kpi-label">Flagged Quotes</div>
-                <div className="kpi-val" style={{ color: "var(--red)" }}>
-                  {data?.ppv?.flagged_quotes ?? flaggedCount}
-                  <span style={{ fontSize: 14, color: "var(--mid)", fontWeight: 400 }}>
-                    /{data?.ppv?.total_quotes ?? "?"}
+            {loading && !data && <div className="card" style={{ padding: 16 }}>Loading price history…</div>}
+
+            {m && (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-head">
+                  <span className="card-title">Measured over every quote with history</span>
+                  <span className="card-meta">
+                    {m.n} quotes, {m.measured_on}, on {m.engine_build} ·{" "}
+                    <span className="mono">./do price-eval</span>
                   </span>
                 </div>
-                <div className="kpi-sub">&gt;20% above estimate</div>
-              </div>
-              <div className="kpi">
-                <div className="kpi-label">Overpayment Caught</div>
-                <div className="kpi-val" style={{ color: "var(--red)" }}>
-                  {data?.ppv?.total_overpayment_eur != null
-                    ? fmtAmount(data.ppv.total_overpayment_eur)
-                    : "—"}
-                </div>
-                <div className="kpi-sub">across flagged quotes</div>
-              </div>
-              <div className="kpi" style={{ background: "var(--gold-light)", borderColor: "var(--gold)" }}>
-                <div className="kpi-label" style={{ color: "var(--gold-dark)" }}>Annualized Risk</div>
-                <div className="kpi-val" style={{ color: "var(--gold-dark)" }}>
-                  {data?.ppv?.annualized_overpayment_eur != null
-                    ? fmtAmount(data.ppv.annualized_overpayment_eur)
-                    : "—"}
-                </div>
-                <div className="kpi-sub" style={{ color: "var(--gold-dark)" }}>if no quote scoring</div>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
-              {/* Left column - selectors and quotes */}
-              <div>
-                <div className="card" style={{ marginBottom: 12 }}>
-                  <div style={{ padding: 14 }}>
-                    <div className="form-group" style={{ marginBottom: 10 }}>
-                      <label className="form-label">Product</label>
-                      <select className="form-select" value={selectedProduct ?? ""} onChange={(e) => setSelectedProduct(e.target.value)}>
-                        {productKeys.map((key) => <option key={key} value={key}>{data!.products[key].name}</option>)}
-                      </select>
+                <div style={{ padding: 14 }}>
+                  <div className="kpi-row" style={{ marginBottom: 12 }}>
+                    <div className="kpi" style={{ background: "var(--gold-light)", borderColor: "var(--gold)" }}>
+                      <div className="kpi-label" style={{ color: "var(--gold-dark)" }}>Aito error</div>
+                      <div className="kpi-val" style={{ color: "var(--gold-dark)" }}>{fmtPct(m.aito_error)}</div>
+                      <div className="kpi-sub" style={{ color: "var(--gold-dark)" }}>mean |estimate − list| / list</div>
                     </div>
+                    <div className="kpi">
+                      <div className="kpi-label">Median error</div>
+                      <div className="kpi-val">{fmtPct(m.median_error)}</div>
+                      <div className="kpi-sub">product&apos;s own earlier median</div>
+                    </div>
+                    <div className="kpi">
+                      <div className="kpi-label">Overcharges caught</div>
+                      <div className="kpi-val">
+                        {m.aito_caught}
+                        <span style={{ fontSize: 14, color: "var(--mid)", fontWeight: 400 }}> / {m.overcharges}</span>
+                      </div>
+                      <div className="kpi-sub">Aito · {m.aito_flagged} flags raised</div>
+                    </div>
+                    <div className="kpi">
+                      <div className="kpi-label">Overcharges caught</div>
+                      <div className="kpi-val">
+                        {m.median_caught}
+                        <span style={{ fontSize: 14, color: "var(--mid)", fontWeight: 400 }}> / {m.overcharges}</span>
+                      </div>
+                      <div className="kpi-sub">median · {m.median_flagged} flags raised</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--ink)", lineHeight: 1.5 }}>{measuredSentence(m)}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--mid)", marginTop: 4 }}>
+                    An overcharge is a quote more than {Math.round(m.overcharge_over_list * 100)}% over the
+                    catalogue list price, as scored by <span className="mono">./do price-eval</span>.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {data && data.products.length === 0 && (
+              <div className="card" style={{ padding: 16 }}>
+                The response carried no products with earlier prices, so there is nothing to score.
+              </div>
+            )}
+
+            {data && data.products.length > 0 && (
+              <>
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <div className="card-head">
+                    <span className="card-title">Products</span>
+                    <span className="card-meta">history before {data.cutoff}</span>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          <th>Product</th>
+                          <th>Category</th>
+                          <th style={{ textAlign: "right" }}>List price</th>
+                          <th style={{ textAlign: "right" }}>Earlier prices</th>
+                          <th style={{ textAlign: "right" }}>Quotes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.products.map((p) => (
+                          <tr
+                            key={p.sku}
+                            className={`clickable${p.sku === selectedSku ? " selected" : ""}`}
+                            onClick={() => {
+                              setSelectedSku(p.sku);
+                              setSelectedQuoteId(null);
+                            }}
+                          >
+                            <td>
+                              <div style={{ fontWeight: 600 }}>{p.name}</div>
+                              <div className="mono" style={{ color: "var(--mid)" }}>{p.sku}</div>
+                            </td>
+                            <td>{p.category ?? "—"}</td>
+                            <td className="mono" style={{ textAlign: "right" }}>
+                              {p.list_price != null ? fmtPrice(p.list_price) : "—"}
+                            </td>
+                            <td className="mono" style={{ textAlign: "right" }}>{p.earlier_prices}</td>
+                            <td style={{ textAlign: "right" }}>
+                              {p.quotes.length}
+                              {p.quotes.some((q) => q.flagged) && (
+                                <span className="badge b-red" style={{ marginLeft: 6 }}>
+                                  {p.quotes.filter((q) => q.flagged).length} flagged
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 
-                {currentProduct && (
+                {product && (
                   <>
-                    <div className="card" style={{ marginBottom: 12, background: "var(--gold-light)", borderColor: "var(--gold)" }}>
+                    <div className="card" style={{ marginBottom: 16 }}>
+                      <div className="card-head">
+                        <span className="card-title">Where each quote lands</span>
+                        <span className="card-meta">{product.name}</span>
+                      </div>
                       <div style={{ padding: 14 }}>
-                        <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--gold-dark)", marginBottom: 6 }}>Predicted Fair Price</div>
-                        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, color: "var(--gold-dark)" }}>{fmtAmount(currentProduct.estimate.estimated_price)}</div>
-                        <div style={{ fontSize: 10.5, color: "var(--gold-dark)", marginTop: 4 }}>
-                          Range: {fmtAmount(currentProduct.estimate.range_low)} &ndash; {fmtAmount(currentProduct.estimate.range_high)}
-                        </div>
+                        <PriceStrip
+                          product={product}
+                          flagMargin={data.flag_margin}
+                          selectedId={quote?.price_id ?? null}
+                          onSelect={setSelectedQuoteId}
+                        />
                       </div>
                     </div>
 
                     <div className="card">
                       <div className="card-head">
-                        <span className="card-title">Incoming Quotes</span>
+                        <span className="card-title">Incoming quotes</span>
+                        <span className="card-meta">dated on or after {data.cutoff} · click a row for its query</span>
                       </div>
-                      <table className="tbl">
-                        <thead>
-                          <tr>
-                            <th>Supplier</th>
-                            <th>Quote</th>
-                            <th>vs Est.</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {currentProduct.quotes.map((q) => (
-                            <tr key={q.supplier} className="clickable">
-                              <td style={{ fontSize: 11 }}>{q.supplier}</td>
-                              <td className="mono">{fmtAmount(q.quoted_price)}</td>
-                              <td>
-                                <span className={`badge ${q.deviation_pct > 0 ? "b-red" : "b-green"}`}>
-                                  {q.deviation_pct > 0 ? "+" : ""}{q.deviation_pct.toFixed(1)}%
-                                </span>
-                              </td>
+                      <div style={{ overflowX: "auto" }}>
+                        <table className="tbl" style={{ minWidth: 640 }}>
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Supplier</th>
+                              <th style={{ textAlign: "right" }}>Volume</th>
+                              <th style={{ textAlign: "right" }}>Quoted</th>
+                              <th style={{ textAlign: "right" }}>Aito estimate</th>
+                              <th style={{ textAlign: "right" }}>Earlier median</th>
+                              <th style={{ textAlign: "right" }}>vs estimate</th>
+                              <th>Flag</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {product.quotes.map((q) => (
+                              <tr
+                                key={q.price_id}
+                                className={`clickable${q.price_id === quote?.price_id ? " selected" : ""}`}
+                                onClick={() => setSelectedQuoteId(q.price_id)}
+                              >
+                                <td className="mono">{q.order_date}</td>
+                                <td>{q.supplier}</td>
+                                <td className="mono" style={{ textAlign: "right" }}>{q.volume}</td>
+                                <td className="mono" style={{ textAlign: "right", fontWeight: 600 }}>{fmtPrice(q.quoted)}</td>
+                                <td className="mono" style={{ textAlign: "right" }}>
+                                  {fmtPrice(q.aito)}
+                                  <div style={{ fontSize: 10, color: "var(--mid)" }}>{q.neighbours} earlier rows</div>
+                                </td>
+                                <td className="mono" style={{ textAlign: "right" }}>
+                                  {q.median != null ? fmtPrice(q.median) : "—"}
+                                  {q.median != null && (
+                                    <div style={{ fontSize: 10, color: "var(--mid)" }}>
+                                      quote {signedPct(((q.quoted - q.median) / q.median) * 100)}
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ textAlign: "right" }}>
+                                  <span className={`badge ${q.flagged ? "b-red" : q.deviation_pct > 0 ? "b-gold" : "b-green"}`}>
+                                    {signedPct(q.deviation_pct)}
+                                  </span>
+                                </td>
+                                <td>
+                                  {q.flagged ? (
+                                    <span className="badge b-red">review</span>
+                                  ) : (
+                                    <span className="badge b-gray">within {marginPct}%</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </>
                 )}
-              </div>
-
-              {/* Right column - chart */}
-              <div className="card">
-                <div className="card-head">
-                  <span className="card-title">Price Distribution</span>
-                  <span className="card-meta">{currentProduct?.name ?? ""}</span>
-                </div>
-                <div style={{ padding: 16 }}>
-                  <canvas
-                    ref={canvasRef}
-                    style={{ width: "100%", height: 280, display: "block" }}
-                  />
-                  <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--mid)" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(70, 130, 180, 0.8)", display: "inline-block" }} />
-                      Quotes
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--mid)" }}>
-                      <span style={{ width: 16, height: 8, borderRadius: 2, background: "rgba(212, 160, 48, 0.25)", border: "1px dashed var(--gold)", display: "inline-block" }} />
-                      Predicted range
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--mid)" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#c0392b", display: "inline-block" }} />
-                      Flagged quote
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+              </>
+            )}
           </div>
 
           <AitoPanel config={panel} />
         </div>
       </div>
     </>
+  );
+}
+
+/* ─── The range strip ────────────────────────────────────────────
+   One row per quote on a shared price axis. Each row shows Aito's
+   estimate (gold diamond), the flag line 15% above it, and the quote
+   itself (red when flagged), joined by a segment so the gap reads at a
+   glance. The list price and the earlier median are vertical lines —
+   they belong to the product, not the quote — so a reader sees both
+   yardsticks beside the estimate rather than the estimate alone. */
+
+const W = 600;
+const PAD_L = 12;
+const PAD_R = 12;
+const ROW_H = 46;
+const TOP = 22;
+const AXIS_H = 26;
+
+function PriceStrip({
+  product,
+  flagMargin,
+  selectedId,
+  onSelect,
+}: {
+  product: PricingProduct;
+  flagMargin: number;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const quotes = product.quotes;
+  const medians = quotes.map((q) => q.median).filter((v): v is number => v != null);
+  // The median is the product's own earlier median, identical on every
+  // quote; if the backend ever sends differing values we draw each row's
+  // own tick instead of pretending there is one line.
+  const sharedMedian = medians.length > 0 && medians.every((v) => v === medians[0]) ? medians[0] : null;
+
+  const values = [
+    ...quotes.flatMap((q) => [q.quoted, q.aito, q.aito * (1 + flagMargin)]),
+    ...medians,
+    ...(product.list_price != null ? [product.list_price] : []),
+  ];
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = (hi - lo) * 0.08 || hi * 0.05;
+  const min = lo - pad;
+  const max = hi + pad;
+  const x = (v: number) => PAD_L + ((v - min) / (max - min)) * (W - PAD_L - PAD_R);
+
+  const H = TOP + quotes.length * ROW_H + AXIS_H;
+  const axisY = TOP + quotes.length * ROW_H;
+  const ticks = Array.from({ length: 5 }, (_, i) => min + ((i + 0.5) / 5) * (max - min));
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        role="img"
+        aria-label={`Quotes for ${product.name} against Aito's estimate, the earlier median and the list price`}
+        style={{ display: "block", fontFamily: "'DM Sans', sans-serif" }}
+      >
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={x(t)} x2={x(t)} y1={TOP - 6} y2={axisY} style={{ stroke: "var(--border)" }} strokeWidth={0.6} />
+            <text x={x(t)} y={axisY + 16} textAnchor="middle" fontSize={10} style={{ fill: "var(--mid)", fontFamily: "'DM Mono', monospace" }}>
+              €{t.toFixed(t < 20 ? 2 : 0)}
+            </text>
+          </g>
+        ))}
+
+        {product.list_price != null && (
+          <g>
+            <line x1={x(product.list_price)} x2={x(product.list_price)} y1={TOP - 6} y2={axisY}
+              style={{ stroke: "var(--blue)" }} strokeWidth={1.5} strokeDasharray="5 3" />
+            <text x={x(product.list_price)} y={TOP - 10} textAnchor="middle" fontSize={10} style={{ fill: "var(--blue)" }}>
+              list
+            </text>
+          </g>
+        )}
+        {sharedMedian != null && (
+          <g>
+            <line x1={x(sharedMedian)} x2={x(sharedMedian)} y1={TOP - 6} y2={axisY}
+              style={{ stroke: "var(--mid)" }} strokeWidth={1.5} strokeDasharray="2 3" />
+            <text x={x(sharedMedian)} y={TOP - 10} textAnchor="middle" fontSize={10} style={{ fill: "var(--mid)" }}>
+              median
+            </text>
+          </g>
+        )}
+
+        {quotes.map((q, i) => {
+          const y = TOP + i * ROW_H + ROW_H / 2 + 6;
+          const selected = q.price_id === selectedId;
+          const limit = q.aito * (1 + flagMargin);
+          const quoteColour = q.flagged ? "var(--red)" : "var(--ink)";
+          return (
+            <g key={q.price_id} onClick={() => onSelect(q.price_id)} style={{ cursor: "pointer" }}>
+              <rect x={0} y={TOP + i * ROW_H} width={W} height={ROW_H}
+                style={{ fill: selected ? "var(--gold-light)" : "transparent" }} opacity={selected ? 0.6 : 1} />
+              <text x={PAD_L} y={TOP + i * ROW_H + 13} fontSize={10.5} style={{ fill: "var(--mid)" }}>
+                {q.order_date} · {q.supplier} · {q.volume} units
+              </text>
+              {sharedMedian == null && q.median != null && (
+                <line x1={x(q.median)} x2={x(q.median)} y1={y - 7} y2={y + 7} style={{ stroke: "var(--mid)" }} strokeWidth={2} />
+              )}
+              <line x1={x(q.aito)} x2={x(q.quoted)} y1={y} y2={y} style={{ stroke: quoteColour }} strokeWidth={1.5} opacity={0.5} />
+              <line x1={x(limit)} x2={x(limit)} y1={y - 8} y2={y + 8} style={{ stroke: "var(--red)" }} strokeWidth={1} strokeDasharray="2 2" />
+              <rect x={x(q.aito) - 5} y={y - 5} width={10} height={10} transform={`rotate(45 ${x(q.aito)} ${y})`}
+                style={{ fill: "var(--gold)", stroke: "var(--gold-dark)" }} strokeWidth={1} />
+              <circle cx={x(q.quoted)} cy={y} r={q.flagged ? 6.5 : 5}
+                style={{ fill: q.flagged ? "var(--red)" : "var(--card)", stroke: quoteColour }} strokeWidth={2} />
+            </g>
+          );
+        })}
+
+        <line x1={PAD_L} x2={W - PAD_R} y1={axisY} y2={axisY} style={{ stroke: "var(--border)" }} />
+      </svg>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 8, fontSize: 10.5, color: "var(--mid)" }}>
+        <LegendItem swatch={<span style={{ width: 8, height: 8, background: "var(--gold)", transform: "rotate(45deg)", display: "inline-block" }} />}>
+          Aito estimate
+        </LegendItem>
+        <LegendItem swatch={<span style={{ width: 9, height: 9, borderRadius: "50%", border: "2px solid var(--ink)", display: "inline-block" }} />}>
+          Quote
+        </LegendItem>
+        <LegendItem swatch={<span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--red)", display: "inline-block" }} />}>
+          Flagged quote
+        </LegendItem>
+        <LegendItem swatch={<span style={{ width: 0, height: 12, borderLeft: "1px dashed var(--red)", display: "inline-block" }} />}>
+          Flag line (+{Math.round(flagMargin * 100)}%)
+        </LegendItem>
+        <LegendItem swatch={<span style={{ width: 0, height: 12, borderLeft: "2px dotted var(--mid)", display: "inline-block" }} />}>
+          Earlier median
+        </LegendItem>
+        <LegendItem swatch={<span style={{ width: 0, height: 12, borderLeft: "2px dashed var(--blue)", display: "inline-block" }} />}>
+          List price
+        </LegendItem>
+      </div>
+    </div>
+  );
+}
+
+function LegendItem({ swatch, children }: { swatch: ReactNode; children: ReactNode }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      {swatch}
+      {children}
+    </span>
   );
 }
