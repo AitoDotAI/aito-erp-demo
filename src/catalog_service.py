@@ -27,6 +27,12 @@ WORKFLOW_BLOCKING_FIELDS = [
     "unit_of_measure",# → can't be ordered
 ]
 
+# Continuous columns: filled by `_estimate`, never by `_predict`.
+NUMERIC_FIELDS = {"unit_price", "weight_kg"}
+
+# How many of a category's rows are read to judge "does not apply".
+PEER_LIMIT = 200
+
 # Fields that can be predicted when missing
 PREDICTABLE_FIELDS = [
     "category",
@@ -60,9 +66,16 @@ def _is_workflow_incomplete(product: dict) -> bool:
 class AttributePrediction:
     field_name: str
     predicted_value: str
-    confidence: float
+    # None for an estimate: `_estimate` returns a number, not a
+    # probability, and showing one would invent it.
+    confidence: float | None
     alternatives: list[dict] = field(default_factory=list)
     why_factors: dict = field(default_factory=dict)
+    # "predict"         — a categorical value and its probability
+    # "estimate"        — a number from comparable products
+    # "not_applicable"  — no product in this category carries the field
+    kind: str = "predict"
+    neighbours: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -70,6 +83,8 @@ class AttributePrediction:
             "field": self.field_name,                 # alias for frontend consistency
             "predicted_value": self.predicted_value,
             "value": self.predicted_value,            # alias
+            "kind": self.kind,
+            "neighbours": self.neighbours,
             "confidence": self.confidence,
             "alternatives": self.alternatives,
             "why_factors": self.why_factors,
@@ -106,7 +121,7 @@ class CatalogEnrichment:
     sku: str
     name: str
     predictions: list[AttributePrediction]
-    overall_confidence: float
+    overall_confidence: float | None
 
     def to_dict(self) -> dict:
         return {
@@ -223,29 +238,87 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
     result = client.search("products", {"sku": sku}, limit=1)
     hits = result.get("hits", [])
     if not hits:
-        return CatalogEnrichment(sku=sku, name="", predictions=[], overall_confidence=0.0)
+        return CatalogEnrichment(sku=sku, name="", predictions=[], overall_confidence=None)
 
     product = hits[0]
     name = product.get("name", "")
 
     # Build context from known fields
     where = {}
-    for f in ["sku", "name", "supplier"] + PREDICTABLE_FIELDS:
+    # Context is what the product IS, never which row it is.
+    #
+    # `sku` is left out entirely: it is unique, so the best "neighbour"
+    # for it is the product being enriched — present in the table with
+    # the very field we are asking about still blank. `_estimate` then
+    # anchored on that self-match (hitScore 0.05 -> 4.1) and every weight
+    # came out 0.05, for a speaker, dishwasher tablets and a storage box
+    # alike. `name` is unique too, but its words are real evidence for a
+    # CATEGORY ("Speaker" -> Electronics at 96%), so it stays for
+    # `_predict` and is dropped for `_estimate` below.
+    #
+    # The continuous columns are left out as well: a raw price is matched
+    # as an exact categorical value, which no other product shares.
+    # `quotes.price_band` is bucketed for the same reason.
+    for f in ["name", "supplier"] + PREDICTABLE_FIELDS:
+        if f in NUMERIC_FIELDS:
+            continue
         val = product.get(f)
         if val is not None and val != "":
             where[f] = val
 
-    # Find missing fields and predict each one
+    # The category's own rows, to tell "missing" from "does not apply".
+    # An hour of inspection has no weight and a licence has no HS code;
+    # a blank there is correct, and filling it is inventing data.
+    #
+    # Only a verdict when it is one: the peers must exclude the product
+    # itself (blank in exactly the fields being asked about, so a
+    # one-product category read as "nothing applies"), there must be at
+    # least one, and the sample must not have hit its cap — "none of the
+    # first 200 have it" says nothing about the 201st.
+    category = product.get("category")
+    fetched = (client.search("products", {"category": category}, limit=PEER_LIMIT).get("hits") or []
+               if category else [])
+    peers = [r for r in fetched if r.get("sku") != sku]
+    can_rule_out = bool(peers) and len(fetched) < PEER_LIMIT
+
+    from src.why_processor import process_factors, extract_alternatives as wp_extract_alternatives
+
     predictions: list[AttributePrediction] = []
     for f in PREDICTABLE_FIELDS:
         val = product.get(f)
         if val is not None and val != "":
             continue  # Field already has a value
 
+        if can_rule_out and not any(r.get(f) not in (None, "") for r in peers):
+            predictions.append(AttributePrediction(
+                field_name=f, predicted_value="", confidence=None,
+                kind="not_applicable"))
+            continue
+
         # Remove the target field from context if present
         predict_where = {k: v for k, v in where.items() if k != f}
 
-        from src.why_processor import process_factors, extract_alternatives as wp_extract_alternatives
+        if f in NUMERIC_FIELDS:
+            # `_predict` scores EXACT values, so on a continuous number
+            # its best answer carried a probability near zero — "0.63
+            # (0%)" — which reads as a verdict and is only arithmetic.
+            # A number comes from `_estimate`: the comparable products
+            # and how much each counted.
+            est = client.estimate(
+                "products",
+                {k: v for k, v in predict_where.items() if k != "name"},
+                f)
+            value = est.get("estimate")
+            if not isinstance(value, (int, float)):
+                raise ValueError(f"_estimate {f} returned no number: {est}")
+            predictions.append(AttributePrediction(
+                field_name=f,
+                predicted_value=f"{value:.2f}",
+                confidence=None,
+                kind="estimate",
+                neighbours=len((est.get("why") or {}).get("components") or []),
+            ))
+            continue
 
         pred_result = client.predict("products", predict_where, f, limit=10)
         pred_hits = pred_result.get("hits", [])
@@ -260,8 +333,11 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
             why_factors=process_factors(top.get("$why"), conf) if top else {},
         ))
 
-    confidences = [p.confidence for p in predictions]
-    overall = min(confidences) if confidences else 0.0
+    # The weakest categorical prediction. None when there is none: an
+    # estimate has no probability, and 0.0 would be a number the data
+    # never produced.
+    confidences = [p.confidence for p in predictions if p.confidence is not None]
+    overall = min(confidences) if confidences else None
 
     return CatalogEnrichment(
         sku=sku,
