@@ -622,15 +622,9 @@ def queue_for(client: AitoClient, tenant: str
 # Re-run the harness and update the matching block together, or not at
 # all.
 _MEASURED_SHARED = {
-    "measured_on": "2026-09-22",
-    # The engine AND the query the numbers below describe. Two of them
-    # moved between builds this month, and `config.ai` / `basedOn` each
-    # move them further than a build did — so a figure here without all
-    # three attached is a figure nobody can check.
-    "engine_build":
-        '2.10.0 (05d647466bd7), config.ai=and, basedOn=["name"] on rep2, '
-        'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
-        '120k lines, warm twins for every cold vendor)',
+    # `measured_on` and `engine_build` live in each engine's block: the
+    # two were measured on different dates, builds and corpora, and a
+    # shared value put the v2 provenance on the stale v1 numbers.
     "n": 2000,
     "catalogue_skus": 3200,
     "labelled_lines_loaded": 120000,
@@ -659,6 +653,10 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
     # two side by side.
     "v1": {
         "engine": "rep1 (v1)",
+        "measured_on": "2026-09-14",
+        "engine_build":
+            '2.8.4 (6979ad71dfd5) rep1, config.ai=and, corpus rev 1 '
+            '(before the attribute, origin and seeding fixes)',
         "overall_top1": 0.808, "overall_top5": 0.928, "overall_top1_name": 0.808,
         "warm_top1": 0.905, "warm_top5": 0.981, "warm_top1_name": 0.905,
         "cold_top1": 0.613, "cold_top5": 0.823, "cold_top1_name": 0.613,
@@ -680,10 +678,25 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
     },
     "v2": {
         "engine": "rep2 (v2)",
+        "measured_on": "2026-09-27",
+        # Re-measured on 2.10.3 against env.master: accuracy identical to
+        # 2.10.0 to the decimal — overall, per regime and every point of
+        # the curve — and throughput 2.6 rows/s against 2.5, within
+        # run-to-run noise. Core #1464 is therefore NOT fixed by 2.10.3.
+        # Re-run on every engine bump anyway; 2.8.4 -> 2.10.0 moved these
+        # by six points without a line of this repo changing.
+        # The engine AND the query the numbers below describe. Two of them
+        # moved between builds this month, and `config.ai` / `basedOn` each
+        # move them further than a build did — so a figure here without all
+        # three attached is a figure nobody can check.
+        "engine_build":
+            '2.10.3 (88786b4dc970), config.ai=and, basedOn=["name"] on rep2, '
+            'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
+            '120k lines, warm twins for every cold vendor)',
         "overall_top1": 0.882, "overall_top5": 0.959, "overall_top1_name": 0.882,
         "warm_top1": 0.870, "warm_top5": 0.951, "warm_top1_name": 0.870,
         "cold_top1": 0.907, "cold_top5": 0.973, "cold_top1_name": 0.907,
-        "throughput_rows_per_s": 2.5, "throughput_workers": 8,
+        "throughput_rows_per_s": 2.6, "throughput_workers": 8,
         "curve": [
             {"bar": 0.05, "coverage": 0.999, "precision": 0.884},
             {"bar": 0.10, "coverage": 0.995, "precision": 0.887},

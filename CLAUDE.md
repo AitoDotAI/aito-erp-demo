@@ -649,7 +649,8 @@ It has moved twice, in both directions. On core `38a234a6` rep2 scored
 `nameBoost` work in 2.8.0 turned it around. Then 2.8.4 → 2.10.0 took
 **90.0% to 83.9%** on an unchanged corpus — same fixtures, same floor
 (58.2%), same regime shares — with the verbatim regime losing the most
-(88.6% → 79.9%). Filed as core #1464. Two lessons worth keeping — a number here has a
+(88.6% → 79.9%). Filed as core #1464, and still open: 2.10.3 measures
+identically to 2.10.0. Two lessons worth keeping — a number here has a
 build attached to it, and `./do v2-check` proves query SHAPE, not
 accuracy, which is why it reported all 17 views green throughout.
 
