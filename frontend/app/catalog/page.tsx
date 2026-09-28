@@ -9,17 +9,49 @@ import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
 import type { CatalogResponse, IncompleteProduct, AitoPanelConfig } from "@/lib/types";
 
+// The query the backend sends for one missing field, drawn from the row
+// itself. It never names the SKU: a unique id matches only the product
+// being filled, blank in exactly that field, and the answer collapses
+// onto it. A number is estimated from comparable products rather than
+// predicted as an exact value, and the name stays out of that `where`.
+const NUMERIC_FIELDS = new Set(["unit_price", "weight_kg"]);
+
+// A value as it would appear in the JSON body, made safe for the panel's
+// HTML: `TV 55"` must neither end the string early nor open a tag.
+const asJsonHtml = (v: string) =>
+  JSON.stringify(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function catalogQuery(p: Pick<IncompleteProduct, "name" | "supplier" | "category" | "hs_code" | "unit_of_measure">, field: string): string {
+  const numeric = NUMERIC_FIELDS.has(field);
+  const context: [string, string | null][] = [
+    ["name", numeric ? null : p.name],
+    ["supplier", p.supplier],
+    ["category", p.category],
+    ["hs_code", p.hs_code],
+    ["unit_of_measure", p.unit_of_measure],
+  ];
+  const where = context
+    .filter(([k, v]) => k !== field && v != null && v !== "")
+    .map(([k, v]) => `    <span class="q-k">"${k}"</span>: <span class="q-v">${asJsonHtml(v as string)}</span>`)
+    .join(",\n");
+  const op = numeric ? "_estimate" : "_predict";
+  return `<span class="q-k">POST</span> <span class="q-v">/api/{version}/${op}</span>\n{\n` +
+    `  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n` +
+    `  <span class="q-k">"where"</span>: {\n${where}\n  },\n` +
+    `  <span class="q-k">"${numeric ? "estimate" : "predict"}"</span>: <span class="q-p">"${field}"</span>\n}`;
+}
+
 const defaultPanel: AitoPanelConfig = {
   operation: "_predict",
-  endpoints: ["_predict"],
+  endpoints: ["_predict", "_estimate"],
   stats: [
     { label: "Incomplete", value: "12" },
     { label: "Predictable", value: "9" },
     { label: "Avg missing", value: "2.3" },
   ],
   description:
-    "Products with <em>missing attributes</em> block downstream workflows: quoting, customs export, warehouse picking. aito.._predict fills gaps by learning from complete products in the same category &mdash; no rules needed.",
-  query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_predict</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"sku"</span>: <span class="q-v">"EL-4420"</span> },\n  <span class="q-k">"predict"</span>: <span class="q-p">"hs_code"</span>\n}`,
+    "Products with <em>missing attributes</em> block downstream workflows: quoting, customs export, warehouse picking. aito.._predict fills categorical gaps by learning from complete products in the same category, and aito.._estimate fills numbers such as price from comparable products &mdash; no rules needed.",
+  query: catalogQuery({ name: "Cable Tray 300mm", supplier: "Onninen", category: "Electrical", hs_code: null, unit_of_measure: "m" }, "hs_code"),
   links: [
     { label: "aito.ai/docs/predict", url: "https://aito.ai/docs/api/predict" },
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/07-catalog-intelligence.md", kind: "doc" },
@@ -49,7 +81,7 @@ interface CatalogPredictionResponse {
   sku: string;
   name: string;
   predictions: CatalogPrediction[];
-  overall_confidence: number;
+  overall_confidence: number | null;  // null when no field was a categorical prediction
 }
 
 export default function CatalogPage() {
@@ -144,15 +176,15 @@ export default function CatalogPage() {
     setAppliedSku(null);
     setPredictedFields(null);
     setPanel({
-      operation: "_predict",
-      endpoints: ["_predict"],
+      operation: NUMERIC_FIELDS.has(p.missing_fields[0] ?? "") ? "_estimate" : "_predict",
+      endpoints: ["_predict", "_estimate"],
       stats: [
         { label: "Missing", value: String(p.missing_count) },
         { label: "Completeness", value: `${Math.round(p.completeness * 100)}%` },
         { label: "Category", value: p.category ?? "—" },
       ],
       description: `<strong>${p.name}</strong> (${p.sku}) is missing ${p.missing_count} field(s): <em>${p.missing_fields.join(", ")}</em>.<br/><br/>Completeness: ${Math.round(p.completeness * 100)}%.<br/><br/>aito.._predict learns from <em>${p.category ?? "similar"}</em> products with complete data to fill these gaps with no manual rules.`,
-      query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_predict</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n  <span class="q-k">"where"</span>: { <span class="q-k">"sku"</span>: <span class="q-v">"${p.sku}"</span> },\n  <span class="q-k">"predict"</span>: <span class="q-p">"${p.missing_fields[0] ?? "hs_code"}"</span>\n}`,
+      query: catalogQuery(p, p.missing_fields[0] ?? "hs_code"),
       links: [
         { label: "aito.ai/docs/predict", url: "https://aito.ai/docs/api/predict" },
       ],
@@ -171,7 +203,7 @@ export default function CatalogPage() {
                     ? `estimated from ${pr.neighbours} comparable products`
                     : `predicted, ${Math.round((pr.confidence ?? 0) * 100)}%`}
             style={{ color: "var(--aito-teal)", fontStyle: "italic" }}>
-        {pr.predicted_value}
+        {field === "unit_price" ? fmtAmount(Number(pr.predicted_value)) : pr.predicted_value}
       </span>
     );
   };

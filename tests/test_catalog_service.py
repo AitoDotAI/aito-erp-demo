@@ -131,3 +131,45 @@ def test_a_product_is_never_its_own_neighbour():
     for where in calls["predict"]:
         assert "sku" not in where, where
         assert "name" in where, "the name's words are evidence for a category"
+
+
+class _AloneInItsCategory(_Stub):
+    """The product is the only row in its category — blank in exactly the
+    fields being asked about."""
+
+    def search(self, table, where, limit=10):
+        return {"hits": [dict(_PRODUCT)]}
+
+
+def test_a_product_is_not_its_own_evidence_that_a_field_does_not_apply():
+    """Counted among its peers, a one-product category ruled every blank
+    field "does not apply", unit_price and account_code included."""
+    by = _by_field(_AloneInItsCategory())
+    assert all(p.kind != "not_applicable" for p in by.values()), {
+        f: p.kind for f, p in by.items()}
+
+
+class _CappedCategory(_Stub):
+    """More rows than the peer read returns, none of them weighed."""
+
+    def search(self, table, where, limit=10):
+        if where.get("sku"):
+            return {"hits": [dict(_PRODUCT)]}
+        return {"hits": [dict(_PEERS[0], sku=f"P-{i}") for i in range(limit)]}
+
+
+def test_a_capped_sample_does_not_rule_a_field_out():
+    """None of the first 200 having a weight says nothing about the 201st."""
+    by = _by_field(_CappedCategory())
+    assert by["weight_kg"].kind == "estimate"
+
+
+def test_no_categorical_prediction_means_no_overall_confidence():
+    class _NumbersOnly(_Stub):
+        def search(self, table, where, limit=10):
+            if where.get("sku"):
+                return {"hits": [dict(_PRODUCT, account_code="4220", tax_class="Standard",
+                                      hs_code="9999")]}
+            return {"hits": [dict(p, weight_kg=1.0, hs_code="9999") for p in _PEERS]}
+
+    assert predict_attributes(_NumbersOnly(), "SKU-1").overall_confidence is None

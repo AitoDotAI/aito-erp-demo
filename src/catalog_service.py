@@ -30,6 +30,9 @@ WORKFLOW_BLOCKING_FIELDS = [
 # Continuous columns: filled by `_estimate`, never by `_predict`.
 NUMERIC_FIELDS = {"unit_price", "weight_kg"}
 
+# How many of a category's rows are read to judge "does not apply".
+PEER_LIMIT = 200
+
 # Fields that can be predicted when missing
 PREDICTABLE_FIELDS = [
     "category",
@@ -118,7 +121,7 @@ class CatalogEnrichment:
     sku: str
     name: str
     predictions: list[AttributePrediction]
-    overall_confidence: float
+    overall_confidence: float | None
 
     def to_dict(self) -> dict:
         return {
@@ -235,7 +238,7 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
     result = client.search("products", {"sku": sku}, limit=1)
     hits = result.get("hits", [])
     if not hits:
-        return CatalogEnrichment(sku=sku, name="", predictions=[], overall_confidence=0.0)
+        return CatalogEnrichment(sku=sku, name="", predictions=[], overall_confidence=None)
 
     product = hits[0]
     name = product.get("name", "")
@@ -266,9 +269,17 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
     # The category's own rows, to tell "missing" from "does not apply".
     # An hour of inspection has no weight and a licence has no HS code;
     # a blank there is correct, and filling it is inventing data.
+    #
+    # Only a verdict when it is one: the peers must exclude the product
+    # itself (blank in exactly the fields being asked about, so a
+    # one-product category read as "nothing applies"), there must be at
+    # least one, and the sample must not have hit its cap — "none of the
+    # first 200 have it" says nothing about the 201st.
     category = product.get("category")
-    peers = (client.search("products", {"category": category}, limit=200).get("hits") or []
-             if category else [])
+    fetched = (client.search("products", {"category": category}, limit=PEER_LIMIT).get("hits") or []
+               if category else [])
+    peers = [r for r in fetched if r.get("sku") != sku]
+    can_rule_out = bool(peers) and len(fetched) < PEER_LIMIT
 
     from src.why_processor import process_factors, extract_alternatives as wp_extract_alternatives
 
@@ -278,7 +289,7 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
         if val is not None and val != "":
             continue  # Field already has a value
 
-        if peers and not any(r.get(f) not in (None, "") for r in peers):
+        if can_rule_out and not any(r.get(f) not in (None, "") for r in peers):
             predictions.append(AttributePrediction(
                 field_name=f, predicted_value="", confidence=None,
                 kind="not_applicable"))
@@ -322,8 +333,11 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
             why_factors=process_factors(top.get("$why"), conf) if top else {},
         ))
 
+    # The weakest categorical prediction. None when there is none: an
+    # estimate has no probability, and 0.0 would be a number the data
+    # never produced.
     confidences = [p.confidence for p in predictions if p.confidence is not None]
-    overall = min(confidences) if confidences else 0.0
+    overall = min(confidences) if confidences else None
 
     return CatalogEnrichment(
         sku=sku,
