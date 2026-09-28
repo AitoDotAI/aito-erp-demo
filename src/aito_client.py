@@ -172,8 +172,8 @@ def _canonical_relate_hits(response: dict, api_version: ApiVersion) -> dict:
       callers read one shape.
     * `ps` — core `38a234a6` returns it on v2 too, so the loop below
       leaves it alone (`if "ps" in hit`). Builds before that returned
-      `fs` only, and the demo reads `ps.pOnCondition` for a headline
-      percentage — a missing key renders as `0.0`, a plausible number
+      `fs` only, and a caller reading `ps` for a percentage would see a
+      missing key render as `0.0` — a plausible number
       that is silently wrong. The derivation stays as the fallback that
       makes that failure impossible rather than quiet. It computes the
       same plain empirical ratios v2 now sends (v1's are smoothed and

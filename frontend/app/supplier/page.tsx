@@ -10,6 +10,12 @@ import { useTenant } from "@/lib/tenant-context";
 import { supplierPanel } from "@/lib/panel-content";
 import type { SupplierResponse, SupplierSpend, DeliveryRisk, AitoPanelConfig } from "@/lib/types";
 
+// The badge colour follows the backend's risk level, never its own
+// reading of lift: a lift of 2.4 on one late delivery is "low", and a
+// red badge saying "low" was the contradiction on screen. An unknown
+// level renders uncoloured rather than borrowing a colour.
+const RISK_BADGE: Record<string, string> = { high: "b-red", medium: "b-gold", low: "b-green" };
+
 export default function SupplierPage() {
   const { tenantId } = useTenant();
   const defaultPanel = supplierPanel(tenantId);
@@ -40,8 +46,10 @@ export default function SupplierPage() {
       return;
     }
     const high = data.delivery_risks.filter((r) => r.risk_level === "high").length;
+    // Rows arrive ranked by lift, so the first is the one to quote.
+    const top = data.delivery_risks[0];
     setPanel({
-      ...base,
+      ...(top ? supplierPanel(tenantId, top) : base),
       stats: [
         { label: "Suppliers", value: String(data.top_suppliers.length) },
         { label: "Risk factors", value: String(data.delivery_risks.length) },
@@ -93,9 +101,12 @@ export default function SupplierPage() {
       ],
       description:
         `Delivery risk for <em>${item.supplier}</em>: risk level <em>${item.risk_level}</em>. ` +
-        `Late rate: <em>${(item.late_rate * 100).toFixed(1)}%</em>. ` +
-        `This factor has a lift of <em>${item.lift.toFixed(1)}x</em>, meaning it increases ` +
-        `the probability of late delivery by ${item.lift.toFixed(1)} times.`,
+        `Late rate: <em>${(item.late_rate * 100).toFixed(1)}%</em> ` +
+        `(${item.late_orders} of ${item.total_orders} deliveries), against ` +
+        `${(item.base_late_rate * 100).toFixed(1)}% across all suppliers. ` +
+        `Aito's lift is <em>${item.lift.toFixed(1)}x</em>. It is shrunk toward 1 when a supplier ` +
+        `has few deliveries, so it can read lower than the raw ratio; that caution is ` +
+        `what lets the risk level trust it.`,
       query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
 &nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"deliveries"</span>,<br/>
@@ -183,7 +194,7 @@ export default function SupplierPage() {
                         >
                           <td>{r.supplier}</td>
                           <td>
-                            <span className={`badge ${r.lift >= 2 ? "b-red" : r.lift >= 1.5 ? "b-gold" : "b-green"}`}>
+                            <span className={`badge ${RISK_BADGE[r.risk_level] ?? ""}`}>
                               {r.risk_level}
                             </span>
                           </td>

@@ -77,7 +77,15 @@ POST /api/v1/_relate
 - `lift` — how much more likely given the condition
 - `fs.fOnCondition` — count matching both condition and related value
 - `fs.fCondition` — total matching the condition
+- `fs.f` — total records with the related value
 - `fs.n` — total records in table
+- `ps.pOnCondition` — P(**related value** | condition), NOT P(condition |
+  related value). With `where={delivery_late: true}` and `relate=supplier`
+  it is the supplier's SHARE of late deliveries (8/12 above), not its late
+  rate. The late rate is `fs.fOnCondition / fs.f` (8/48). Reading the
+  first as the second made the biggest supplier look like the worst.
+- `lift` is shrunk toward 1 where the counts are thin, so it is not
+  exactly `(fOnCondition / f) / (fCondition / n)`.
 - Used in: Supplier Intel, Rule Mining
 
 ## _search — Retrieve matching records

@@ -15,10 +15,18 @@ second is exactly what Aito's `_relate` operator was built for:
 probability the most?"
 
 `_relate` returns supplier names ranked by lift, with the support
-counts (`fs.f`, `fs.fOnCondition`) and conditional probability
-(`ps.pOnCondition`) attached. We classify each by lift × late-rate
-into high/medium/low risk and render alongside the spend
-leaderboard.
+counts (`fs.f`, `fs.fOnCondition`) and conditional probabilities
+(`ps.*`) attached. The late RATE is `fs.fOnCondition / fs.f` — late
+deliveries over the supplier's own deliveries. We classify each by lift,
+with a floor on evidence, into high/medium/low and render it alongside
+the spend leaderboard.
+
+> **The trap here, which this demo fell into.** With the condition in
+> the `where`, `ps.pOnCondition` is P(supplier | late) — the supplier's
+> *share of all late deliveries* — not how often the supplier is late.
+> It reads like a late rate and makes the biggest supplier look like the
+> worst. Neste read "19.4% late" because 31 of 160 late deliveries were
+> theirs; its late rate is 31/477 = 6.5%. Compute the rate from `fs`.
 
 ## How it works
 
@@ -65,11 +73,12 @@ def get_delivery_risk(client: AitoClient) -> list[DeliveryRisk]:
 
         lift = hit.get("lift", 1.0)
         fs = hit.get("fs", {})           # frequency stats
-        ps = hit.get("ps", {})           # probability stats
 
-        total_orders = fs.get("f", 0)
-        late_orders = fs.get("fOnCondition", 0)
-        late_rate = ps.get("pOnCondition", 0.0)
+        # Late RATE = late deliveries / this supplier's deliveries.
+        # NOT ps.pOnCondition, which is P(supplier | late).
+        total_orders = int(fs.get("f", 0))
+        late_orders = int(fs.get("fOnCondition", 0))
+        late_rate = late_orders / total_orders
 
         risks.append(DeliveryRisk(
             supplier=supplier_name,
@@ -77,20 +86,24 @@ def get_delivery_risk(client: AitoClient) -> list[DeliveryRisk]:
             lift=round(lift, 2),
             total_orders=total_orders,
             late_orders=late_orders,
-            risk_level=_classify_risk(late_rate, lift),
+            risk_level=_classify_risk(lift=lift, late=late_orders),
         ))
 
     risks.sort(key=lambda r: r.lift, reverse=True)
     return risks
 ```
 
-The classification combines two signals:
+One rule, on lift plus a floor on evidence — one late delivery out of
+twenty is noise, however large its lift. The header count, the table
+badge and the side panel all read the resulting `risk_level`:
 
 ```python
-def _classify_risk(late_rate: float, lift: float) -> str:
-    if late_rate >= 0.30 or lift >= 2.0:
+def _classify_risk(lift: float, late: int) -> str:
+    if late < MIN_LATE_DELIVERIES:      # 3
+        return "low"
+    if lift >= HIGH_RISK_LIFT:          # 2.0
         return "high"
-    elif late_rate >= 0.15 or lift >= 1.5:
+    if lift >= MEDIUM_RISK_LIFT:        # 1.5
         return "medium"
     return "low"
 ```
