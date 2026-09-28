@@ -67,3 +67,15 @@ def test_an_engine_error_surfaces_rather_than_reading_as_no_suggestions():
     has not said that, and the view must not claim it did."""
     with pytest.raises(AitoError):
         get_cross_sell(_Failing(), "SKU-1")
+
+
+def test_a_hit_missing_a_rendered_column_is_loud():
+    """Showing the SKU where the name should be would half-hide the same
+    bug again: the list looks populated while a column went missing."""
+
+    class _NoNames(_V2Recommend):
+        def recommend(self, *a, select=None, **kw):
+            return super().recommend(*a, select=[c for c in select if c != "name"], **kw)
+
+    with pytest.raises(ValueError, match="name"):
+        get_cross_sell(_NoNames(), "SKU-1")

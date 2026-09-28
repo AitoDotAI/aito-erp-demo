@@ -590,7 +590,11 @@ Worth recording, because it's most of the surface:
   sentinel-tag rendering depends on (ADR 0003).
 - `_evaluate` accepts `testSource` + `$get` bindings unchanged.
 - `_search` accepts the v1 `from`/`where`/`limit` body.
-- `_recommend` with `goal` and linked-`select` is unchanged.
+- `_recommend` with `goal` is unchanged, but **its hits are not**: over a
+  link, v2 returns `$p` and `$value` per hit and nothing else unless the
+  columns are named in `select` (v1 expanded the linked row). Cross-sell
+  read `hit["sku"]`, found None on every hit, and showed an empty list
+  while the query answered correctly. Name the columns.
 - Batch insert is the same endpoint and body.
 
 ---
