@@ -82,3 +82,22 @@ def test_the_limiter_is_off_when_the_demo_is_not_public(monkeypatch):
     monkeypatch.delenv("PUBLIC_DEMO", raising=False)
     module = _import_app(monkeypatch)
     assert module._PUBLIC is False
+
+
+def test_no_api_response_is_stored_by_the_browser(monkeypatch):
+    """A phone kept serving a stored entry per API address: /api/po/pending
+    failed until the address was opened by hand, and Smart Entry stayed
+    broken because its addresses had not been. Nothing under /api is a
+    resource worth caching, so every answer says so — including the
+    ones the limiter gives on its own."""
+    from fastapi.testclient import TestClient
+
+    module = _import_app(monkeypatch, PUBLIC_DEMO="1", RATE_LIMIT_PER_IP="1")
+    client = TestClient(module.app)
+
+    responses = [client.get("/api/health") for _ in range(3)]
+    assert {r.status_code for r in responses} >= {200, 429}, (
+        f"expected an answer and a throttle: {[r.status_code for r in responses]}")
+    for r in responses:
+        assert r.headers.get("cache-control") == "no-store", (
+            f"{r.status_code} carried {r.headers.get('cache-control')!r}")

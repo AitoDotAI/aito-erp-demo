@@ -107,7 +107,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    // Never read an API answer from the browser's HTTP cache. A phone
+    // kept a stored entry per API address that made this call fail while
+    // the page itself loaded; the backend now marks every answer
+    // no-store, and this makes browsers skip entries stored before it.
+    res = await fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
   } catch (err) {
     // TypeError from fetch() = network-level failure (offline, DNS, TLS,
     // request aborted by extension/data-saver, *or* — most common cause
@@ -200,6 +204,7 @@ export async function apiStream(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    cache: "no-store",  // see apiFetch
     headers: {
       "Content-Type": "application/json",
       "X-Tenant": activeTenant(),

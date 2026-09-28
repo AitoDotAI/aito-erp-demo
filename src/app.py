@@ -359,6 +359,22 @@ async def rate_limit_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def api_no_store_middleware(request: Request, call_next):
+    """Nothing under /api is worth a browser keeping.
+
+    A phone held a stored entry per API address that made `fetch` fail
+    while the page itself loaded fine; opening one address by hand fixed
+    that view and no other. Every answer is computed per request, so say
+    so. Registered after the limiter, which puts it outside it: a 429
+    must not be kept either.
+    """
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # CORS goes on LAST, which in Starlette makes it OUTERMOST — every
 # middleware added after another wraps it. That ordering is the whole
 # point here: a middleware that short-circuits (the rate limiter returns
