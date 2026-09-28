@@ -201,10 +201,82 @@ def _generator():
 
 def test_the_demand_tables_regenerate_to_the_same_universe():
     """The tables are loaded into Aito once; a rebuild that drew
-    differently would describe a world the database does not hold."""
+    differently would describe a world the database does not hold.
+    Two PROCESSES, not two calls: a seed from the salted `hash()` agrees
+    with itself inside one process and differs across them — the exact
+    bug that once made every fixture rebuild a different catalogue."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    script = (
+        "import importlib.util, json, sys\n"
+        f"spec = importlib.util.spec_from_file_location('g', {str(Path(__file__).parent.parent / 'data' / 'generate_demand.py')!r})\n"
+        "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\n"
+        "p = [{'sku': 'SKU-1', 'category': 'DIY', 'unit_price': 40.0, 'supplier': 'Bauhaus'}]\n"
+        "h, o = g.generate_demand('aurora', p)\n"
+        "print(json.dumps([h, o, g.simulate_stock('aurora', p, h)]))\n")
+    runs = [subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                           check=True).stdout for _ in range(2)]
+    assert runs[0] == runs[1]
+
+
+def test_last_years_band_on_a_forecast_month_comes_from_the_history():
+    """The band is evidence the forecast is allowed: last year's sales,
+    all dated before the cutoff. Computed from anything later, it would
+    leak the answer."""
     gen = _generator()
-    products = [{"sku": "SKU-1", "category": "DIY", "unit_price": 40.0, "supplier": "Bauhaus"}]
-    assert gen.generate_demand("aurora", products) == gen.generate_demand("aurora", products)
+    products = [{"sku": "SKU-1", "category": "Electronics", "unit_price": 300.0, "supplier": "V"}]
+    history, holdout = gen.generate_demand("aurora", products)
+    by_month = {r["month"]: r["units_sold"] for r in history}
+    for row in holdout:
+        prior = f"{int(row['month'][:4]) - 1}{row['month'][4:]}"
+        assert prior < gen.CUTOFF
+        assert row["last_year_band"] == gen.units_band(by_month[prior])
+
+
+def test_a_pending_delivery_is_dated_after_the_stock_snapshot():
+    gen = _generator()
+    products = [{"sku": f"SKU-{i}", "category": "Fashion", "unit_price": 90.0, "supplier": "M"}
+                for i in range(20)]
+    history, _ = gen.generate_demand("aurora", products)
+    rows = gen.simulate_stock("aurora", products, history)
+    pending = [r for r in rows if r["next_delivery_month"]]
+    assert pending, "a 45-day-lead category should have orders in flight"
+    assert all(r["next_delivery_month"] >= gen.CUTOFF for r in pending)
+
+
+def test_the_tables_the_estimate_must_never_see_carry_no_links():
+    """A link from the holdout or the quotes into `products` would let
+    rows `_estimate` is judged on reach it through the shared table —
+    the reason `invoice_lines_holdout` is link-free too."""
+    from src.data_loader import SCHEMAS
+    for table in ("monthly_demand_holdout", "price_quotes"):
+        linked = [c for c, spec in SCHEMAS[table]["columns"].items() if "link" in spec]
+        assert not linked, f"{table} links {linked}"
+
+
+def test_adding_a_table_refuses_one_that_already_exists(monkeypatch):
+    """The additive load runs against a live database. It must never
+    replace what is there."""
+    from src import data_loader
+
+    class _Live:
+        api_version = "v2"
+        def get_schema(self):
+            return {"schema": {"stock": {}, "products": {}}}
+
+    class _Creds:
+        api_url, api_key = "https://example.invalid/db/x", "k"
+
+    class _Config:
+        api_version = "v2"
+        def creds_for(self, tenant):
+            return _Creds()
+
+    monkeypatch.setattr(data_loader, "load_config", lambda api_version=None: _Config())
+    monkeypatch.setattr(data_loader.AitoClient, "from_creds", classmethod(lambda cls, *a, **k: _Live()))
+    with pytest.raises(ValueError, match="already exist: \\['stock'\\]"):
+        data_loader.add_tables("metsa", ["stock"])
 
 
 def test_a_category_without_a_declared_season_is_an_error():

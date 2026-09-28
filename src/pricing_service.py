@@ -7,10 +7,12 @@ everything before it. Each quote is scored by `_estimate unit_price` over
 judges. Beside it sits the plain rule — the median of what this product
 has cost before — because a buyer has that without Aito.
 
-Measured (`./do price-eval`): on this corpus the estimate is at PARITY
+Measured (`./do price-eval`): on this corpus the estimate is at parity
 with the product's own median — within half a point of error on every
-tenant — and both catch every overcharge. That is the claim, and the
-view shows both numbers on every row rather than implying more.
+tenant, the median slightly ahead on all three — and the two catch the
+same overcharges (all of them on Aurora and Studio, 10 of 11 on Metsä).
+That is the claim, and the view shows both numbers on every row rather
+than implying more.
 
 What it is not: a price for a product never bought before. With no
 earlier rows the estimate falls back on supplier and volume alone and
@@ -116,7 +118,7 @@ def pick_products(quotes: list[dict], earlier: dict[str, list[float]]) -> list[s
     return chosen
 
 
-def get_pricing_overview(client: AitoClient, tenant: str | None = None) -> dict:
+def get_pricing_overview(client: AitoClient, tenant: str) -> dict:
     reference = _whole_table(client, "price_reference")
     quotes = _whole_table(client, "price_quotes")
     earlier: dict[str, list[float]] = defaultdict(list)
@@ -139,7 +141,9 @@ def get_pricing_overview(client: AitoClient, tenant: str | None = None) -> dict:
             "quotes": [s.to_dict() for s in scored],
         })
 
-    measured = MEASURED["by_tenant"].get(tenant or "metsa")
+    # Indexed, not defaulted: quoting one tenant's measurement on
+    # another tenant's screen would be a number the page cannot back.
+    measured = MEASURED["by_tenant"].get(tenant)
     if measured is None:
         raise KeyError(f"no price measurement recorded for tenant {tenant!r}")
     return {

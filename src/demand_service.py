@@ -12,9 +12,10 @@ with a rule-of-thumb "confidence" and invented euro savings. See
 data/generate_demand.py.
 
 The measured accuracy below is quoted on screen and is the only claim
-the view makes. On this corpus Aito is at PARITY with the seasonal
-naive rule and well ahead of the trailing average — it does not beat
-every rule, and the view says so.
+the view makes. On this corpus Aito is ahead of "same month last year"
+on Metsä and behind it on Aurora and Studio, and has 15-42% less error
+than the trailing average. It does not beat every rule, and the view
+computes its wording from the numbers rather than saying it does.
 """
 
 from __future__ import annotations
@@ -34,7 +35,8 @@ from src.aito_client import AitoClient
 # purpose: past that, picking the best is fitting the holdout.
 # `last_year_band` is what moved it — without recency evidence
 # `_estimate` averaged every past December equally and lost to the
-# seasonal naive rule by 6-9 points; with it, the two are at parity.
+# seasonal naive rule by 6-9 points; with it, it is within 3 points
+# either way.
 FEATURES = ("sku", "season", "last_year_band")
 
 PRODUCTS_SHOWN = 4
@@ -154,7 +156,7 @@ def forecast_product(client: AitoClient, sku: str, history: list[dict],
         horizon=horizon)
 
 
-def get_demand_forecast(client: AitoClient, tenant: str | None = None) -> dict:
+def get_demand_forecast(client: AitoClient, tenant: str) -> dict:
     history = _whole_table(client, "monthly_demand")
     holdout = _whole_table(client, "monthly_demand_holdout")
     products = []
@@ -167,7 +169,9 @@ def get_demand_forecast(client: AitoClient, tenant: str | None = None) -> dict:
             raise RuntimeError(f"{sku} sells in monthly_demand but is not in products")
         products.append(forecast_product(client, sku, history, holdout, rows[0]))
 
-    measured = MEASURED["by_tenant"].get(tenant or "metsa")
+    # Indexed, not defaulted: quoting one tenant's measurement on
+    # another tenant's screen would be a number the page cannot back.
+    measured = MEASURED["by_tenant"].get(tenant)
     if measured is None:
         raise KeyError(f"no demand measurement recorded for tenant {tenant!r}")
     return {

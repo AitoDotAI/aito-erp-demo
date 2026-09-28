@@ -774,10 +774,10 @@ at the same cutoff into `price_reference` / `price_quotes`. `orders` is
 untouched and still feeds the trending ribbon.
 
 **Measured before it was shown, and it did not win everywhere.**
-`./do demand-eval`: Aito is at parity with "same month last year" (one
-tenant ahead, two behind) and has a quarter to 40% less error than the
+`./do demand-eval`: Aito is ahead of "same month last year" on Metsä
+and behind it on Aurora and Studio, and has 15-42% less error than the
 trailing-average rule a reorder point uses. `./do price-eval`: parity
-with the product's own median. The views quote those numbers and
+with the product's own median, the median slightly ahead. The views quote those numbers and
 compute their wording from them. Two things that were tried and did
 NOT work are recorded rather than hidden: without a recency feature
 (`last_year_band`) the demand estimate lost to the naive rule by 6-9

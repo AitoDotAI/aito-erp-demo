@@ -37,7 +37,12 @@ def evaluate(client, tenant: str) -> dict:
     earlier: dict[str, list[float]] = defaultdict(list)
     for r in reference:
         earlier[r["product_id"]].append(float(r["unit_price"]))
-    quotes = [q for q in quotes if q["product_id"] in listed]   # truth needs a list price
+    # Truth is the list price, so a quote on an unpriced product cannot be
+    # scored. Say how many that leaves out rather than shrinking n quietly.
+    unscored = [q for q in quotes if q["product_id"] not in listed]
+    if unscored:
+        print(f"{tenant}: {len(unscored)} quotes on products with no list price are not scored")
+    quotes = [q for q in quotes if q["product_id"] in listed]
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         scored = list(pool.map(lambda q: score_quote(client, q, earlier.get(q["product_id"], [])), quotes))

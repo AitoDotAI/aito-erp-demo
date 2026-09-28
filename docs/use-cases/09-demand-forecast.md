@@ -50,9 +50,9 @@ POST /api/v2/_estimate
 | Aurora | 300 | 18.8% | **17.7%** | 24.0% |
 | Studio | 174 | 20.4% | **17.6%** | 23.9% |
 
-The honest reading: **parity with the seasonal naive rule, and a
-quarter to 40% less error than the trailing-average rule** an ERP
-reorder point actually runs on. The view computes its sentence from
+The honest reading: **ahead of the seasonal naive rule on one tenant
+and behind it on two, and 15-42% less error than the trailing-average
+rule** an ERP reorder point actually runs on. The view computes its sentence from
 these numbers and never claims more. The where-shape search stopped at
 ten variants on purpose — past that, picking the best is fitting the
 holdout.

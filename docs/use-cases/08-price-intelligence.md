@@ -40,8 +40,9 @@ list price; an overcharge is a quote more than 17% over list.
 | Aurora | 843 | 2.2% | 2.1% | 39 / 39 of 39 |
 | Studio |  92 | 5.8% | 5.5% | 6 / 6 of 6 |
 
-**Parity.** On this corpus the estimate is as good as the product's own
-median, not better, and the view says exactly that.
+**Parity, the median slightly ahead.** On this corpus the estimate is
+within half a point of the product's own median, not better, and the
+view says exactly that.
 
 ## What it cannot do here, and why that is stated
 

@@ -146,7 +146,7 @@ function DemandChart({ product }: { product: DemandProduct }) {
       viewBox={`0 0 ${CHART.w} ${CHART.h}`}
       role="img"
       aria-label={`Monthly units sold for ${product.name}, with forecasts for the held-out months`}
-      style={{ width: "100%", minWidth: 520, height: "auto", display: "block" }}
+      style={{ width: "100%", height: "auto", display: "block" }}
     >
       {/* Held-out band: everything right of the cutoff was hidden from _estimate. */}
       <rect x={cutoffX} y={CHART.top} width={CHART.w - CHART.right - cutoffX} height={plotH}
@@ -377,6 +377,8 @@ export default function DemandPage() {
                 {!loading && !product && (
                   <div style={{ color: "var(--mid)", padding: 32, textAlign: "center" }}>No demand history for this tenant</div>
                 )}
+                {/* The SVG scales to the card: on a phone the held-out months
+                    stay on screen, which is the part the chart exists to show. */}
                 {product && <DemandChart product={product} />}
               </div>
               {product && (
@@ -398,55 +400,57 @@ export default function DemandPage() {
                   <span className="card-title">Held-out months — forecast against actual</span>
                   <span className="card-meta">error = forecast − actual, in units</span>
                 </div>
-                <table className="tbl">
-                  <thead>
-                    <tr>
-                      <th>Month</th>
-                      <th>Actual</th>
-                      <th>Aito</th>
-                      <th>Error</th>
-                      <th>Last year</th>
-                      <th>Error</th>
-                      <th>Trailing</th>
-                      <th>Error</th>
-                      <th>Rows weighted</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {product.horizon.map((h) => {
-                      const errs = { aito: h.aito - h.actual, last_year: h.last_year - h.actual, trailing: h.trailing - h.actual };
-                      const best = Math.min(...Object.values(errs).map(Math.abs));
-                      const errCell = (e: number) => (
-                        <td className="mono" style={Math.abs(e) === best ? { color: "var(--green)", fontWeight: 600 } : { color: "var(--mid)" }}>
-                          {fmtSigned(e)}
-                        </td>
-                      );
-                      return (
-                        <tr key={h.month}>
-                          <td className="mono">{fmtMonth(h.month)}</td>
-                          <td className="mono" style={{ fontWeight: 600 }}>{h.actual}</td>
-                          <td className="mono" style={{ color: "var(--aito-teal)", fontWeight: 600 }}>{Math.round(h.aito)}</td>
-                          {errCell(errs.aito)}
-                          <td className="mono">{Math.round(h.last_year)}</td>
-                          {errCell(errs.last_year)}
-                          <td className="mono">{Math.round(h.trailing)}</td>
-                          {errCell(errs.trailing)}
-                          <td className="mono" style={{ color: "var(--mid)" }}>{h.neighbours}</td>
-                        </tr>
-                      );
-                    })}
-                    <tr>
-                      <td colSpan={2} style={{ color: "var(--mid)", fontSize: 11 }}>WAPE, this product</td>
-                      <td />
-                      <td className="mono">{fmtWape(productWape("aito"))}</td>
-                      <td />
-                      <td className="mono">{fmtWape(productWape("last_year"))}</td>
-                      <td />
-                      <td className="mono">{fmtWape(productWape("trailing"))}</td>
-                      <td />
-                    </tr>
-                  </tbody>
-                </table>
+                <div style={{ overflowX: "auto" }}>
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Month</th>
+                        <th>Actual</th>
+                        <th>Aito</th>
+                        <th>Error</th>
+                        <th>Last year</th>
+                        <th>Error</th>
+                        <th>Trailing</th>
+                        <th>Error</th>
+                        <th>Rows weighted</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {product.horizon.map((h) => {
+                        const errs = { aito: h.aito - h.actual, last_year: h.last_year - h.actual, trailing: h.trailing - h.actual };
+                        const best = Math.min(...Object.values(errs).map(Math.abs));
+                        const errCell = (e: number) => (
+                          <td className="mono" style={Math.abs(e) === best ? { color: "var(--green)", fontWeight: 600 } : { color: "var(--mid)" }}>
+                            {fmtSigned(e)}
+                          </td>
+                        );
+                        return (
+                          <tr key={h.month}>
+                            <td className="mono">{fmtMonth(h.month)}</td>
+                            <td className="mono" style={{ fontWeight: 600 }}>{h.actual}</td>
+                            <td className="mono" style={{ color: "var(--aito-teal)", fontWeight: 600 }}>{Math.round(h.aito)}</td>
+                            {errCell(errs.aito)}
+                            <td className="mono">{Math.round(h.last_year)}</td>
+                            {errCell(errs.last_year)}
+                            <td className="mono">{Math.round(h.trailing)}</td>
+                            {errCell(errs.trailing)}
+                            <td className="mono" style={{ color: "var(--mid)" }}>{h.neighbours}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr>
+                        <td colSpan={2} style={{ color: "var(--mid)", fontSize: 11 }}>WAPE, this product</td>
+                        <td />
+                        <td className="mono">{fmtWape(productWape("aito"))}</td>
+                        <td />
+                        <td className="mono">{fmtWape(productWape("last_year"))}</td>
+                        <td />
+                        <td className="mono">{fmtWape(productWape("trailing"))}</td>
+                        <td />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

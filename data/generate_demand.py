@@ -129,6 +129,9 @@ def _poisson(rng: random.Random, lam: float) -> int:
         k += 1
 
 
+MID_PRICE_TIER = 50.0
+
+
 def _base_level(rng: random.Random, price: float) -> float:
     """Monthly units at seasonality 1.0. Cheap goods move in volume."""
     typical = 40 * (50 / max(price, 5.0)) ** 0.35
@@ -145,7 +148,11 @@ def generate_demand(tenant: str, products: list[dict]) -> tuple[list[dict], list
             continue  # uncategorised catalogue rows are Catalog's case, not sold goods
         if category not in SEASONALITY:
             raise ValueError(f"{tenant}: no seasonality declared for {category!r}")
-        level = _base_level(rng, p.get("unit_price") or 50.0)
+        # Some catalogue rows have no price (Catalog's "missing
+        # attribute" case). The level only needs a price TIER, so those
+        # sell like a mid-priced item; recorded here, not inferred later.
+        price = p.get("unit_price")
+        level = _base_level(rng, price if price is not None else MID_PRICE_TIER)
         trend = rng.gauss(0.004, 0.008)          # per month
         for i, month in enumerate(all_months):
             moy = int(month[5:]) - 1
@@ -156,6 +163,8 @@ def generate_demand(tenant: str, products: list[dict]) -> tuple[list[dict], list
                 "month_of_year": MONTH_NAMES[moy],
                 "season": SEASON_BY_MONTH[moy],
                 "category": category,
+                # "" is the catalogue's own blank (a dropped attribute), kept
+                # as a value so the column stays non-nullable for `_estimate`.
                 "supplier": p.get("supplier") or "",
                 "units_sold": _poisson(rng, max(lam, 0.05)),
             }

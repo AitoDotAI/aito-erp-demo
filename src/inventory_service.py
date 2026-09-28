@@ -118,7 +118,9 @@ def _warning_score(items: list[StockCheck], flagged) -> dict:
             "real_shortfalls": len(real), "caught": len(hit)}
 
 
-def get_inventory_status(client: AitoClient, tenant: str | None = None) -> dict:
+def get_inventory_status(client: AitoClient, tenant: str) -> dict:
+    """`tenant` is taken for the same call shape as the other views; the
+    stock and demand tables are already per-tenant databases."""
     history = _whole_table(client, "monthly_demand")
     holdout = _whole_table(client, "monthly_demand_holdout")
     stock = {r["sku"]: r for r in _whole_table(client, "stock")}
@@ -151,7 +153,12 @@ def get_inventory_status(client: AitoClient, tenant: str | None = None) -> dict:
             raise RuntimeError(f"{sku} is stocked but not in products")
         recent = sorted(own_history[sku], key=lambda r: r["month"])[-3:]
         # A delivery already ordered counts if it lands before a new
-        # order could: within the lead time, month-granular.
+        # order could: within the lead time, month-granular. `stock`
+        # records the whole open order quantity and its EARLIEST arrival,
+        # so when that arrival is in time all of `on_order` counts. With
+        # the generator's reorder rule an open order is placed at most
+        # once per lead time, so it is one delivery in practice; a stock
+        # table with staggered deliveries would need one row per delivery.
         horizon_end = _months_after(cutoff, max(0, math.ceil(s["lead_time_days"] / 30) - 1))
         # Nullable, and Aito omits a null column from the hit rather than
         # returning null: absent here means "nothing on order".

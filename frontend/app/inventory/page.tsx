@@ -12,7 +12,7 @@ import type { InventoryResponse, StockCheck, WarningScore, AitoPanelConfig } fro
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Below this many real shortfalls, a difference of one warning is noise.
+// Below this many shortfalls, a difference of one warning is noise.
 // The page says so rather than letting a 1-vs-0 read as a result.
 const MIN_SHORTFALLS_TO_COMPARE = 10;
 
@@ -89,7 +89,7 @@ function panelFor(data: InventoryResponse | null, item: StockCheck | null): Aito
       `On hand <em>${item.on_hand}</em>, arriving within the ${item.lead_time_days}-day lead time <em>${item.arriving_in_time}</em>. ` +
       `By Aito's forecast that covers <em>${cover}</em>.<br/><br/>` +
       `Aito says <em>${item.aito_short ? "will run short" : "covered"}</em>; the trailing rule says <em>${item.rule_short ? "will run short" : "covered"}</em>. ` +
-      `In the held-out month it <em>${item.actually_short ? "did run short" : "did not run short"}</em>.` +
+      `At the held-out month's actual sales rate it <em>${item.actually_short ? "would not last the lead time" : "would last the lead time"}</em>.` +
       `<br/><br/>${panelDescription}`,
     query: forecastQuery(item),
   };
@@ -112,10 +112,10 @@ function verdict(aito: WarningScore, rule: WarningScore): string {
   }
   const same = aito.raised === rule.raised && aito.right === rule.right && aito.caught === rule.caught;
   if (same) {
-    return `Both raised the same warnings with the same outcome. ${shortfalls} real shortfall${shortfalls === 1 ? "" : "s"} is too few to separate the two methods.`;
+    return `Both raised the same warnings with the same outcome. ${shortfalls} shortfall${shortfalls === 1 ? "" : "s"} at the actual rate is too few to separate the two methods.`;
   }
   if (shortfalls < MIN_SHORTFALLS_TO_COMPARE) {
-    return `The counts differ, but with ${shortfalls} real shortfall${shortfalls === 1 ? "" : "s"} in the held-out month that difference is too small to separate the two methods.`;
+    return `The counts differ, but with ${shortfalls} shortfall${shortfalls === 1 ? "" : "s"} at the held-out month's actual rate that difference is too small to separate the two methods.`;
   }
   return "The counts differ; compare the right and caught columns directly — each is out of the numbers shown.";
 }
@@ -183,7 +183,7 @@ export default function InventoryPage() {
                   <strong>Will it run out before the next delivery?</strong> For the {data?.items_checked ?? "—"} busiest
                   stocked items as of {asOf}, stock on hand plus what arrives within the lead time is set against
                   demand — once with aito..&apos;s forecast, once with the trailing average a plain ERP reorder rule
-                  uses. The following month is held out, so both answers are checked against what really sold.
+                  uses. The following month is held out, so both answers are checked against its actual sales rate: would stock have lasted the lead time at the rate that really sold? One month's rate, projected, not a count of empty-shelf days.
                   {data?.synthetic_stock && (
                     <> The stock levels are <strong>synthetic</strong>: simulated from the same sales history, not
                       taken from a real warehouse.</>
@@ -216,7 +216,7 @@ export default function InventoryPage() {
                         <th>Forecast</th>
                         <th>Warnings raised</th>
                         <th>Right</th>
-                        <th>Real shortfalls caught</th>
+                        <th title="Items whose cover at the held-out month's actual rate is below the lead time">Shortfalls caught (actual rate)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -258,7 +258,7 @@ export default function InventoryPage() {
                       <th>Rule /day</th>
                       <th title="What actually sold in the held-out month">Actual /day</th>
                       <th>Days of cover</th>
-                      <th>Ran short?</th>
+                      <th title="Cover at the held-out month's actual daily rate below the lead time">Short at actual rate?</th>
                     </tr>
                   </thead>
                   <tbody>
