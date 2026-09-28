@@ -282,7 +282,9 @@ export interface ConfidenceBand {
   label: string;
   min_p: number;
   count: number;
-  accuracy: number;
+  accuracy: number | null;   // null when the band is empty
+  mean_p: number | null;     // what Aito claimed, to judge accuracy against
+  thin: boolean;             // too few cases for the accuracy to mean much
 }
 
 export interface PredictionQuality {

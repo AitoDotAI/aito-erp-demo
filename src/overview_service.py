@@ -39,20 +39,33 @@ class AutomationBreakdown:
         }
 
 
+# Below this many cases a band's accuracy is one or two lucky rows, not a
+# rate: four cases at 100% once outranked 170 at 95% on this screen.
+MIN_BAND_CASES = 20
+
+BANDS = [
+    ("≥ 0.85", 0.85, 1.01),
+    ("0.5 – 0.85", 0.5, 0.85),
+    ("< 0.5", 0.0, 0.5),
+]
+
+
 @dataclass
 class ConfidenceBand:
     """Per-confidence-band quality slice from `_evaluate cases`.
 
-    `label` is a human-friendly band name ("≥0.85", "0.5–0.85", "<0.5").
-    `count` is how many test cases fell in this band; `accuracy` is the
-    fraction of those that were correct. The story this tells the
-    operator: predictions ≥0.85 are 98% right → safe to auto-approve;
-    predictions <0.5 are 60% right → needs human review.
+    `accuracy` is how often the top prediction was right in the band and
+    `mean_p` is what Aito said it would be; calibration is the two
+    agreeing, so both travel together. An empty band has neither — a 0%
+    would read as "always wrong". `thin` marks a band with too few cases
+    for its accuracy to mean anything.
     """
     label: str
     min_p: float
     count: int
-    accuracy: float
+    accuracy: float | None
+    mean_p: float | None
+    thin: bool
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +73,8 @@ class ConfidenceBand:
             "min_p": self.min_p,
             "count": self.count,
             "accuracy": self.accuracy,
+            "mean_p": self.mean_p,
+            "thin": self.thin,
         }
 
 
@@ -166,28 +181,18 @@ def _case_correct(case: dict) -> bool:
 
 def _bucket_cases(cases: list[dict]) -> list[ConfidenceBand]:
     """Split per-case results into ≥0.85, 0.5–0.85, <0.5 bands."""
-    bands_def = [
-        ("≥ 0.85", 0.85),
-        ("0.5 – 0.85", 0.5),
-        ("< 0.5", 0.0),
-    ]
     bucketed: list[ConfidenceBand] = []
-    for label, threshold in bands_def:
-        upper = 1.01 if threshold == 0.85 else (
-            0.85 if threshold == 0.5 else 0.5
-        )
-        in_band = [c for c in cases
-                   if threshold <= _case_p(c) < upper]
-        if not in_band:
-            bucketed.append(ConfidenceBand(label=label, min_p=threshold,
-                                           count=0, accuracy=0.0))
-            continue
+    for label, lower, upper in BANDS:
+        in_band = [c for c in cases if lower <= _case_p(c) < upper]
+        n = len(in_band)
         correct = sum(1 for c in in_band if _case_correct(c))
         bucketed.append(ConfidenceBand(
             label=label,
-            min_p=threshold,
-            count=len(in_band),
-            accuracy=round(correct / len(in_band), 3),
+            min_p=lower,
+            count=n,
+            accuracy=round(correct / n, 3) if n else None,
+            mean_p=round(sum(_case_p(c) for c in in_band) / n, 3) if n else None,
+            thin=n < MIN_BAND_CASES,
         ))
     return bucketed
 
@@ -197,7 +202,8 @@ def get_prediction_quality(client: AitoClient) -> list[PredictionQuality]:
 
     For each predictable field we run a held-out test:
 
-      testSource: 200 random purchases
+      testSource: the first 200 purchases (no ordering, so the same
+                  rows every run and the bands are reproducible)
       evaluate:   predict <field> from supplier + description + amount
 
     Aito hides the target column on each test row, predicts it, and

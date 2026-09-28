@@ -7,7 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
-import type { OverviewMetrics, AitoPanelConfig } from "@/lib/types";
+import type { OverviewMetrics, AitoPanelConfig, ConfidenceBand } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
   operation: "automation overview",
@@ -45,6 +45,25 @@ const defaultPanel: AitoPanelConfig = {
     { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/overview_service.py", kind: "github" },
   ],
 };
+
+// Calibration is a measurement, not a slogan: compare what each band
+// claimed with how often it was right, and only where the band has enough
+// cases for the comparison to be more than luck.
+const CALIBRATION_TOLERANCE = 0.05;
+
+function calibrationSummary(bands: ConfidenceBand[]): string {
+  // `!= null` also covers a payload cached before these fields existed.
+  const judged = bands.filter((b) => !b.thin && b.count > 0 && b.accuracy != null && b.mean_p != null);
+  if (judged.length === 0) return "No band has enough cases to judge calibration yet.";
+  const gap = (b: ConfidenceBand) => b.accuracy! - b.mean_p!;
+  const matched = judged.filter((b) => Math.abs(gap(b)) <= CALIBRATION_TOLERANCE).length;
+  const under = judged.filter((b) => gap(b) > CALIBRATION_TOLERANCE).length;
+  const over = judged.filter((b) => gap(b) < -CALIBRATION_TOLERANCE).length;
+  const parts = [`${matched} of ${judged.length} bands with enough cases are right within ${Math.round(CALIBRATION_TOLERANCE * 100)} points of what $p claimed`];
+  if (under) parts.push(`${under} ${under === 1 ? "is" : "are"} right more often than claimed (conservative)`);
+  if (over) parts.push(`${over} ${over === 1 ? "is" : "are"} right less often than claimed`);
+  return parts.join("; ") + ".";
+}
 
 export default function OverviewPage() {
   const { tenantId } = useTenant();
@@ -290,40 +309,42 @@ export default function OverviewPage() {
                 {metrics.prediction_quality.some((pq) => pq.bands?.length) && (
                   <div style={{ borderTop: "1px solid #f0ede6", padding: "12px 14px" }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink)", marginBottom: 8 }}>
-                      Accuracy by confidence band — first field shown
+                      Accuracy by confidence band
                     </div>
-                    {(() => {
-                      const first = metrics.prediction_quality.find((pq) => pq.bands?.length);
-                      if (!first) return null;
-                      return (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                          {first.bands.map((b) => (
-                            <div key={b.label} style={{
-                              padding: "8px 10px",
-                              border: "1px solid var(--border)",
-                              borderRadius: 5,
-                              background: b.min_p >= 0.85
-                                ? "var(--green-light, #e7f4ec)"
-                                : b.min_p >= 0.5 ? "var(--gold-light)" : "#f5efe5",
-                            }}>
-                              <div style={{ fontSize: 10, color: "var(--mid)", marginBottom: 2 }}>
-                                $p {b.label}
-                              </div>
-                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)" }}>
-                                {Math.round(b.accuracy * 100)}%
-                              </div>
-                              <div style={{ fontSize: 10, color: "var(--mid)" }}>
-                                {b.count} cases
-                              </div>
-                            </div>
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          <th>Field</th>
+                          {metrics.prediction_quality.find((pq) => pq.bands?.length)!.bands.map((b) => (
+                            <th key={b.label}>$p {b.label}</th>
                           ))}
-                        </div>
-                      );
-                    })()}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {metrics.prediction_quality.filter((pq) => pq.bands?.length).map((pq) => (
+                          <tr key={pq.field_name}>
+                            <td className="mono">{pq.field_name}</td>
+                            {pq.bands.map((b) => (
+                              <td key={b.label} style={{ opacity: b.thin ? 0.45 : 1 }}>
+                                <strong style={{ color: b.count === 0 || b.accuracy == null ? "var(--mid)" : "var(--ink)" }}>
+                                  {b.count === 0 || b.accuracy == null ? "—" : `${Math.round(b.accuracy * 100)}%`}
+                                </strong>
+                                <div style={{ fontSize: 10, color: "var(--mid)" }}>
+                                  {b.count > 0 && b.mean_p != null && `claimed ${Math.round(b.mean_p * 100)}% · `}n={b.count}
+                                  {b.thin && b.count > 0 ? ", too few" : ""}
+                                </div>
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                     <div style={{ fontSize: 10, color: "var(--mid)", marginTop: 8, lineHeight: 1.5 }}>
+                      {calibrationSummary(metrics.prediction_quality.flatMap((pq) => pq.bands ?? []))}
+                      {" "}Each cell: how often the top prediction was right, what $p claimed, and n.
                       Predictions in the <strong>≥ 0.85</strong> band are the auto-approve zone;
-                      <strong> &lt; 0.5</strong> is the review zone. The confidence-to-accuracy
-                      relationship is <em>calibrated</em> — Aito's $p actually means what it says.
+                      <strong> &lt; 0.5</strong> is the review zone. Faded cells have too few cases
+                      for their accuracy to mean anything.
                     </div>
                   </div>
                 )}
