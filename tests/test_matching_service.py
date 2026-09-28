@@ -9,6 +9,8 @@ held-out label is scored rather than assumed.
 
 import pytest
 
+from src.aito_client import AitoError
+
 from src.matching_service import (
     MEASURED_BY_ENGINE, PRESELECT_THRESHOLD, BatchResult, Candidate,
     MatchedLine, _reasons, _terms, measured_for,
@@ -240,7 +242,6 @@ class _FlakyClient:
         self.fail_table, self.left = fail_table, fail_times
 
     def search(self, table, where, limit=10):
-        from src.aito_client import AitoError
         if table == self.fail_table and self.left > 0:
             self.left -= 1
             raise AitoError("Aito v2 returned 504: upstream timed out")
@@ -265,7 +266,6 @@ def test_a_failed_holdout_read_raises_and_is_not_remembered(fresh_queue):
     """A cold start whose first read timed out used to be cached as "this
     tenant has no queue" for the whole TTL: the view showed nothing for
     ten minutes after the database had woken up."""
-    from src.aito_client import AitoError
     client = _FlakyClient("invoice_lines_holdout")
     with pytest.raises(AitoError):
         fresh_queue.queue_for(client, "aurora")
@@ -276,7 +276,6 @@ def test_a_failed_holdout_read_raises_and_is_not_remembered(fresh_queue):
 def test_a_failed_history_read_does_not_mark_every_vendor_cold(fresh_queue):
     """`seen` came from the training half. When that read failed it was
     empty, so every vendor on screen read as a first-time supplier."""
-    from src.aito_client import AitoError
     client = _FlakyClient("invoice_lines")
     with pytest.raises(AitoError):
         fresh_queue.queue_for(client, "aurora")
