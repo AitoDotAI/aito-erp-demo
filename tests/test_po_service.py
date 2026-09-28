@@ -97,3 +97,18 @@ def test_prediction_to_dict():
     assert "approver" in d
     assert "source" in d
     assert "confidence" in d
+
+
+def test_no_demo_po_description_names_a_place():
+    """`purchases` records a store or site only in `cost_center`, never in
+    the description, so a place name in a demo PO is a word Aito has no
+    evidence for. "Cosmetics restock — Tampere" was routed by supplier to
+    Store-Helsinki at 0.93: right by the data, and a headline screen
+    contradicting its own input."""
+    from src.po_service import DEMO_POS_BY_TENANT
+    places = ("helsinki", "tampere", "oulu", "vantaa", "turku", "espoo",
+              "kouvola", "tallinn", "riga")
+    for tenant, pos in DEMO_POS_BY_TENANT.items():
+        for po in pos:
+            named = [p for p in places if p in po["description"].lower()]
+            assert not named, f"{tenant} {po['purchase_id']}: {po['description']!r} names {named}"

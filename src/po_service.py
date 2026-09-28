@@ -300,6 +300,14 @@ def compute_metrics(predictions: list[POPrediction]) -> dict:
 # uses suppliers that appear in that persona's `purchases` history,
 # so Aito's `_predict` call has signal to draw on. Routing in app.py
 # selects the right list via `demo_pos_for(tenant)`.
+#
+# No description names a place. `purchases` records a store or site
+# only in `cost_center`, never in the text, so "Cosmetics restock —
+# Tampere" carried no evidence at all: Aito rightly routed it by
+# supplier to Store-Helsinki at 0.93, and the headline screen showed a
+# confident answer contradicting its own input. A reader expects a word
+# on the screen to count; a word the history never used cannot.
+# `tests/test_po_service.py` keeps place names out.
 DEMO_POS_BY_TENANT: dict[str, list[dict]] = {
     "metsa": [
         {"purchase_id": "PO-7841", "supplier": "Elenia Oy",            "description": "Electricity Q2 2025",          "amount_eur": 4820.00, "category": "utilities"},
@@ -312,8 +320,8 @@ DEMO_POS_BY_TENANT: dict[str, list[dict]] = {
     "aurora": [
         {"purchase_id": "PO-7841", "supplier": "Valio Oy",             "description": "Weekly delivery — dairy",        "amount_eur": 5200.00, "category": "groceries"},
         {"purchase_id": "PO-7842", "supplier": "Marimekko",            "description": "SS25 collection drop",            "amount_eur": 12400.00, "category": "fashion"},
-        {"purchase_id": "PO-7843", "supplier": "L'Oréal Finland",      "description": "Skincare restock — Helsinki",    "amount_eur": 4800.00, "category": "beauty"},
-        {"purchase_id": "PO-7844", "supplier": "Berner Beauty",        "description": "Cosmetics restock — Tampere",    "amount_eur": 1850.00, "category": "beauty"},
+        {"purchase_id": "PO-7843", "supplier": "L'Oréal Finland",      "description": "Skincare restock",               "amount_eur": 4800.00, "category": "beauty"},
+        {"purchase_id": "PO-7844", "supplier": "Berner Beauty",        "description": "Cosmetics restock",              "amount_eur": 1850.00, "category": "beauty"},
         {"purchase_id": "PO-7845", "supplier": "Posti",                "description": "Pallet shipping — week 17",      "amount_eur": 8200.00, "category": "logistics"},
         {"purchase_id": "PO-7846", "supplier": "Tikkurila",            "description": "Paint batch — interior",         "amount_eur": 2100.00, "category": "household"},
     ],
