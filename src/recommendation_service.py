@@ -10,9 +10,9 @@ Two complementary recommendation patterns from the same data:
      pattern that powers help-article CTR ranking — see
      `aito-accounting-demo/.ai/guides/07-recommend-with-goal-driven-ranking.md`.
 
-     We use **linked select** (`product_id.name`, `product_id.category`,
-     etc.) so one call returns the full product row to render — no
-     separate `_search` to fetch names.
+     We name the product columns in `select` (`name`, `category`, …)
+     so one call returns what the row renders — no separate `_search`
+     to fetch names.
 
   2. **Similar products** — for a given product, find products with
      overlapping category + supplier signals via Aito's search ranked
@@ -182,6 +182,11 @@ def get_overview(client: AitoClient, top_n_products: int = 60) -> Recommendation
     return RecommendationOverview(products=products, trending=trending_items)
 
 
+# The product columns a cross-sell card shows, named explicitly — see
+# get_cross_sell for why the default projection is not enough on v2.
+CROSS_SELL_FIELDS = ["name", "category", "supplier", "unit_price"]
+
+
 def get_cross_sell(
     client: AitoClient,
     product_id: str,
@@ -190,8 +195,8 @@ def get_cross_sell(
 ) -> list[CrossSellItem]:
     """Rank products by P(click | prev_product = `product_id`).
 
-    One `_recommend` call. Linked-`select` returns the full product
-    row so we don't need a follow-up `_search`. Optional
+    One `_recommend` call. The product columns are named in `select`,
+    so we don't need a follow-up `_search`. Optional
     `customer_segment` adds personalisation without changing the
     query shape — same operator, one extra `where` constraint.
     """
@@ -199,36 +204,47 @@ def get_cross_sell(
     if customer_segment:
         where["customer_segment"] = customer_segment
 
-    try:
-        # No explicit select: Aito traverses the link automatically and
-        # returns every column from the linked `products` row on each
-        # hit. One call, full payload — no follow-up `_search` to
-        # resolve names. (See aito-accounting-demo guide 01.)
-        response = client.recommend(
-            table="impressions",
-            where=where,
-            recommend_field="product_id",
-            goal={"clicked": True},
-            limit=limit + 4,   # over-fetch in case the anchor itself appears
-        )
-    except Exception:
-        return []
+    # Name the product columns. On v2 a `_recommend` over a link returns
+    # `$p` and `$value` per hit and NOTHING else unless the columns are
+    # selected; the linked-row expansion this code used to rely on is v1
+    # behaviour. Reading `hit["sku"]` on v2 found None on every hit, so
+    # "frequently bought together" was empty for every product while the
+    # query was answering correctly. The SKU is `$value` — it is the
+    # value being recommended — and this select works on both engines.
+    #
+    # No try/except. An empty list tells the viewer "nothing is bought
+    # with this"; a failed query has not said that, and a blanket except
+    # here is what kept this bug invisible.
+    response = client.recommend(
+        table="impressions",
+        where=where,
+        recommend_field="product_id",
+        goal={"clicked": True},
+        select=["$p", "$value", *CROSS_SELL_FIELDS],
+        limit=limit + 4,   # over-fetch in case the anchor itself appears
+    )
 
     items: list[CrossSellItem] = []
     for hit in response.get("hits", []):
-        sku = hit.get("sku")
-        if not sku or sku == product_id:
+        if hit.get("$value") == product_id:
             # Skip the anchor — recommending a product against itself
             # is a trivially correct but useless answer.
             continue
+        # The columns this row cannot render without. A hit missing one
+        # is the same class of bug as the one above, so it is loud:
+        # filling in the SKU as a name would half-hide it again.
+        missing = [k for k in ("$value", "$p", "name") if hit.get(k) is None]
+        if missing:
+            raise ValueError(f"_recommend hit without {missing}: {hit}")
+        sku = hit["$value"]
         items.append(CrossSellItem(
             sku=sku,
-            name=hit.get("name") or sku,
+            name=hit["name"],
             category=hit.get("category"),
             supplier=hit.get("supplier"),
             unit_price=hit.get("unit_price"),
-            p_click=round(float(hit.get("$p") or 0), 3),
-            score=round(float(hit.get("$p") or 0), 3),
+            p_click=round(float(hit["$p"]), 3),
+            score=round(float(hit["$p"]), 3),
         ))
         if len(items) >= limit:
             break

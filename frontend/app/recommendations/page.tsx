@@ -249,7 +249,7 @@ export default function RecommendationsPage() {
                       <div style={{ padding: "8px 14px 10px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
                         Ranked by P(click | prev = anchor) from the impressions table — the same
                         operator that drives help-article CTR ranking. One <code>_recommend</code>
-                        call returns the full product row via linked <code>select</code>.
+                        call returns the product columns it names in <code>select</code>.
                       </div>
                       {recsLoading ? (
                         <div style={{ padding: 14, fontSize: 11, color: "var(--mid)" }}>Loading…</div>
