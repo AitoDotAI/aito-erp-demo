@@ -6,6 +6,27 @@ import { ReactNode } from "react";
  * in « / » sentinel tags (positive lifts) or <font color="red">…</font>
  * (negative-lift "anti-tokens" Aito injects on its own). Renders both as
  * <mark> elements with appropriate styling — no dangerouslySetInnerHTML. */
+// Aito's highlight text is HTML-escaped ("Security upgrade &mdash; door
+// locks"), and this component renders it as TEXT — deliberately, so a
+// description can never inject markup. Entities are therefore decoded to
+// the characters they stand for, and nothing is ever parsed as HTML.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: "\u00A0",
+  mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", euro: "\u20AC",
+  auml: "\u00E4", ouml: "\u00F6", aring: "\u00E5", Auml: "\u00C4", Ouml: "\u00D6", Aring: "\u00C5",
+};
+
+export function decodeEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (whole, body: string) => {
+    if (body[0] === "#") {
+      const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    }
+    // An entity outside the table is shown as written rather than guessed.
+    return NAMED_ENTITIES[body] ?? whole;
+  });
+}
+
 export function HighlightedText({ text }: { text: string }) {
   if (!text) return null;
 
@@ -57,9 +78,10 @@ export function HighlightedText({ text }: { text: string }) {
   const out: ReactNode[] = [];
   parts.forEach((p, idx) => {
     if (!p.text) return;
-    if (p.kind === "plain") out.push(<span key={idx}>{p.text}</span>);
-    else if (p.kind === "match") out.push(<mark key={idx} className="why-highlight">{p.text}</mark>);
-    else out.push(<mark key={idx} className="why-anti-highlight">{p.text}</mark>);
+    const shown = decodeEntities(p.text);
+    if (p.kind === "plain") out.push(<span key={idx}>{shown}</span>);
+    else if (p.kind === "match") out.push(<mark key={idx} className="why-highlight">{shown}</mark>);
+    else out.push(<mark key={idx} className="why-anti-highlight">{shown}</mark>);
   });
   return <>{out}</>;
 }

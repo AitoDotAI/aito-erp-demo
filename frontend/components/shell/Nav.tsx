@@ -5,11 +5,12 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { useTenant } from "@/lib/tenant-context";
 
+// No count badges. They were constants — "PO Queue 14" over a queue of
+// six — and a number in the nav is read as a live count. If they come
+// back, they come from the same endpoints the pages read.
 interface NavItem {
   label: string;
   href: string;
-  badge?: number;
-  badgeRed?: boolean;
 }
 
 interface NavSection {
@@ -33,16 +34,16 @@ const SECTIONS: NavSection[] = [
     header: "Procurement",
     emoji: "\u{1F4DD}",
     items: [
-      { label: "PO Queue", href: "/po-queue", badge: 14 },
+      { label: "PO Queue", href: "/po-queue" },
       { label: "Smart Entry", href: "/smart-entry" },
-      { label: "Approval Routing", href: "/approval", badge: 6 },
+      { label: "Approval Routing", href: "/approval" },
     ],
   },
   {
     header: "Intelligence",
     emoji: "\u{1F50D}",
     items: [
-      { label: "Anomaly Detection", href: "/anomalies", badge: 3, badgeRed: true },
+      { label: "Anomaly Detection", href: "/anomalies" },
       { label: "Supplier Intel", href: "/supplier" },
       { label: "Rule Mining", href: "/rules" },
     ],
@@ -51,10 +52,10 @@ const SECTIONS: NavSection[] = [
     header: "Product",
     emoji: "\u{1F4E6}",
     items: [
-      { label: "Catalog Intelligence", href: "/catalog", badge: 69, badgeRed: true },
+      { label: "Catalog Intelligence", href: "/catalog" },
       { label: "Price Intelligence", href: "/pricing" },
       { label: "Demand Forecast", href: "/demand" },
-      { label: "Inventory Intelligence", href: "/inventory", badge: 2, badgeRed: true },
+      { label: "Inventory Intelligence", href: "/inventory" },
       { label: "Invoice Matching", href: "/matching" },
       { label: "Recommendations", href: "/recommendations" },
     ],
@@ -216,11 +217,6 @@ export default function Nav() {
                   ) : (
                     <>
                       <span className="NavBar__menuLabel">{item.label}</span>
-                      {item.badge != null && (
-                        <span className={`NavBar__menuBadge${item.badgeRed ? " NavBar__menuBadge--red" : ""}`}>
-                          {item.badge}
-                        </span>
-                      )}
                     </>
                   )}
                 </Link>

@@ -243,27 +243,6 @@ body {
 
 .NavBar__menuLabel { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 
-.NavBar__menuBadge {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--gold);
-  color: var(--nav-bg);
-  font-size: 9.5px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
-  line-height: 1.4;
-}
-
-.NavBar__menuBadge--red {
-  background: var(--red);
-  color: white;
-}
-
 .NavBar__sidebar--collapsed .NavBar__menuItem {
   justify-content: center;
   padding: 10px 0;
