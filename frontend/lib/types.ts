@@ -108,7 +108,8 @@ export interface SupplierSpend {
 export interface DeliveryRisk {
   supplier: string;
   late_rate: number;
-  lift: number;
+  base_late_rate: number;   // across every supplier — what lift compares to
+  lift: number;             // Aito's, shrunk toward 1 on few deliveries
   total_orders: number;
   late_orders: number;
   risk_level: string;

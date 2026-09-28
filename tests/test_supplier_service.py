@@ -10,6 +10,8 @@ NCC Suomi, the supplier the lift ranking correctly put first, read 5.6%.
 The hits below are real responses from env.master, trimmed.
 """
 
+import pytest
+
 from src.supplier_service import _classify_risk, get_delivery_risk
 
 _NCC = {"related": {"supplier": {"$has": "NCC Suomi"}}, "lift": 1.52,
@@ -19,7 +21,8 @@ _NESTE = {"related": {"supplier": {"$has": "Neste Oyj"}}, "lift": 1.16,
           "ps": {"p": 0.146, "pOnCondition": 0.194, "pOnNotCondition": 0.143},
           "fs": {"f": 477.0, "fOnCondition": 31.0, "fCondition": 160.0, "n": 3273.0}}
 _ONE_LATE = {"related": {"supplier": {"$has": "Siemens Finland"}}, "lift": 2.4,
-             "ps": {"pOnCondition": 0.006}, "fs": {"f": 20.0, "fOnCondition": 1.0}}
+             "ps": {"pOnCondition": 0.006},
+             "fs": {"f": 20.0, "fOnCondition": 1.0, "fCondition": 160.0, "n": 3273.0}}
 
 
 class _Relate:
@@ -55,3 +58,30 @@ def test_the_rule_is_defined_on_lift_and_evidence():
     assert _classify_risk(lift=1.52, late=9) == "medium"
     assert _classify_risk(lift=1.16, late=31) == "low"
     assert _classify_risk(lift=3.0, late=1) == "low"
+
+
+def test_the_baseline_ships_with_the_rate_so_the_two_can_be_compared():
+    """Aito's lift is shrunk toward 1 and is not late_rate / baseline; the
+    view shows both so a reader who divides is not left with a mystery."""
+    ncc = _by_name([_NCC])["NCC Suomi"]
+    assert ncc.base_late_rate == round(160 / 3273, 3)
+    assert ncc.lift < ncc.late_rate / ncc.base_late_rate
+
+
+@pytest.mark.parametrize("key", ["fOnCondition", "f", "fCondition", "n"])
+def test_a_missing_count_is_an_error_not_a_zero(key):
+    """Coerced to 0 it would read as a 0% late rate and a "low" badge."""
+    hit = {**_NCC, "fs": {k: v for k, v in _NCC["fs"].items() if k != key}}
+    with pytest.raises(KeyError):
+        get_delivery_risk(_Relate([hit]))
+
+
+def test_a_supplier_with_no_deliveries_is_an_error():
+    hit = {**_NCC, "fs": {**_NCC["fs"], "f": 0.0}}
+    with pytest.raises(ValueError):
+        get_delivery_risk(_Relate([hit]))
+
+
+def test_v2_returns_the_supplier_as_a_bare_string():
+    hit = {**_NCC, "related": {"supplier": "NCC Suomi"}}
+    assert _by_name([hit])["NCC Suomi"].late_rate == round(9 / 89, 3)

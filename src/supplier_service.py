@@ -32,8 +32,9 @@ class SupplierSpend:
 @dataclass
 class DeliveryRisk:
     supplier: str
-    late_rate: float  # proportion of late deliveries
-    lift: float  # how much more likely to be late vs baseline
+    late_rate: float  # this supplier's late deliveries / its deliveries
+    base_late_rate: float  # late deliveries / all deliveries, every supplier
+    lift: float  # Aito's lift: late_rate over base, shrunk toward 1 on thin data
     total_orders: int
     late_orders: int
     risk_level: str  # "high" | "medium" | "low"
@@ -42,6 +43,7 @@ class DeliveryRisk:
         return {
             "supplier": self.supplier,
             "late_rate": self.late_rate,
+            "base_late_rate": self.base_late_rate,
             "lift": self.lift,
             "total_orders": self.total_orders,
             "late_orders": self.late_orders,
@@ -145,15 +147,17 @@ def get_delivery_risk(client: AitoClient) -> list[DeliveryRisk]:
 
     risks = []
     for hit in hits:
-        related = hit.get("related", {})
-        supplier_info = related.get("supplier", {})
-        supplier_name = supplier_info.get("$has", "") if isinstance(supplier_info, dict) else str(supplier_info)
-
+        # v1 wraps the value as {"$has": name}; v2 returns the bare string.
+        related = hit["related"]["supplier"]
+        supplier_name = related["$has"] if isinstance(related, dict) else related
         if not supplier_name:
-            continue
+            raise ValueError(f"_relate hit without a supplier: {hit}")
 
-        lift = hit.get("lift", 1.0)
-        fs = hit.get("fs", {})
+        # Every count below is read strictly. A missing key coerced to 0
+        # would show a 0% late rate and a "low" badge — a claim the data
+        # never made.
+        lift = hit["lift"]
+        fs = hit["fs"]
 
         # `fs.f` is this supplier's deliveries and `fs.fOnCondition` the
         # late ones among them, so their ratio is the late RATE.
@@ -164,15 +168,22 @@ def get_delivery_risk(client: AitoClient) -> list[DeliveryRisk]:
         # biggest supplier look like the worst: Neste read 19.4% because
         # 31 of the 160 late deliveries were theirs, while its late rate
         # is 31/477 = 6.5%. Checked against raw counts on env.master.
-        total_orders = int(fs.get("f", 0))
-        late_orders = int(fs.get("fOnCondition", 0))
-        if total_orders <= 0:
+        total_orders = int(fs["f"])
+        late_orders = int(fs["fOnCondition"])
+        if total_orders <= 0 or fs["n"] <= 0:
             raise ValueError(f"_relate hit for {supplier_name} has no deliveries: {fs}")
         late_rate = late_orders / total_orders
+        # The baseline the lift is measured against. Shipped so a reader
+        # can see that Aito's lift is NOT late_rate / base_late_rate: it
+        # is shrunk toward 1, harder the fewer deliveries a supplier has
+        # (NCC Suomi: 10.1% vs 4.9% is 2.07x raw, Aito says 1.52x). That
+        # shrinkage is why the risk rule can trust it on small suppliers.
+        base_late_rate = fs["fCondition"] / fs["n"]
 
         risks.append(DeliveryRisk(
             supplier=supplier_name,
             late_rate=round(late_rate, 3),
+            base_late_rate=round(base_late_rate, 3),
             lift=round(lift, 2),
             total_orders=total_orders,
             late_orders=late_orders,
