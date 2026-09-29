@@ -72,6 +72,7 @@ Commands:
   match-eval      Score line->SKU matching on the held-out half
   demand-eval     Score the demand forecast on the held-out months
   price-eval      Score quote pricing against each product's median
+  crosssell-eval  Score cross-sell against each anchor's co-bought products
   v2-check        Run every view's query shape against v2 and report
                   which pass, which break, and how.
   dev-v2          Start both servers against /api/v2.
@@ -215,6 +216,7 @@ cmd_generate_personas() {
   # Demand, stock and price tables are derived from the fixtures above
   # (see the script's docstring), so they are regenerated with them.
   uv run python data/generate_demand.py
+  uv run python data/generate_impressions.py
 }
 
 cmd_reset_data() {
@@ -407,6 +409,13 @@ cmd_price_eval() {
   # the cutoff. The Pricing view quotes this.
   cd "$SCRIPT_DIR"
   uv run python -m src.price_eval "$@"
+}
+
+cmd_crosssell_eval() {
+  # Does "frequently bought together" find the products each anchor is
+  # co-bought with? Aurora only. See src/crosssell_eval.py.
+  cd "$SCRIPT_DIR"
+  uv run python -m src.crosssell_eval "$@"
 }
 
 cmd_preflight() {
@@ -729,6 +738,7 @@ case "${1:-help}" in
   match-eval)      shift; cmd_match_eval "$@" ;;
   demand-eval)     shift; cmd_demand_eval "$@" ;;
   price-eval)      shift; cmd_price_eval "$@" ;;
+  crosssell-eval)  shift; cmd_crosssell_eval "$@" ;;
   dev-v2)          cmd_dev_v2 ;;
   backend-dev-v2)  cmd_backend_dev_v2 ;;
   test)            cmd_test ;;

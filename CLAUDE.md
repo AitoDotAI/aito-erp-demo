@@ -789,6 +789,31 @@ Add the tables to a live database with `python -m src.data_loader
 if one exists, and never drops anything — unlike the full load, which
 drops every table and so refuses a master env.
 
+### Cross-sell, and what the impressions can and cannot show
+
+The first `impressions` clicked at 50% and spread 6790 rows over 5282
+distinct anchor -> product pairs, each seen at most twice, so the view
+had no evidence about any one anchor and ranked by popularity (33.8% of
+the list in a related category against 28.3% at random).
+`data/generate_impressions.py` now builds shop-shaped traffic: ~12%
+click-through, Zipf popularity, and three COMPANIONS per product that
+shoppers move to and click far more often. `./do crosssell-eval`
+measures whether the list finds them.
+
+**It mostly does not, and the cause is in the engine.** On 30 anchors
+with 20+ impressions, goal `_recommend` puts 11 of 90 companions in its
+top 8. It ranks candidates seen once or twice in the whole table at
+$p 0.62-0.83 above companions with ~300 observations at a true ~30%
+(aito-core#1525; not #890's collapse — rankings do differ per anchor).
+Filtering candidates to products co-viewed 5+ times and ranking them
+with `_predict clicked` finds 42 of 90 — but so does ranking them by
+plain counts, so on thick history the ranking adds nothing measurable.
+Where Aito should earn its place is anchors with thin history; that is
+not yet measured, and the view claims nothing about it.
+
+`generate_personas.py` still draws its old impressions walk and throws
+it away: every table generated after it reads the same random stream.
+
 ### Why `proposals` is its own table
 
 Booked work is not the whole claim on a person's time. Two or three

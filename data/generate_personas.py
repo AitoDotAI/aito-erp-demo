@@ -2517,7 +2517,12 @@ def write_persona(persona: PersonaSpec) -> None:
     people = generate_people(persona)
     projects, assignments, deliveries = generate_projects_and_assignments(
         persona, people)
-    impressions = generate_impressions(persona, products)
+    # Drawn and DISCARDED. Impressions now come from
+    # generate_impressions.py (its own seed); this walk is kept only
+    # because every table generated after it reads the same random
+    # stream, and removing the draws would silently change them all
+    # away from what is loaded in Aito.
+    generate_impressions(persona, products)
     # Tasks are currently only generated for Metsä — the construction
     # / maintenance phase model the project-plan view depends on doesn't
     # apply directly to retail (Aurora) or services (Studio) personas.
@@ -2544,8 +2549,6 @@ def write_persona(persona: PersonaSpec) -> None:
     with open(out / "projects.json",      "w") as f: json.dump(projects,     f, indent=2, ensure_ascii=False)
     with open(out / "assignments.json",   "w") as f: json.dump(assignments,  f, indent=2, ensure_ascii=False)
     with open(out / "deliveries.json",    "w") as f: json.dump(deliveries,   f, indent=2, ensure_ascii=False)
-    if impressions:
-        with open(out / "impressions.json", "w") as f: json.dump(impressions, f, indent=2, ensure_ascii=False)
     if tasks:
         with open(out / "tasks.json",     "w") as f: json.dump(tasks,        f, indent=2, ensure_ascii=False)
     if invoice_lines:
@@ -2583,9 +2586,6 @@ def write_persona(persona: PersonaSpec) -> None:
     if quotes:
         won = sum(1 for q in quotes if q["won"])
         print(f"  quotes:         {len(quotes)} (won {won} = {won/len(quotes):.0%})")
-    if impressions:
-        print(f"  impressions:    {len(impressions)} "
-              f"(clicked={sum(1 for r in impressions if r['clicked'])})")
     if persona.tenant_id == "metsa":
         # Re-load to print the count without keeping `tasks` in scope at
         # the function top — write_persona already dumps to disk.
