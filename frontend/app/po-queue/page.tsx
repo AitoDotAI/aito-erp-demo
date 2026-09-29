@@ -43,10 +43,14 @@ export default function POQueuePage() {
     const targets = data.pos.filter((o) => {
       if (approvedIds.has(o.purchase_id)) return false;
       if (kind === "rule") return o.source === "rule";
-      return o.source === "aito" && o.confidence >= 0.85;
+      // Exactly the rows the backend did not send to review: the bar is
+      // REVIEW_THRESHOLD in src/po_service.py, carried by `source`. A
+      // second, stricter cutoff here left the button's count and its
+      // effect disagreeing.
+      return o.source === "aito";
     });
     if (targets.length === 0) {
-      setBulkMessage("No eligible rows to approve.");
+      setBulkMessage("No eligible rows to accept.");
       return;
     }
     setApprovedIds((prev) => {
@@ -56,7 +60,10 @@ export default function POQueuePage() {
     });
     const totalAmount = targets.reduce((a, t) => a + t.amount, 0);
     setBulkMessage(
-      `✓ Approved ${targets.length} ${kind === "rule" ? "rule-matched" : "high-confidence"} POs (${fmtAmount(totalAmount)} total)`
+      // "Accepted coding", never "approved": the cost centre, account and
+      // approver are accepted here; authorising the spend stays with the
+      // approver named on each row.
+      `✓ Accepted coding on ${targets.length} ${kind === "rule" ? "rule-matched" : "Aito-coded"} POs (${fmtAmount(totalAmount)} total)`
     );
     setTimeout(() => setBulkMessage(null), 6000);
   };
@@ -205,7 +212,7 @@ export default function POQueuePage() {
                       disabled={tabCounts.rule === 0}
                       style={{ fontSize: 11 }}
                     >
-                      📋 Approve all rule matches ({tabCounts.rule})
+                      📋 Accept rule coding ({tabCounts.rule})
                     </button>
                     <button
                       className="btn btn-secondary"
@@ -213,7 +220,7 @@ export default function POQueuePage() {
                       disabled={tabCounts.aito === 0}
                       style={{ fontSize: 11 }}
                     >
-                      🤖 Approve high-conf. aito ({tabCounts.aito})
+                      🤖 Accept Aito coding ({tabCounts.aito})
                     </button>
                   </div>
                 </div>

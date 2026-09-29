@@ -55,7 +55,11 @@ class POPrediction:
         }
 
 
-REVIEW_THRESHOLD = 0.50
+# Below this, the weakest of the three fields goes to a human. 0.75, not
+# 0.50: at 0.50 a coin-flip coding counted as "coded" and every demo row
+# cleared it, so the queue never showed the review path it exists for.
+# The Overview's confidence bands are where to check the bar holds up.
+REVIEW_THRESHOLD = 0.75
 
 # Rules that cover deterministic patterns — checked before Aito.
 # Per-tenant: each persona's rules use suppliers from that persona's
