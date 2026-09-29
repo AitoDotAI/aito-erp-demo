@@ -1,0 +1,47 @@
+name: Live demo smoke (erp.aito.ai)
+
+# Opens every view on the DEPLOYED site, read-only, and fails if one errors OR
+# comes back hollow where the tenant's data guarantees content (a 200 with
+# nothing in it renders as a blank or all-zero panel). On 29.9 Demand read all
+# zeros and Inventory "overstock, 999 days" on every tenant, every route 200.
+# Board td-20260929184223822327.
+
+on:
+  schedule:
+    - cron: '30 2 * * *'           # 05:30 Helsinki: outside the 08-10 demo window
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [demos-deployed]         # fired after a demos deploy
+  push:
+    branches: [main]
+    paths: ['scripts/live_smoke.py', '.github/workflows/live-smoke.yml']
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pick the host the deploy targeted
+        id: target
+        env:
+          # the payload arrives through env vars, never interpolated into the script
+          DEPLOY_ENV: ${{ github.event.client_payload.env }}
+          IMAGE_TAG: ${{ github.event.client_payload.image_tag }}
+          IMAGE_ID: ${{ github.event.client_payload.image_id }}
+          DIGEST: ${{ github.event.client_payload.digest }}
+        run: |
+          BASE="https://erp.aito.ai"
+          if [ "$DEPLOY_ENV" = "test" ]; then
+            BASE="https://erp-test.aito.ai"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Verifying ${DEPLOY_ENV:-prod (scheduled/manual)} at $BASE: image ${IMAGE_TAG:-n/a} (${DIGEST:-n/a}), built ${IMAGE_ID:-n/a}"
+      - name: Smoke the erp demo on that host (read-only)
+        if: steps.target.outputs.base != ''
+        env:
+          BASE: ${{ steps.target.outputs.base }}
+        run: python scripts/live_smoke.py --base "$BASE"
