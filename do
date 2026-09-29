@@ -599,6 +599,40 @@ cmd_screenshot() {
       ],
     };
 
+    // Views that show nothing until a visitor does something: without
+    // these steps the shot is an empty form, and the README and the
+    // website teaser showed Smart Entry, the Planner and Utilization
+    // that way. Each step is what a person would do on first visit.
+    const ACTIONS = {
+      '/smart-entry/': async (page, tenant) => {
+        const select = page.locator('select').first();
+        const labels = await select.locator('option').allTextContents();
+        const pick = labels.find(l => tenant === 'metsa' && l.includes('Wärtsilä'))
+          || labels.find(l => l && !l.startsWith('Select'));
+        if (!pick) throw new Error('smart entry: no supplier to pick');
+        await select.selectOption({ label: pick });
+        await page.waitForLoadState('networkidle', { timeout: 60000 });
+        await page.waitForTimeout(1500);
+      },
+      '/planner/': async (page) => {
+        await page.getByRole('button', { name: 'Plan it' }).click();
+        await page.getByRole('button', { name: 'Plan it' }).waitFor({ timeout: 90000 });
+        await page.waitForLoadState('networkidle', { timeout: 90000 });
+        await page.waitForTimeout(1500);
+      },
+      '/utilization/': async (page) => {
+        await page.locator('tr.clickable').first().click();
+        await page.waitForLoadState('networkidle', { timeout: 60000 });
+        await page.waitForTimeout(1500);
+      },
+      // The first batch ranks 30 lines (~15 s); wait for the rows rather
+      // than shooting the spinner or a proxy timeout.
+      '/matching/': async (page) => {
+        await page.locator('table.tbl tbody tr').first().waitFor({ timeout: 120000 });
+        await page.waitForTimeout(1500);
+      },
+    };
+
     const tenantArg = '$tenant';
     const tenants = (tenantArg === 'all')
       ? ['metsa', 'aurora', 'studio']
@@ -642,8 +676,9 @@ cmd_screenshot() {
         for (const [name, path] of routes) {
           const file = name + suffix + '.png';
           try {
-            await page.goto('$base_url' + path, { waitUntil: 'networkidle', timeout: 60000 });
+            await page.goto('$base_url' + path, { waitUntil: 'networkidle', timeout: 120000 });
             await page.waitForTimeout(2500);
+            if (ACTIONS[path]) await ACTIONS[path](page, tenant);
             await page.screenshot({ path: '$SCRIPT_DIR/screenshots/' + file, fullPage: false });
             console.log('  captured ' + file);
             totalCaptured++;

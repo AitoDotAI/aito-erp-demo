@@ -224,7 +224,9 @@
     <p>
       Procurement, intelligence, products, services — every view in this open-source reference is built on Aito's
       <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_predict</code>,
+      <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_estimate</code>,
       <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_relate</code>,
+      <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_recommend</code>,
       <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_evaluate</code>,
       <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_search</code>, and
       <code style="color:#fff;background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:3px;font-family:DM Mono,monospace;font-size:13px;">_match</code>
@@ -243,7 +245,10 @@
       <p class="cat-tag">Predict the routine that ate your AP team's morning.</p>
       <div class="cards">
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/01-po-queue.png')"></div>
+          <!-- Each tile is the tenant that shows the view (frontend/lib/tenants.ts),
+               captured by `./do screenshot all all` after the interaction a
+               visitor would make — never a stale unsuffixed leftover. -->
+          <div class="thumb" style="background-image:url('../screenshots/01-po-queue-metsa.png')"></div>
           <div class="body">
             <h3>PO Queue</h3>
             <p>Cost center, account code, approver predicted from supplier + description.</p>
@@ -251,7 +256,7 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/02-smart-entry.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/02-smart-entry-metsa.png')"></div>
           <div class="body">
             <h3>Smart Entry</h3>
             <p>Pick a supplier; four fields fill in parallel with per-field confidence.</p>
@@ -259,7 +264,7 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/03-approval.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/03-approval-metsa.png')"></div>
           <div class="body">
             <h3>Approval Routing</h3>
             <p>Predicted approval level + escalation banner; rule + Aito hybrid.</p>
@@ -267,7 +272,7 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/14-overview.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/14-overview-metsa.png')"></div>
           <div class="body">
             <h3>Automation Overview</h3>
             <p>Real learning curve from <code style="font-family:DM Mono,monospace;font-size:11.5px">routed_by × order_month</code>.</p>
@@ -286,7 +291,7 @@
       <p class="cat-tag">Anomalies, supplier risk, pattern discovery — surfaced, not coded.</p>
       <div class="cards">
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/04-anomalies.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/04-anomalies-metsa.png')"></div>
           <div class="body">
             <h3>Anomaly Detection</h3>
             <p>Inverse <code style="font-family:DM Mono,monospace;font-size:11.5px">_predict</code>: low <code style="font-family:DM Mono,monospace;font-size:11.5px">p_actual</code> = unusual combination.</p>
@@ -294,7 +299,7 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/05-supplier.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/05-supplier-metsa.png')"></div>
           <div class="body">
             <h3>Supplier Intel</h3>
             <p>Spend leaderboard plus delivery-risk discovery via <code style="font-family:DM Mono,monospace;font-size:11.5px">_relate</code>.</p>
@@ -302,7 +307,7 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/06-rules.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/06-rules-metsa.png')"></div>
           <div class="body">
             <h3>Rule Mining</h3>
             <p>High-lift patterns ranked for governance promote/dismiss.</p>
@@ -310,10 +315,10 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/13-recommendations.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/13-recommendations-aurora.png')"></div>
           <div class="body">
             <h3>Recommendations</h3>
-            <p>Cross-sell + similar-product retrieval (<code style="font-family:DM Mono,monospace;font-size:11.5px">_search</code> + <code style="font-family:DM Mono,monospace;font-size:11.5px">_match</code>).</p>
+            <p>Cross-sell (<code style="font-family:DM Mono,monospace;font-size:11.5px">_recommend</code>) + similar products (<code style="font-family:DM Mono,monospace;font-size:11.5px">_match</code>).</p>
             <a class="link" href="../docs/use-cases/14-recommendations.md">VIEW IMPLEMENTATION →</a>
           </div>
         </article>
@@ -326,10 +331,10 @@
         <div class="icon orange">📦</div>
         <h2>Product &amp; Pricing</h2>
       </div>
-      <p class="cat-tag">Catalogue gaps, fair-price bands, demand, replenishment.</p>
+      <p class="cat-tag">Catalogue gaps, fair prices, demand, replenishment — each measured.</p>
       <div class="cards">
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/07-catalog.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/07-catalog-aurora.png')"></div>
           <div class="body">
             <h3>Catalog Intelligence</h3>
             <p>Multi-field gap-fill on workflow-blocking products.</p>
@@ -337,26 +342,26 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/08-pricing.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/08-pricing-aurora.png')"></div>
           <div class="body">
             <h3>Price Intelligence</h3>
-            <p>Fair-price band + Purchase Price Variance from history.</p>
+            <p>Real quotes scored by <code style="font-family:DM Mono,monospace;font-size:11.5px">_estimate</code> over earlier prices only, beside the product's own median.</p>
             <a class="link" href="../docs/use-cases/08-price-intelligence.md">VIEW IMPLEMENTATION →</a>
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/09-demand.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/09-demand-aurora.png')"></div>
           <div class="body">
             <h3>Demand Forecast</h3>
-            <p>Seasonal blend; same-month aggregates with sample-size guards.</p>
+            <p><code style="font-family:DM Mono,monospace;font-size:11.5px">_estimate</code> on six held-out months, next to last year and the reorder rule.</p>
             <a class="link" href="../docs/use-cases/09-demand-forecast.md">VIEW IMPLEMENTATION →</a>
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/10-inventory.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/10-inventory-metsa.png')"></div>
           <div class="body">
             <h3>Inventory Intelligence</h3>
-            <p>Critical / low / overstock + tied-capital and stockout risk in €.</p>
+            <p>Will stock last the lead time? Checked by Aito and the reorder rule against what sold.</p>
             <a class="link" href="../docs/use-cases/10-inventory-intelligence.md">VIEW IMPLEMENTATION →</a>
           </div>
         </article>
@@ -372,7 +377,7 @@
       <p class="cat-tag">Project success, utilisation, capacity — beyond procurement.</p>
       <div class="cards">
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/11-projects.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/11-projects-metsa.png')"></div>
           <div class="body">
             <h3>Project Portfolio</h3>
             <p>Predicted <code style="font-family:DM Mono,monospace;font-size:11.5px">success=true</code> with staffing-factor decomposition.</p>
@@ -380,7 +385,7 @@
           </div>
         </article>
         <article class="card">
-          <div class="thumb" style="background-image:url('../screenshots/12-utilization.png')"></div>
+          <div class="thumb" style="background-image:url('../screenshots/12-utilization-studio.png')"></div>
           <div class="body">
             <h3>Utilization &amp; Capacity</h3>
             <p>Per-consultant load + role-and-allocation forecast.</p>
@@ -391,7 +396,7 @@
           <div class="thumb" style="background-image:url('../screenshots/00-landing-metsa.png')"></div>
           <div class="body">
             <h3>Multi-tenant Metsä</h3>
-            <p>Industrial maintenance · 3.2K POs · 320 SKUs · 285 projects.</p>
+            <p>Industrial maintenance · 3.3K POs · 320 SKUs · 238 projects.</p>
             <a class="link" href="../README.md">VIEW IMPLEMENTATION →</a>
           </div>
         </article>
