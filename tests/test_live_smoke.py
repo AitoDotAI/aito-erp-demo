@@ -63,3 +63,11 @@ def test_every_step_is_a_read():
     # the planner POSTs predict/estimate and store nothing; everything else is a GET
     posts = {s.name for s in smoke.STEPS if s.body is not None}
     assert posts == {"planner/plan", "planner/estimate"}
+
+
+def test_each_view_runs_on_a_tenant_that_shows_it():
+    # frontend/lib/tenants.ts hideRoutes: demand is aurora-only, utilization studio-only
+    by_name = {s.name: s.tenant for s in smoke.STEPS}
+    assert by_name["demand/forecast"] == "aurora"
+    assert by_name["utilization/overview"] == "studio"
+    assert by_name["recommendations/cross-sell"] == by_name["recommendations/similar"] == "aurora"

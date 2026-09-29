@@ -23,6 +23,7 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -111,6 +112,12 @@ def check_estimate(body: dict) -> str:
     return f"€{body['cost_eur']:,.0f}, {body.get('duration_days')} d, {body['neighbour_count']} neighbours"
 
 
+# Each view runs on a tenant that SHOWS it (frontend/lib/tenants.ts hideRoutes):
+# a route that answers for a tenant whose navigation hides it guards nothing.
+# Empty by design, so not checked: matching/recommendations/catalog/demand/
+# pricing on metsa and studio (no invoice_lines/impressions), utilization on
+# metsa and aurora, projects/planner/forecast on aurora. The PO queue has 1-2
+# `source: "review"` rows per tenant since #50: never assert zero review rows.
 STEPS = [
     Step("tenants", "metsa", "/api/tenants", check_tenants),
     Step("po/pending", "metsa", "/api/po/pending", nonempty("pos", "PO queue")),
@@ -122,10 +129,15 @@ STEPS = [
     Step("matching/batch", "aurora", "/api/matching/batch", nonempty("lines", "invoice matching")),
     Step("recommendations/overview", "aurora", "/api/recommendations/overview",
          nonempty("products", "recommendations")),
-    Step("demand/forecast", "metsa", "/api/demand/forecast", check_demand),
+    # #40's live bug: cross-sell came back empty while the overview's products were full
+    Step("recommendations/cross-sell", "aurora", "/api/recommendations/cross-sell?sku={first_sku}",
+         nonempty("items", "cross-sell")),
+    Step("recommendations/similar", "aurora", "/api/recommendations/similar?sku={first_sku}",
+         nonempty("items", "similar products")),
+    Step("demand/forecast", "aurora", "/api/demand/forecast", check_demand),
     Step("inventory/status", "metsa", "/api/inventory/status", check_inventory),
     Step("pricing/estimate", "aurora", "/api/pricing/estimate", check_pricing),
-    Step("utilization/overview", "metsa", "/api/utilization/overview", nonempty("rows", "utilization")),
+    Step("utilization/overview", "studio", "/api/utilization/overview", nonempty("rows", "utilization")),
     Step("projects/portfolio", "metsa", "/api/projects/portfolio", check_portfolio),
     Step("forecast/outlook", "metsa", "/api/forecast/outlook", nonempty("months", "outlook")),
     Step("overview/metrics", "metsa", "/api/overview/metrics", nonempty("prediction_quality", "overview")),
@@ -137,9 +149,9 @@ STEPS = [
 ]
 
 
-def fetch(base: str, step: Step, timeout: float) -> Any:
+def fetch(base: str, step: Step, timeout: float, path: str | None = None) -> Any:
     data = None if step.body is None else json.dumps(step.body).encode()
-    req = urllib.request.Request(base + step.path, data=data, method="POST" if data else "GET",
+    req = urllib.request.Request(base + (path or step.path), data=data, method="POST" if data else "GET",
                                  headers={"X-Tenant": step.tenant, "content-type": "application/json",
                                           "user-agent": "erp-live-smoke"})
     with urllib.request.urlopen(req, timeout=timeout) as res:
@@ -156,10 +168,20 @@ def main() -> int:
 
     print(f"ERP live smoke — {args.base}, {len(STEPS)} views\n")
     failures = []
+    first_sku = None
     for step in STEPS:
         started = time.monotonic()
         try:
-            summary = step.check(fetch(args.base, step, args.timeout))
+            path = step.path
+            if "{first_sku}" in path:
+                # the SKU a visitor would click: the first product the overview lists
+                if first_sku is None:
+                    overview = fetch(args.base, Step("", step.tenant, "/api/recommendations/overview", str),
+                                     args.timeout)
+                    first_sku = (overview.get("products") or [{}])[0].get("sku")
+                    assert first_sku, "the recommendations overview lists no product to open"
+                path = path.replace("{first_sku}", urllib.parse.quote(first_sku))
+            summary = step.check(fetch(args.base, step, args.timeout, path))
             marker = "SLOW" if time.monotonic() - started > SLOW_SECONDS else "ok  "
             print(f"  {marker}  {step.name:<26} [{step.tenant}] {summary}  ({time.monotonic() - started:.1f}s)")
         except Exception as exc:   # noqa: BLE001 -- record every failure and walk on (RemoteDisconnected,
