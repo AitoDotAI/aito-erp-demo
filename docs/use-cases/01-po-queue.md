@@ -64,7 +64,7 @@ def predict_single(client: AitoClient, invoice: dict) -> POPrediction:
     # Each result includes $p, feature (predicted value), $why, and alternatives
     cc_top = cc_result["hits"][0]
     overall = min(cc_top["$p"], ac_top["$p"], ap_top["$p"])
-    source = "review" if overall < 0.50 else "aito"
+    source = "review" if overall < REVIEW_THRESHOLD else "aito"   # 0.75
 
     return POPrediction(
         source=source,

@@ -112,3 +112,15 @@ def test_no_demo_po_description_names_a_place():
         for po in pos:
             named = [p for p in places if p in po["description"].lower()]
             assert not named, f"{tenant} {po['purchase_id']}: {po['description']!r} names {named}"
+
+
+def test_a_62_percent_coding_goes_to_a_human():
+    """At a 0.50 bar a coin-flip-plus coding counted as coded, and every
+    demo row cleared it, so the queue never showed the review path. The
+    weakest of the three fields decides."""
+    from src.po_service import REVIEW_THRESHOLD
+    client = _make_client({"hits": [{"$p": 0.62, "$value": "Production", "$why": {}}]})
+    inv = {"purchase_id": "PO-005", "supplier": "Wärtsilä Components",
+           "description": "Seals", "amount_eur": 900, "category": "production"}
+    assert REVIEW_THRESHOLD == 0.75
+    assert predict_single(client, inv).source == "review"
