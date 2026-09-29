@@ -1,0 +1,29 @@
+name: Live demo smoke (erp.aito.ai)
+
+# Opens every view on the DEPLOYED site, read-only, and fails if one errors OR
+# comes back hollow where the tenant's data guarantees content (a 200 with
+# nothing in it renders as a blank or all-zero panel). On 29.9 Demand read all
+# zeros and Inventory "overstock, 999 days" on every tenant, every route 200.
+# Board td-20260929184223822327.
+
+on:
+  schedule:
+    - cron: '30 2 * * *'           # 05:30 Helsinki: outside the 08-10 demo window
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [demos-deployed]         # fired after a demos deploy
+  push:
+    branches: [main]
+    paths: ['scripts/live_smoke.py', '.github/workflows/live-smoke.yml']
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Open every view on erp.aito.ai (read-only, stdlib only)
+        run: python scripts/live_smoke.py
