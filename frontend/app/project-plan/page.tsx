@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass, apiStream, AITO_CALLS_EVENT, type AitoCall, type AitoCallsEvent } from "@/lib/api";
 import WhyPopover from "@/components/prediction/WhyPopover";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   AssigneeOption,
@@ -53,18 +54,10 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "distribution channel that lets suppliers reach the planner " +
     "directly. Every cell is editable; the live KPI strip recomputes " +
     "in place.",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"construction"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"phase"</span>: <span class="q-v">"mep"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"task_name"</span>: <span class="q-v">"HVAC commissioning"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"region"</span>: <span class="q-v">"Helsinki"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"season"</span>: <span class="q-v">"summer"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"subcontractor"</span><br/>
-}`,
+  // The generated plan arrives over a stream, which carries no recorded
+  // queries, so this pane shows none. The walker's steps come from
+  // plain JSON endpoints and each shows the queries behind it.
+  queries: [],
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     { label: "Recommend API reference", url: "https://aito.ai/docs/api/recommend" },
@@ -82,7 +75,11 @@ function supplierSwapPanel(
   category: string,
   description: string,
   options: SupplierOption[],
+  recorded: RecordedQuery[] | undefined,
 ): AitoPanelConfig {
+  const ranking = findQuery(recorded, {
+    endpoint: "_predict", from: "purchases", target: "supplier", where: { category, description },
+  });
   const history = options.filter((o) => o.source === "history");
   const portal = options.filter((o) => o.source === "portal");
   const top = history[0];
@@ -108,16 +105,7 @@ function supplierSwapPanel(
           `against <em>${category}</em> via the portal, pushed straight into ` +
           `the planning view as a sales/distribution channel.`
         : "No portal listings registered for this category yet."}`,
-    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"category"</span>: <span class="q-v">"${category}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: <span class="q-v">"${description}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"supplier"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">5</span><br/>
-}`,
+    queries: ranking ? [ranking] : [],
     links: [
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     ],
@@ -171,6 +159,9 @@ export default function ProjectPlanPage() {
   // "Pick a phase" panel — open when user clicks "Add phase" or at
   // walker bootstrap. Closes once a phase is picked (or cancelled).
   const [phaseOptions, setPhaseOptions] = useState<PhaseOption[]>([]);
+  // What the last phase suggestion sent — the pick pane shows the
+  // `_predict phase` behind the option the user chose.
+  const [phaseQueries, setPhaseQueries] = useState<RecordedQuery[]>([]);
   const [pickingPhase, setPickingPhase] = useState(false);
 
   // "Pick tasks for <phase>" panel — open when user clicks "+ Add
@@ -308,7 +299,7 @@ export default function ProjectPlanPage() {
     setTaskOptions([]);
   };
 
-  const fetchNextPhase = async (already: string[]) => {
+  const fetchNextPhase = async (already: string[]): Promise<NextPhaseResponse | null> => {
     setWalkerLoading(true);
     try {
       const r = await apiFetch<NextPhaseResponse>(
@@ -321,14 +312,17 @@ export default function ProjectPlanPage() {
         },
       );
       setPhaseOptions(r.options);
+      setPhaseQueries(r._queries ?? []);
+      return r;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return null;
     } finally {
       setWalkerLoading(false);
     }
   };
 
-  const fetchNextTasks = async (phase: string) => {
+  const fetchNextTasks = async (phase: string): Promise<NextTasksResponse | null> => {
     const acceptedNames = builtTasks.filter((t) => t.phase === phase).map((t) => t.task_name);
     setWalkerLoading(true);
     try {
@@ -343,8 +337,10 @@ export default function ProjectPlanPage() {
         },
       );
       setTaskOptions(r.options);
+      return r;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return null;
     } finally {
       setWalkerLoading(false);
     }
@@ -378,7 +374,13 @@ export default function ProjectPlanPage() {
     setPickingPhase(false);
     setPhaseOptions([]);
     setPickingTasksFor(option.phase);
-    await fetchNextTasks(option.phase);
+    const tasks = await fetchNextTasks(option.phase);
+    // The phase ranking this option came from, and the history read the
+    // task names are counted over.
+    const pickQueries = [
+      findQuery(phaseQueries, { endpoint: "_predict", from: "tasks", target: "phase" }),
+      findQuery(tasks?._queries, { endpoint: "_search", from: "tasks", where: { project_type: projectType } }),
+    ].filter((q): q is RecordedQuery => q !== null);
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
@@ -388,16 +390,14 @@ export default function ProjectPlanPage() {
         { label: "Typical", value: `${option.typical_task_count} tasks` },
       ],
       description:
-        `Editing <em>${option.phase}</em>. Aito's <em>_search</em> over ` +
-        `<em>tasks</em> for the (project_type, phase) slice surfaced the ` +
-        `typical task names from history. Click <em>Accept</em> on a ` +
+        `Editing <em>${option.phase}</em>. <em>_predict phase</em> ranked it ` +
+        `among the phases this kind of project runs next. The candidate ` +
+        `tasks are the most frequent <em>${option.phase}</em> task names in ` +
+        `the completed <em>tasks</em> history for this project type — a ` +
+        `<em>_search</em> counted here, not a prediction. Click <em>Accept</em> on a ` +
         `candidate to ask Aito who should do it. Each accepted task is ` +
         `editable afterwards — swap assignee, delete, or add more.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"project_type"</span>: <span class="q-v">"${projectType}"</span>, <span class="q-k">"phase"</span>: <span class="q-v">"${option.phase}"</span> }<br/>
-}`,
+      queries: pickQueries,
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
@@ -416,6 +416,22 @@ export default function ProjectPlanPage() {
         },
       );
       setAssigneeOptions(r.options);
+      // The three steps behind the top option: which kind of assignee,
+      // which one of that kind, and how such tasks went with them.
+      const top = r.options[0];
+      const where = { project_type: projectType, phase, task_name: taskName };
+      const nameField = top?.assignee_kind === "subcontractor" ? "subcontractor" : "assignee_person";
+      const assigneeQueries = [
+        findQuery(r._queries, { endpoint: "_predict", from: "tasks", target: "assignee_kind", where }),
+        top ? findQuery(r._queries, {
+          endpoint: "_predict", from: "tasks", target: nameField,
+          where: { ...where, assignee_kind: top.assignee_kind },
+        }) : null,
+        top ? findQuery(r._queries, {
+          endpoint: "_predict", from: "tasks", target: "success",
+          where: { ...where, assignee_kind: top.assignee_kind, [nameField]: top.name },
+        }) : null,
+      ].filter((q): q is RecordedQuery => q !== null);
       setPanel({
         operation: "_predict",
         endpoints: ["_predict"],
@@ -430,12 +446,7 @@ export default function ProjectPlanPage() {
           `<em>_predict success</em> for each candidate. Pick the top ` +
           `(what history most likely matches) or any of the alternatives ` +
           `to swap.`,
-        query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"tasks"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"phase"</span>: <span class="q-v">"${phase}"</span>, <span class="q-k">"task_name"</span>: <span class="q-v">"${taskName}"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"subcontractor"</span><br/>
-}`,
+        queries: assigneeQueries,
         links: [
           { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
         ],
@@ -587,7 +598,7 @@ export default function ProjectPlanPage() {
         },
       );
       setSupplierOptions(r.options);
-      setPanel(supplierSwapPanel(task.phase, material.category, material.description, r.options));
+      setPanel(supplierSwapPanel(task.phase, material.category, material.description, r.options, r._queries));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

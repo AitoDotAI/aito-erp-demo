@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   UtilizationOverview,
@@ -31,15 +32,10 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "person take on engagements of that kind. No timesheet integration, " +
     "no rules: predictions come straight from the historical assignment " +
     "table.",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"person"</span>: <span class="q-v">"A. Lindgren"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"design"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"allocation_pct"</span><br/>
-}`,
+  // Filled once the overview loads. The overview itself sends only the
+  // two _search reads the roll-up is computed from; the _predict calls
+  // go out when a person is picked.
+  queries: [],
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/13-utilization.md", kind: "doc" },
@@ -102,9 +98,16 @@ export default function UtilizationPage() {
   // Update the right-rail Aito panel when a person is selected.
   useEffect(() => {
     if (!selected) {
-      setPanel(DEFAULT_PANEL);
+      const read = findQuery(data?._queries, { endpoint: "_search", from: "assignments" });
+      setPanel({ ...DEFAULT_PANEL, queries: read ? [read] : [] });
       return;
     }
+    // The role and allocation predictions sent for THIS person and
+    // project type — none until that forecast has come back.
+    const where = { person: selected.person, project_type: forecastType };
+    const forecastQueries = (["role", "allocation_pct"] as const)
+      .map((target) => findQuery(forecast?._queries, { endpoint: "_predict", from: "assignments", target, where }))
+      .filter((q): q is RecordedQuery => q !== null);
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
@@ -121,20 +124,12 @@ export default function UtilizationPage() {
         `${selected.completed_projects} completed projects: <em>${selected.historical_avg_pct}%</em>. ` +
         `Pick a project type below to see the role + allocation Aito predicts ` +
         `for them on a typical engagement of that kind.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"person"</span>: <span class="q-v">"${selected.person}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"${forecastType || "..."}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"role"</span> | <span class="q-p">"allocation_pct"</span><br/>
-}`,
+      queries: forecastQueries,
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
     });
-  }, [selected, forecastType]);
+  }, [selected, forecastType, forecast, data]);
 
   const overloaded = useMemo(() =>
     (data?.rows ?? []).filter((r) => r.status === "overloaded"), [data]);

@@ -8,6 +8,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   PortfolioResponse,
@@ -32,19 +33,8 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "actually move outcomes — people from <em>assignments</em>, plus " +
     "<em>manager</em>, <em>project_type</em> and <em>priority</em> from " +
     "<em>projects</em>.",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"implementation"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"manager"</span>: <span class="q-v">"J. Lehtinen"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"team_size"</span>: <span class="q-n">5</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"budget_eur"</span>: <span class="q-n">120000</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"duration_days"</span>: <span class="q-n">90</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"priority"</span>: <span class="q-v">"high"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"success"</span><br/>
-}`,
+  // Filled once the portfolio loads: the first success prediction sent.
+  queries: [],
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
@@ -85,8 +75,10 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     if (!data) return;
+    const first = findQuery(data._queries, { endpoint: "_predict", from: "projects", target: "success" });
     setPanel({
       ...DEFAULT_PANEL,
+      queries: first ? [first] : [],
       stats: [
         { label: "Projects", value: String(data.kpis.total) },
         { label: "Active", value: String(data.kpis.active) },
@@ -106,6 +98,15 @@ export default function ProjectsPage() {
 
   const handleProjectClick = (p: ProjectRow) => {
     setSelected(p.project_id);
+    // The prediction sent for this project, found by its own shape. A
+    // completed project was never predicted, so it shows no query.
+    const rowQuery = findQuery(data?._queries, {
+      endpoint: "_predict", from: "projects", target: "success",
+      where: {
+        project_type: p.project_type, manager: p.manager, team_size: p.team_size,
+        budget_eur: p.budget_eur, duration_days: p.duration_days, priority: p.priority,
+      },
+    });
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
@@ -119,19 +120,7 @@ export default function ProjectsPage() {
         `Lead: <em>${p.team_lead}</em>. Type: <em>${p.project_type}</em>. ` +
         `Open the <em>?</em> on the row for the factor decomposition — which ` +
         `parts of the project context move the prediction up or down.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"${p.project_type}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"manager"</span>: <span class="q-v">"${p.manager}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"team_size"</span>: <span class="q-n">${p.team_size}</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"budget_eur"</span>: <span class="q-n">${p.budget_eur}</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"duration_days"</span>: <span class="q-n">${p.duration_days}</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"priority"</span>: <span class="q-v">"${p.priority}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"success"</span><br/>
-}`,
+      queries: rowQuery ? [rowQuery] : [],
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
@@ -143,6 +132,10 @@ export default function ProjectsPage() {
     const sourceTable = isPerson ? "assignments" : "projects";
     const successKey = isPerson ? "project_success" : "success";
     const fieldOnly = f.field.split(".").pop() ?? f.field;
+    // One _relate per factor field; this row is one of its answers.
+    const factorQuery = findQuery(data?._queries, {
+      endpoint: "_relate", from: sourceTable, target: fieldOnly, where: { [successKey]: true },
+    });
     setPanel({
       operation: "_relate",
       endpoints: ["_relate"],
@@ -159,15 +152,7 @@ export default function ProjectsPage() {
         `portfolio. Lift <em>× ${f.lift.toFixed(2)}</em>. Treat as ` +
         `correlation, not cause: factors confound with project type, ` +
         `priority and seniority.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"${sourceTable}"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"${successKey}"</span>: <span class="q-n">true</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: <span class="q-p">"${fieldOnly}"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// p(${fieldOnly}=${f.value} | success) = ${pct(f.success_rate_with)}</span><br/>
-<span class="q-d">// p(${fieldOnly}=${f.value})           = ${pct(f.success_rate_without)}</span>`,
+      queries: factorQuery ? [factorQuery] : [],
       links: [
         { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
       ],

@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery } from "@/lib/query";
 import type { OverviewMetrics, AitoPanelConfig, ConfidenceBand } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -24,20 +25,9 @@ const defaultPanel: AitoPanelConfig = {
     "<em>Predictions &ge; 0.85</em> are the auto-approve zone; lower bands flag review work.<br/><br/>" +
     "Unlike traditional ML, aito.. needs <em>no feature engineering, no model selection, no deployment</em> " +
     "&mdash; predictions come directly from the database, and so does this evaluation.",
-  query: `<span class="q-k">POST</span> /api/{version}/_evaluate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"testSource"</span>: { <span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>, <span class="q-k">"limit"</span>: <span class="q-n">200</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"evaluate"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>:    { <span class="q-k">"$get"</span>: <span class="q-v">"supplier"</span> },<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: { <span class="q-k">"$get"</span>: <span class="q-v">"description"</span> },<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"amount_eur"</span>:  { <span class="q-k">"$get"</span>: <span class="q-v">"amount_eur"</span> }<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"select"</span>: [<span class="q-v">"accuracy"</span>, <span class="q-v">"baseAccuracy"</span>, <span class="q-v">"cases"</span>]<br/>
-}`,
+  // Filled once the metrics load: the per-field accuracy comes from one
+  // `_evaluate` per field; the pane shows the first one recorded.
+  queries: [],
   links: [
     { label: "_evaluate API reference", url: "https://aito.ai/docs/api/evaluate" },
     { label: "aito.ai/docs", url: "https://aito.ai/docs" },
@@ -85,6 +75,7 @@ export default function OverviewPage() {
             { label: "aito..", value: `${Math.round(data.automation.aito_high_pct)}%` },
             { label: "Manual", value: `${Math.round(data.automation.manual_pct)}%` },
           ],
+          queries: [findQuery(data._queries, { endpoint: "_evaluate" })].filter((q) => q !== null),
         });
       })
       .catch((e) => setError(e.message))

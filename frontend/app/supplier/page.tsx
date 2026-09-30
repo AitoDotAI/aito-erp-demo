@@ -8,6 +8,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
 import { supplierPanel } from "@/lib/panel-content";
+import { findQuery } from "@/lib/query";
 import type { SupplierResponse, SupplierSpend, DeliveryRisk, AitoPanelConfig } from "@/lib/types";
 
 // The badge colour follows the backend's risk level, never its own
@@ -49,7 +50,7 @@ export default function SupplierPage() {
     // Rows arrive ranked by lift, so the first is the one to quote.
     const top = data.delivery_risks[0];
     setPanel({
-      ...(top ? supplierPanel(tenantId, top) : base),
+      ...supplierPanel(tenantId, top, data._queries),
       stats: [
         { label: "Suppliers", value: String(data.top_suppliers.length) },
         { label: "Risk factors", value: String(data.delivery_risks.length) },
@@ -61,9 +62,12 @@ export default function SupplierPage() {
   const handleSpendClick = (item: SupplierSpend) => {
     setSelectedSpend(item.supplier);
     setSelectedRisk(null);
+    // Spend is not an Aito inference: one `_search` reads the purchase
+    // history and the totals are summed in src/supplier_service.py.
+    const read = findQuery(data?._queries, { endpoint: "_search", from: "purchases" });
     setPanel({
-      operation: "_relate",
-      endpoints: ["_relate"],
+      operation: "_search",
+      endpoints: ["_search"],
       stats: [
         { label: "Spend", value: fmtAmount(item.total_amount) },
         { label: "POs", value: `${item.po_count}` },
@@ -72,18 +76,13 @@ export default function SupplierPage() {
       description:
         `Supplier profile for <em>${item.supplier}</em>. Total spend: <em>${fmtAmount(item.total_amount)}</em> ` +
         `across <em>${item.po_count}</em> orders. Average order: <em>${fmtAmount(item.avg_amount)}</em>. ` +
-        `Categories: <em>${item.categories.join(", ")}</em>.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: [<span class="q-p">"on_time"</span>, <span class="q-p">"delivery_days"</span>]<br/>
-}`,
+        `Categories: <em>${item.categories.join(", ")}</em>. ` +
+        `These are plain sums: a <em>_search</em> reads the purchases and the ` +
+        `backend groups them by supplier — no prediction involved.`,
+      queries: read ? [read] : [],
       links: [
         { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/05-supplier-intel.md", kind: "doc" },
-        { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
+        { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
       ],
     });
   };
@@ -91,6 +90,10 @@ export default function SupplierPage() {
   const handleRiskClick = (item: DeliveryRisk) => {
     setSelectedRisk(item.supplier);
     setSelectedSpend(null);
+    // One `_relate` ranks every supplier; this row is one hit of it.
+    const relate = findQuery(data?._queries, {
+      endpoint: "_relate", from: "purchases", target: "supplier", where: { delivery_late: true },
+    });
     setPanel({
       operation: "_relate",
       endpoints: ["_relate"],
@@ -106,16 +109,9 @@ export default function SupplierPage() {
         `${(item.base_late_rate * 100).toFixed(1)}% across all suppliers. ` +
         `Aito's lift is <em>${item.lift.toFixed(1)}x</em>. It is shrunk toward 1 when a supplier ` +
         `has few deliveries, so it can read lower than the raw ratio; that caution is ` +
-        `what lets the risk level trust it.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"deliveries"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"on_time"</span>: <span class="q-n">false</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: [<span class="q-p">"risk_factor"</span>]<br/>
-}`,
+        `what lets the risk level trust it. This row is one hit of the single ` +
+        `<em>_relate</em> below, which ranks every supplier at once.`,
+      queries: relate ? [relate] : [],
       links: [
         { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
       ],

@@ -25,6 +25,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import SmartField, { FieldSource } from "@/components/prediction/SmartField";
 import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type {
   SmartEntryResponse,
   SmartEntryField,
@@ -62,20 +63,12 @@ const defaultPanel: AitoPanelConfig = {
   ],
   description:
     "Smart Entry uses <em>aito.._predict</em> with the <em>$why</em> highlight option " +
-    "to fill four fields and explain each prediction. Each field is a single semantic " +
+    "to fill four fields and explain each prediction — one call per field, all " +
+    "conditioned on what has been typed so far. Each field is a single semantic " +
     "concept — the predicted value lives in the input itself, styled gold-italic until " +
     "the user accepts it (Tab) or overrides it (typing).",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"$supplier"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"select"</span>: [<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-v">"$p"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-v">"feature"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;{ <span class="q-k">"$why"</span>: { <span class="q-k">"highlight"</span>: { <span class="q-k">"posPreTag"</span>: <span class="q-v">"«"</span>, <span class="q-k">"posPostTag"</span>: <span class="q-v">"»"</span> } } }<br/>
-&nbsp;&nbsp;]<br/>
-}`,
+  // Filled once a supplier is picked: no query is shown before one was sent.
+  queries: [],
   links: [
     { label: "_predict reference", url: "https://aito.ai/docs/api/predict" },
     { label: "$why factors", url: "https://aito.ai/docs/api/predict#why" },
@@ -174,8 +167,14 @@ export default function SmartEntryPage() {
             const lifts = f.why?.lifts?.length ?? 0;
             return `<em>${f.field}</em>: <strong>${f.value}</strong> (${Math.round(f.confidence * 100)}%, ${lifts} pattern${lifts === 1 ? "" : "s"})`;
           }).join("<br/>");
+          // The four bodies the backend sent for this form state, one per
+          // field, in the order the form shows them.
+          const sent = PREDICTABLE_FIELDS
+            .map((field) => findQuery(res._queries, { endpoint: "_predict", from: "purchases", target: field, where: { supplier: sup } }))
+            .filter((q): q is RecordedQuery => q !== null);
           setPanel({
             ...defaultPanel,
+            queries: sent,
             stats: [
               { label: "Predicted", value: `${res.predicted_count}` },
               { label: "Avg conf.", value: `${Math.round(res.avg_confidence * 100)}%` },

@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   ColdStartCutoff,
@@ -31,21 +32,9 @@ const PANEL: AitoPanelConfig = {
     "evaluate-step <code>where</code>. Aito's conditional probabilities " +
     "then condition on only rows up to that cutoff — same shape as a " +
     "younger tenant. No data manipulation; works against read-only keys.",
-  query: `<span class="q-k">POST</span> /api/{version}/_evaluate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"testSource"</span>: { <span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>, <span class="q-k">"limit"</span>: <span class="q-n">200</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"evaluate"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>:    { <span class="q-k">"$get"</span>: <span class="q-v">"supplier"</span> },<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: { <span class="q-k">"$get"</span>: <span class="q-v">"description"</span> },<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"amount_eur"</span>:  { <span class="q-k">"$get"</span>: <span class="q-v">"amount_eur"</span> },<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"order_month"</span>: { <span class="q-k">"$lte"</span>: <span class="q-v">"$cutoff"</span> }<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"select"</span>: [<span class="q-v">"accuracy"</span>, <span class="q-v">"baseAccuracy"</span>, <span class="q-v">"cases"</span>]<br/>
-}`,
+  // Filled from the slider position on screen: the `_evaluate` that
+  // /api/coldstart/live sent for it (see `panel` below).
+  queries: [],
   links: [
     { label: "_evaluate API reference", url: "https://aito.ai/docs/api/evaluate" },
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/15-cold-start.md", kind: "doc" },
@@ -105,6 +94,14 @@ export default function ColdStartPage() {
   const active = activeCutoff ? cache[activeCutoff] : undefined;
   const activeMeta = cutoffs[activeIdx];
   const isLoading = loadingCutoff === activeCutoff && !active;
+
+  // The pane shows the first of the three `_evaluate` queries behind the
+  // cutoff on screen, as sent — including the `order_month` filter on
+  // both testSource and the evaluate-step where.
+  const panel = useMemo<AitoPanelConfig>(() => {
+    const q = findQuery(active?._queries, { endpoint: "_evaluate" });
+    return { ...PANEL, queries: q ? [q] : [] };
+  }, [active]);
 
   const summary = useMemo(() => {
     if (!active) return null;
@@ -275,10 +272,11 @@ export default function ColdStartPage() {
                     the cold-start story: Aito doesn't need a lot of data to be useful, and
                     its calibration ($p) honestly reflects what it knows.
                     <br/><br/>
-                    <em>Note:</em> this slider runs <code>_evaluate</code> with{" "}
-                    <code>where: {"{"} order_month: {"{"} $lte: cutoff {"}"} {"}"}</code> on
-                    a real Aito DB. That conditions Aito's probabilities on only that slice
-                    of history. For a true cold-start simulation (smaller DB end-to-end), see
+                    <em>Note:</em> this slider runs <code>_evaluate</code> on a real Aito
+                    DB with <code>order_month ≤ cutoff</code> in both the{" "}
+                    <code>testSource</code> and the evaluate-step <code>where</code> (the
+                    query is in the panel). That conditions Aito's probabilities on that
+                    slice of history; it does not remove later rows from the database. For a true cold-start simulation (smaller DB end-to-end), see
                     the captured snapshot below.
                   </div>
                 </div>
@@ -326,7 +324,7 @@ export default function ColdStartPage() {
               </div>
             )}
           </div>
-          <AitoPanel config={PANEL} />
+          <AitoPanel config={panel} />
         </div>
       </main>
     </>

@@ -7,11 +7,11 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery } from "@/lib/query";
 import type {
   DemandResponse,
   DemandProduct,
   DemandMeasured,
-  DemandHorizonMonth,
   AitoPanelConfig,
 } from "@/lib/types";
 
@@ -35,7 +35,7 @@ const defaultPanel: AitoPanelConfig = {
     { label: "Held out", value: "—" },
   ],
   description: DESCRIPTION,
-  query: `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n  <span class="q-k">"from"</span>: <span class="q-v">"monthly_demand"</span>,\n  <span class="q-k">"where"</span>: { … },\n  <span class="q-k">"estimate"</span>: <span class="q-p">"units_sold"</span>\n}`,
+  queries: [],
   links: LINKS,
 };
 
@@ -57,23 +57,7 @@ const fmtSigned = (x: number) => {
   return r > 0 ? `+${r}` : String(r);
 };
 
-// A value as it would appear in the JSON body, made safe for the panel's
-// HTML: a name with `"` or `<` must neither end the string nor open a tag.
-const asJsonHtml = (v: string) =>
-  JSON.stringify(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escHtml = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-// The body the backend sent for one held-out month, read from the
-// response rather than rebuilt here, so the panel cannot drift from it.
-function estimateQuery(h: DemandHorizonMonth): string {
-  const where = Object.entries(h.where)
-    .map(([k, v]) => `    <span class="q-k">"${escHtml(k)}"</span>: <span class="q-v">${asJsonHtml(v)}</span>`)
-    .join(",\n");
-  return `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n` +
-    `  <span class="q-k">"from"</span>: <span class="q-v">"monthly_demand"</span>,\n` +
-    `  <span class="q-k">"where"</span>: {\n${where}\n  },\n` +
-    `  <span class="q-k">"estimate"</span>: <span class="q-p">"units_sold"</span>\n}`;
-}
 
 // ─── The measured claim ───
 
@@ -244,6 +228,15 @@ export default function DemandPage() {
   const measured = data?.measured ?? null;
   const product = data?.products[selected] ?? null;
 
+  const shownQuery = product && product.horizon.length > 0
+    ? findQuery(data?._queries, {
+        endpoint: "_estimate",
+        from: "monthly_demand",
+        target: "units_sold",
+        where: product.horizon[0].where,
+      })
+    : null;
+
   const panel: AitoPanelConfig =
     data && measured
       ? {
@@ -258,9 +251,9 @@ export default function DemandPage() {
             ? `${DESCRIPTION}<br/><br/>The query below is the one sent for <strong>${escHtml(product.name)}</strong>, ${fmtMonth(product.horizon[0]?.month ?? data.cutoff)}. ` +
               `The <em>where</em> says which product, when in the year, and what it sold in the same month last year &mdash; banded, so the evidence generalises across products instead of matching one exact count.`
             : DESCRIPTION,
-          query: product && product.horizon.length > 0
-            ? estimateQuery(product.horizon[0])
-            : defaultPanel.query,
+          // The estimate sent for the product's first held-out month,
+          // matched on that month's own `where` from the response.
+          queries: shownQuery ? [shownQuery] : [],
           links: LINKS,
         }
       : defaultPanel;
