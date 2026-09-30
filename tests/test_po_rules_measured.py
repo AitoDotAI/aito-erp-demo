@@ -88,3 +88,33 @@ def test_every_shipped_rule_holds_on_its_tenants_history(tenant):
     for rule in RULES_BY_TENANT[tenant]:
         measured = measure_rule(_Client(history, PREDICTED), rule)
         assert all(right / n >= RULE_MIN_PRECISION for _, right, n in measured.values()), rule["name"]
+
+
+def test_a_rule_row_below_the_bar_says_which_field_to_check():
+    """Most rule rows land in review because the field the rule does not
+    decide — usually the approver — is Aito's, at 0.57-0.74. The row says
+    so instead of a bare "review", as in the accounting demo."""
+    row = _predict()                      # approver predicted at 0.85 → clears 0.75
+    assert row.status_label == "Rule"
+    import src.po_service as po
+    low = dict(PREDICTED, approver=("M. Hakala", 0.60))
+    saved = po.RULES_BY_TENANT["metsa"]
+    po.RULES_BY_TENANT["metsa"] = [RULE]
+    try:
+        row = predict_single(_Client(HISTORY, low), PO, tenant="metsa")
+    finally:
+        po.RULES_BY_TENANT["metsa"] = saved
+    assert row.source == "review"
+    assert row.status_label == "Rule, check approver"
+
+
+def test_an_aito_row_is_labelled_by_the_same_bar():
+    import src.po_service as po
+    saved = po.RULES_BY_TENANT["metsa"]
+    po.RULES_BY_TENANT["metsa"] = []
+    try:
+        row = predict_single(_Client(HISTORY, PREDICTED), PO, tenant="metsa")
+        low = predict_single(_Client(HISTORY, dict(PREDICTED, approver=("X", 0.6))), PO, tenant="metsa")
+    finally:
+        po.RULES_BY_TENANT["metsa"] = saved
+    assert (row.status_label, low.status_label) == ("Aito", "Review")

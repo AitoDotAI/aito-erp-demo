@@ -118,7 +118,7 @@ export default function POQueuePage() {
         <TopBar
           breadcrumb="Procurement"
           title="PO Queue"
-          subtitle={`${metrics?.total ?? "..."} unrouted POs · 47 received today`}
+          subtitle={`${metrics?.total ?? "..."} POs in queue · ${metrics?.review_count ?? "..."} need review`}
           live
         />
         <div className="content-area">
@@ -249,6 +249,9 @@ export default function POQueuePage() {
                         >
                           <td className="mono">
                             {o.purchase_id}
+                            <div style={{ fontSize: 10, color: o.source === "review" ? "var(--gold-dark)" : "var(--mid)", fontFamily: "inherit" }}>
+                              {o.status_label}
+                            </div>
                             {approvedIds.has(o.purchase_id) && (
                               <span style={{ marginLeft: 6, color: "var(--green)", fontSize: 10 }}>✓</span>
                             )}
@@ -261,7 +264,7 @@ export default function POQueuePage() {
                               <span className={`badge ${o.rule_fields?.cost_center ? "b-green" : o.cost_center_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
                                 {o.rule_fields?.cost_center ? "📋 " : o.cost_center_confidence >= 0.5 ? "🤖 " : "? "}{o.cost_center || "—"}
                               </span>
-                              {o.source !== "rule" && o.cost_center_why && (
+                              {!o.rule_fields?.cost_center && o.cost_center_why && (
                                 <WhyPopover
                                   value={o.cost_center ?? ""}
                                   confidence={o.cost_center_confidence}
@@ -276,7 +279,7 @@ export default function POQueuePage() {
                               <span className={`badge ${o.rule_fields?.account_code ? "b-green" : o.account_code_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
                                 {o.rule_fields?.account_code ? "📋 " : o.account_code_confidence >= 0.5 ? "🤖 " : "? "}{o.account_code || "—"}
                               </span>
-                              {o.source !== "rule" && o.account_code_why && (
+                              {!o.rule_fields?.account_code && o.account_code_why && (
                                 <WhyPopover
                                   value={o.account_code ?? ""}
                                   confidence={o.account_code_confidence}
@@ -291,7 +294,7 @@ export default function POQueuePage() {
                               <span className={`badge ${o.rule_fields?.approver ? "b-green" : o.approver_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
                                 {o.rule_fields?.approver ? "📋 " : o.approver_confidence >= 0.5 ? "🤖 " : "? "}{o.approver || "—"}
                               </span>
-                              {o.source !== "rule" && o.approver_why && (
+                              {!o.rule_fields?.approver && o.approver_why && (
                                 <WhyPopover
                                   value={o.approver ?? ""}
                                   confidence={o.approver_confidence}

@@ -33,6 +33,10 @@ class POPrediction:
     approver_why: dict = field(default_factory=dict)
     # field -> "rule: right on M of T POs" for the fields a rule decided
     rule_fields: dict = field(default_factory=dict)
+    # What the row needs, in words: "Rule", "Rule, check approver",
+    # "Aito" or "Review". A rule row below the bar is not a bare review:
+    # the rule decided its fields and Aito's are the unsure ones.
+    status_label: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -55,6 +59,7 @@ class POPrediction:
             "account_code_why": self.account_code_why,
             "approver_why": self.approver_why,
             "rule_fields": self.rule_fields,
+            "status_label": self.status_label,
         }
 
 
@@ -251,6 +256,15 @@ def predict_single(
         prediction.source = "review"
     elif prediction.rule_fields:
         prediction.source = "rule"
+
+    unsure = [f for f in ("cost_center", "account_code", "approver")
+              if f not in prediction.rule_fields
+              and getattr(prediction, f"{f}_confidence") < REVIEW_THRESHOLD]
+    if prediction.rule_fields:
+        prediction.status_label = ("Rule" if not unsure else
+                                   "Rule, check " + ", ".join(f.replace("_", " ") for f in unsure))
+    else:
+        prediction.status_label = "Review" if prediction.source == "review" else "Aito"
     return prediction
 
 

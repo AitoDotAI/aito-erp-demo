@@ -20,6 +20,8 @@ export interface POPrediction {
   approver_why?: WhyExplanation;
   /** Fields a rule decided, each with "rule …: right on M of T POs". */
   rule_fields: Partial<Record<"cost_center" | "account_code" | "approver", string>>;
+  /** "Rule", "Rule, check approver", "Aito" or "Review". */
+  status_label: string;
 }
 
 export interface POMetrics {
