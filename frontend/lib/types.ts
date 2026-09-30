@@ -18,6 +18,8 @@ export interface POPrediction {
   cost_center_why?: WhyExplanation;
   account_code_why?: WhyExplanation;
   approver_why?: WhyExplanation;
+  /** Fields a rule decided, each with "rule …: right on M of T POs". */
+  rule_fields: Partial<Record<"cost_center" | "account_code" | "approver", string>>;
 }
 
 export interface POMetrics {

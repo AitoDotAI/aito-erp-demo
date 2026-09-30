@@ -15,32 +15,22 @@ def _make_client(predict_response=None):
             ]
         }
     client.predict.return_value = predict_response
+
+    # A history in which every rule holds, so the measured-rule overlay
+    # has something to measure (see tests/test_po_rules_measured.py).
+    from src.po_service import RULES_BY_TENANT
+
+    def search(table, where, limit=10):
+        rule = next((r for r in RULES_BY_TENANT["metsa"] if r["supplier"] == where.get("supplier")), None)
+        rows = [{"supplier": rule["supplier"], **rule["sets"]}] * 10 if rule else []
+        return {"total": len(rows), "hits": rows[:limit]}
+    client.search.side_effect = search
     return client
 
 
-def test_rule_match_elenia():
-    """Elenia Oy should match the Facilities/6110 rule."""
-    client = _make_client()
-    inv = {"purchase_id": "PO-001", "supplier": "Elenia Oy",
-           "description": "Electricity", "amount_eur": 1000, "category": "utilities"}
-    result = predict_single(client, inv)
-    assert result.source == "rule"
-    assert result.cost_center == "Facilities"
-    assert result.account_code == "6110"
-    assert result.confidence == 0.99
-    # Rules should not call Aito
-    client.predict.assert_not_called()
-
-
-def test_rule_match_telia():
-    """Telia Finland should match the IT/5510 rule."""
-    client = _make_client()
-    inv = {"purchase_id": "PO-002", "supplier": "Telia Finland Oyj",
-           "description": "Mobile subs", "amount_eur": 500, "category": "telecom"}
-    result = predict_single(client, inv)
-    assert result.source == "rule"
-    assert result.cost_center == "IT"
-    assert result.account_code == "5510"
+# Rule behaviour — what a rule decides and at what confidence — is
+# tested in tests/test_po_rules_measured.py. The two tests that stood
+# here asserted the old contract: every field set, a constant 0.99.
 
 
 def test_aito_prediction_high_confidence():

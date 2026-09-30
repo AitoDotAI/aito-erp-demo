@@ -258,8 +258,8 @@ export default function POQueuePage() {
                           <td className="mono">{fmtAmount(o.amount)}</td>
                           <td>
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                              <span className={`badge ${o.source === "rule" ? "b-green" : o.cost_center_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
-                                {o.source === "rule" ? "📋 " : o.cost_center_confidence >= 0.5 ? "🤖 " : "? "}{o.cost_center || "—"}
+                              <span className={`badge ${o.rule_fields?.cost_center ? "b-green" : o.cost_center_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
+                                {o.rule_fields?.cost_center ? "📋 " : o.cost_center_confidence >= 0.5 ? "🤖 " : "? "}{o.cost_center || "—"}
                               </span>
                               {o.source !== "rule" && o.cost_center_why && (
                                 <WhyPopover
@@ -273,8 +273,8 @@ export default function POQueuePage() {
                           </td>
                           <td>
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                              <span className={`badge ${o.source === "rule" ? "b-green" : o.account_code_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
-                                {o.source === "rule" ? "📋 " : o.account_code_confidence >= 0.5 ? "🤖 " : "? "}{o.account_code || "—"}
+                              <span className={`badge ${o.rule_fields?.account_code ? "b-green" : o.account_code_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
+                                {o.rule_fields?.account_code ? "📋 " : o.account_code_confidence >= 0.5 ? "🤖 " : "? "}{o.account_code || "—"}
                               </span>
                               {o.source !== "rule" && o.account_code_why && (
                                 <WhyPopover
@@ -288,8 +288,8 @@ export default function POQueuePage() {
                           </td>
                           <td>
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                              <span className={`badge ${o.source === "rule" ? "b-green" : o.approver_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
-                                {o.source === "rule" ? "📋 " : o.approver_confidence >= 0.5 ? "🤖 " : "? "}{o.approver || "—"}
+                              <span className={`badge ${o.rule_fields?.approver ? "b-green" : o.approver_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
+                                {o.rule_fields?.approver ? "📋 " : o.approver_confidence >= 0.5 ? "🤖 " : "? "}{o.approver || "—"}
                               </span>
                               {o.source !== "rule" && o.approver_why && (
                                 <WhyPopover

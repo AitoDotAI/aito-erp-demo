@@ -31,6 +31,8 @@ class POPrediction:
     cost_center_why: dict = field(default_factory=dict)
     account_code_why: dict = field(default_factory=dict)
     approver_why: dict = field(default_factory=dict)
+    # field -> "rule: right on M of T POs" for the fields a rule decided
+    rule_fields: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -52,6 +54,7 @@ class POPrediction:
             "cost_center_why": self.cost_center_why,
             "account_code_why": self.account_code_why,
             "approver_why": self.approver_why,
+            "rule_fields": self.rule_fields,
         }
 
 
@@ -61,83 +64,64 @@ class POPrediction:
 # The Overview's confidence bands are where to check the bar holds up.
 REVIEW_THRESHOLD = 0.75
 
-# Rules that cover deterministic patterns — checked before Aito.
-# Per-tenant: each persona's rules use suppliers from that persona's
-# DEMO_POS set and account codes from that persona's chart of accounts.
-# A real ERP-SaaS deployment would source these from a customer-specific
-# rules table; the demo hardcodes them so the rules-then-Aito hybrid
-# story has something deterministic to fall back on.
+# Rules — checked before Aito — and what each one DECIDES.
+#
+# A rule sets only the fields its supplier's history bears out, and each
+# shows how often it was right ("right on 140 of 145 POs"), never a
+# constant. Every other field on the row is predicted by Aito like any
+# row. Same decision as the accounting demo's ADR 0028.
+#
+# They used to set cost centre, account and approver at a fixed 0.99.
+# Measured on the fixtures: the cost centres were right 0 times in N on
+# all but one rule ("Facilities", "IT", "Grocery", "Office" are not cost
+# centres in the data), the approvers 0 in N on all but two, and the
+# account codes 94-96%. Metsä's Elisa rule matched no purchases, and
+# Studio's Telia account was right 0 of 182. Those two are gone; what is
+# left below is what `tests/test_po_rules_measured.py` checks holds.
+RULE_MIN_PRECISION = 0.90
+
 RULES_BY_TENANT: dict[str, list[dict]] = {
     "metsa": [
-        {
-            "name": "Elenia → Facilities/6110",
-            "match": lambda inv: inv["supplier"] == "Elenia Oy",
-            "cost_center": "Facilities",
-            "account_code": "6110",
-            "approver": "M. Hakala",
-        },
-        {
-            "name": "Telia → IT/5510",
-            "match": lambda inv: inv["supplier"] == "Telia Finland Oyj",
-            "cost_center": "IT",
-            "account_code": "5510",
-            "approver": "J. Lehtinen",
-        },
-        {
-            "name": "Elisa → IT/5510",
-            "match": lambda inv: inv["supplier"] == "Elisa Oyj",
-            "cost_center": "IT",
-            "account_code": "5510",
-            "approver": "J. Lehtinen",
-        },
+        {"name": "Elenia → 6110", "supplier": "Elenia Oy", "sets": {"account_code": "6110"}},
+        {"name": "Telia → 5510, J. Lehtinen", "supplier": "Telia Finland Oyj",
+         "sets": {"account_code": "5510", "approver": "J. Lehtinen"}},
     ],
     "aurora": [
-        {
-            "name": "Posti → Logistics/4310",
-            "match": lambda inv: inv["supplier"] == "Posti",
-            "cost_center": "Logistics",
-            "account_code": "4310",
-            "approver": "L. Korhonen",
-        },
-        {
-            "name": "Tikkurila → Household/4050",
-            "match": lambda inv: inv["supplier"] == "Tikkurila",
-            "cost_center": "Store Ops",
-            "account_code": "4050",
-            "approver": "S. Mäkelä",
-        },
-        {
-            "name": "Valio → Groceries/4010",
-            "match": lambda inv: inv["supplier"] == "Valio Oy",
-            "cost_center": "Grocery",
-            "account_code": "4010",
-            "approver": "P. Niemi",
-        },
+        {"name": "Posti → Logistics, 4310", "supplier": "Posti",
+         "sets": {"cost_center": "Logistics", "account_code": "4310"}},
+        {"name": "Tikkurila → 4050", "supplier": "Tikkurila", "sets": {"account_code": "4050"}},
+        {"name": "Valio → 4010", "supplier": "Valio Oy", "sets": {"account_code": "4010"}},
     ],
     "studio": [
-        {
-            "name": "Microsoft Ireland → IT/5510",
-            "match": lambda inv: inv["supplier"] == "Microsoft Ireland",
-            "cost_center": "IT",
-            "account_code": "5510",
-            "approver": "A. Lindgren",
-        },
-        {
-            "name": "Telia → IT/5510",
-            "match": lambda inv: inv["supplier"] == "Telia Finland Oyj",
-            "cost_center": "IT",
-            "account_code": "5510",
-            "approver": "A. Lindgren",
-        },
-        {
-            "name": "Fazer Food → Office/5710",
-            "match": lambda inv: inv["supplier"] == "Fazer Food Services",
-            "cost_center": "Office",
-            "account_code": "5710",
-            "approver": "K. Saari",
-        },
+        {"name": "Microsoft Ireland → 5510", "supplier": "Microsoft Ireland",
+         "sets": {"account_code": "5510"}},
+        {"name": "Fazer Food → 5710", "supplier": "Fazer Food Services",
+         "sets": {"account_code": "5710"}},
     ],
 }
+
+
+def measure_rule(client: AitoClient, rule: dict) -> dict[str, tuple[str, int, int]]:
+    """How often each field a rule sets was right, over its supplier's history.
+
+    Returns {field: (value, right, of)}. Refuses — raises — a rule with no
+    history to measure, or one setting a field history does not bear out:
+    a rule the data contradicts must not be shown as confident.
+    """
+    res = client.search("purchases", {"supplier": rule["supplier"]}, limit=50_000)
+    rows = res.get("hits") or []
+    if res.get("total") != len(rows):
+        raise RuntimeError(f"{rule['name']}: read {len(rows)} of {res.get('total')} purchases")
+    if not rows:
+        raise ValueError(f"rule {rule['name']!r}: no purchases from {rule['supplier']} to measure it on")
+    measured = {}
+    for field_name, value in rule["sets"].items():
+        right = sum(1 for r in rows if r.get(field_name) == value)
+        if right / len(rows) < RULE_MIN_PRECISION:
+            raise ValueError(f"rule {rule['name']!r} sets {field_name}={value!r}, "
+                             f"right on {right} of {len(rows)} POs")
+        measured[field_name] = (value, right, len(rows))
+    return measured
 
 
 def rules_for(tenant: str | None) -> list[dict]:
@@ -204,24 +188,6 @@ def predict_single(
     its own rule set with suppliers and account codes drawn from that
     tenant's CoA. Falls back to Metsä's rules in single-tenant mode.
     """
-    # Check rules first
-    for rule in rules_for(tenant):
-        if rule["match"](invoice):
-            return POPrediction(
-                purchase_id=invoice["purchase_id"],
-                supplier=invoice["supplier"],
-                description=invoice["description"],
-                amount=invoice["amount_eur"],
-                cost_center=rule["cost_center"],
-                cost_center_confidence=0.99,
-                account_code=rule["account_code"],
-                account_code_confidence=0.99,
-                approver=rule["approver"],
-                approver_confidence=0.99,
-                source="rule",
-                confidence=0.99,
-            )
-
     # Fall back to Aito predictions
     from src.why_processor import process_factors, extract_alternatives
 
@@ -245,11 +211,8 @@ def predict_single(
     cc_conf = cc_top.get("$p", 0.0)
     ac_conf = ac_top.get("$p", 0.0)
     ap_conf = ap_top.get("$p", 0.0)
-    overall = min(cc_conf, ac_conf, ap_conf)
 
-    source = "review" if overall < REVIEW_THRESHOLD else "aito"
-
-    return POPrediction(
+    prediction = POPrediction(
         purchase_id=invoice["purchase_id"],
         supplier=invoice["supplier"],
         description=invoice["description"],
@@ -260,8 +223,8 @@ def predict_single(
         account_code_confidence=ac_conf,
         approver=str(ap_top.get("$value", "")),
         approver_confidence=ap_conf,
-        source=source,
-        confidence=overall,
+        source="aito",
+        confidence=0.0,
         cost_center_alternatives=extract_alternatives(cc_hits, skip_top=True, limit=3),
         account_code_alternatives=extract_alternatives(ac_hits, skip_top=True, limit=3),
         approver_alternatives=extract_alternatives(ap_hits, skip_top=True, limit=3),
@@ -269,6 +232,26 @@ def predict_single(
         account_code_why=process_factors(ac_top.get("$why"), ac_conf),
         approver_why=process_factors(ap_top.get("$why"), ap_conf),
     )
+
+    # A matching rule overrides only the fields it measurably decides,
+    # at the precision history gives it; Aito's answer stands elsewhere.
+    rule = next((r for r in rules_for(tenant) if r["supplier"] == invoice["supplier"]), None)
+    if rule is not None:
+        for field_name, (value, right, of) in measure_rule(client, rule).items():
+            setattr(prediction, field_name, value)
+            setattr(prediction, f"{field_name}_confidence", round(right / of, 3))
+            setattr(prediction, f"{field_name}_alternatives", [])
+            setattr(prediction, f"{field_name}_why", {})
+            prediction.rule_fields[field_name] = f"rule {rule['name']}: right on {right} of {of} POs"
+
+    prediction.confidence = min(prediction.cost_center_confidence,
+                                prediction.account_code_confidence,
+                                prediction.approver_confidence)
+    if prediction.confidence < REVIEW_THRESHOLD:
+        prediction.source = "review"
+    elif prediction.rule_fields:
+        prediction.source = "rule"
+    return prediction
 
 
 def predict_batch(
