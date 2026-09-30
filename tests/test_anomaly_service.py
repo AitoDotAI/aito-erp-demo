@@ -65,9 +65,9 @@ def test_detect_anomalies_sorts_by_score_descending():
     client = _client_returning_low_p_for_actual("4220", p=0.03)
     transactions = [
         {"purchase_id": "PO-1", "supplier": "A", "amount": 100, "account_code": "4220",
-         "flagged_field": "x", "expected_value": "x", "actual_value": "y"},
-        {"purchase_id": "PO-2", "supplier": "B", "amount": 200, "account_code": "4220",
-         "flagged_field": "x", "expected_value": "x", "actual_value": "y"},
+         "flagged_field": "account_code"},
+        {"purchase_id": "PO-2", "supplier": "B", "amount": 200, "account_code": "5710",
+         "flagged_field": "account_code"},
     ]
     flags = detect_anomalies(client, transactions)
     assert len(flags) == 2
@@ -75,8 +75,8 @@ def test_detect_anomalies_sorts_by_score_descending():
 
 
 def test_demo_anomalies_have_required_fields():
-    """All demo anomalies must have the keys the service expects."""
-    required = {"purchase_id", "supplier", "amount", "account_code",
-                "flagged_field", "expected_value", "actual_value"}
+    """The incoming transaction only; conclusions are computed (see
+    tests/test_anomaly_from_data.py)."""
+    required = {"purchase_id", "supplier", "amount", "account_code", "flagged_field"}
     for tx in DEMO_ANOMALIES:
         assert required.issubset(tx.keys()), f"Missing keys in {tx}"
