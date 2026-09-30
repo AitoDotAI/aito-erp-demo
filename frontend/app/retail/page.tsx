@@ -47,8 +47,8 @@ const config: VerticalEntryConfig = {
       pitch:
         "Bought together: one _relate over baskets, ranked by lift, with the " +
         "basket counts behind every ratio. At parity with counting on " +
-        "well-bought products (55/90 vs 57/90); on rarely bought ones it " +
-        "lists few rather than guess, and counting finds more (1/90 vs 18/90).",
+        "well-bought products (55/90 vs 57/90). On rarely bought ones counting " +
+        "finds 18/90 and the view 1/90.",
       stat: "at parity with counting",
     },
   ],

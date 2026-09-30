@@ -53,6 +53,9 @@ def test_the_retail_tiles_quote_where_aito_loses_too():
     from src.recommendation_service import CROSS_SELL_MEASURED
     page = (FRONTEND / "app" / "retail" / "page.tsx").read_text()
     aurora = MEASURED["by_tenant"]["aurora"]
-    assert f"{aurora['aito'] * 100:.1f}%" in page and f"{aurora['last_year'] * 100:.1f}%" in page
+    for figure in (aurora["aito"], aurora["last_year"], aurora["trailing"]):
+        assert f"{figure * 100:.1f}%" in page, figure
+    reduction = round((1 - aurora["aito"] / aurora["trailing"]) * 100)
+    assert f"{reduction}% less error than the reorder rule" in page
     rare = CROSS_SELL_MEASURED["rarely_bought"]
     assert f"{rare['view']}/{rare['of']}" in page and f"{rare['counting']}/{rare['of']}" in page

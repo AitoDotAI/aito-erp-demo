@@ -84,7 +84,7 @@ export default function ApprovalPage() {
       stats: [
         { label: "Pending", value: String(items.length) },
         { label: "CFO + Board", value: String(cfo + board) },
-        { label: "Avg conf.", value: `${Math.round(avgConf * 100)}%` },
+        { label: "Avg conf.", value: items.length ? `${Math.round(avgConf * 100)}%` : "—" },
       ],
     });
   }, [data]);

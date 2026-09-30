@@ -167,9 +167,12 @@ export default function CatalogPage() {
         if (data.total != null) {
           setTotalProducts(data.total);
         }
+        if (!data.products) throw new Error("catalog response without products");
         const missing = data.products.reduce((a, p) => a + p.missing_count, 0);
-        setPanel((current) => ({
-          ...current,
+        // Only while no row is selected: a row's own panel must not get the
+        // list's stats pasted under it when a tenant switch resolves late.
+        setPanel((current) => current.description !== defaultPanel.description ? current : ({
+          ...defaultPanel,
           stats: [
             { label: "Incomplete", value: String(data.products.length) },
             { label: "Catalogue", value: String(data.total) },

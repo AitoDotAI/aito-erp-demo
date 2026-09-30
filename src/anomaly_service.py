@@ -1,9 +1,10 @@
-"""Anomaly detection using Aito's _evaluate endpoint.
+"""Anomaly detection: how likely the history makes each flagged value.
 
-For each transaction, evaluates how likely the field combination is
-given historical data. Low probability means the combination is unusual
-— the anomaly score is (1 - p) * 100. Severity thresholds classify
-anomalies into high, medium, and low buckets for the dashboard.
+For each incoming transaction the flagged field's probability p is taken
+from the data — Aito's `_predict` for a categorical field, the share of
+the supplier's past POs for an amount, a checked first purchase for a
+new vendor — and the anomaly score is (1 - p) * 100. Severity thresholds
+bucket scores into high, medium and low for the dashboard.
 """
 
 from dataclasses import dataclass, field
@@ -97,7 +98,7 @@ def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag |
     amount = float(transaction["amount"])
 
     if flagged_field == "supplier":
-        on_file = client.search("purchases", {"supplier": supplier}, limit=1).get("total", 0)
+        on_file = client.search("purchases", {"supplier": supplier}, limit=1)["total"]
         if on_file:
             raise ValueError(f"{supplier} is flagged as a first-time vendor but has "
                              f"{on_file} purchases on file")
@@ -113,6 +114,8 @@ def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag |
             return None
         past = [float(h["amount_eur"]) for h in history]
         avg = sum(past) / len(past)
+        if avg <= 0:
+            raise ValueError(f"{supplier}: past amounts average {avg}; no ratio to judge against")
         at_least = sum(1 for x in past if x >= amount)
         p = (at_least + 1) / (len(past) + 1)
         expected, actual = f"{_fmt_eur(avg)} avg", _fmt_eur(amount)
@@ -124,7 +127,7 @@ def evaluate_transaction(client: AitoClient, transaction: dict) -> AnomalyFlag |
         actual = str(transaction[flagged_field])
         # Without history Aito can only answer from its general prior,
         # and "unusual for this supplier" would mean nothing.
-        on_file = client.search("purchases", {"supplier": supplier}, limit=1).get("total", 0)
+        on_file = client.search("purchases", {"supplier": supplier}, limit=1)["total"]
         if not on_file:
             raise ValueError(f"{supplier} has no purchases on file; a {flagged_field} "
                              f"cannot be unusual for it")
@@ -177,17 +180,18 @@ def get_demo_anomalies(client: AitoClient, tenant: str | None = None) -> list[An
     return detect_anomalies(client, demo_anomalies_for(tenant))
 
 
-# Per-tenant anomaly seed rows. Each persona's set covers the three
-# canonical anomaly types: mis-coded account, unknown vendor, and
-# amount spike. The suppliers used in each set exist in that
-# persona's `purchases` history, so the inverse-prediction has signal.
+# Per-tenant anomaly seed rows, one of each type: mis-coded account,
+# first-time vendor, amount spike. The account and amount suppliers have
+# history on that tenant; the first-time vendor has none. Both hold at
+# runtime (evaluate_transaction raises otherwise) and on the fixtures
+# (tests/test_anomaly_from_data.py).
 DEMO_ANOMALIES_BY_TENANT: dict[str, list[dict]] = {
     # Only the incoming transaction. What is expected, how unusual it is
     # and why are computed by `evaluate_transaction` from the history.
     # The first-time vendors are names absent from that tenant's
-    # purchases — a test checks the claim.
+    # purchases.
     "metsa": [
-        # Wärtsilä codes to 4220 in 345 of 370 POs and never to 6810.
+        # Wärtsilä codes to 4220 in 345 of 370 POs, and to 6810 once.
         {"purchase_id": "PO-7812", "supplier": "Wärtsilä Components", "amount": 1450.00, "account_code": "6810", "flagged_field": "account_code"},
         {"purchase_id": "PO-7799", "supplier": "Harjula Consulting",  "amount": 3200.00, "account_code": "7100", "flagged_field": "supplier"},
         {"purchase_id": "PO-7827", "supplier": "Neste Oyj",           "amount": 9800.00, "account_code": "4310", "flagged_field": "amount"},

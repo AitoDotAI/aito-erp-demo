@@ -165,7 +165,10 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
                 "pos": [p.to_dict() for p in predictions],
                 "metrics": compute_metrics(predictions),
             }
-        warm_or_load("po_pending", compute)
+        # `_v2` keys: these four responses changed shape (measured rules,
+        # computed anomalies, min_support, provenance), and a payload cached
+        # under the old key would be served without the new fields.
+        warm_or_load("po_pending_v2", compute)
 
     def warm_approval():
         def compute():
@@ -174,7 +177,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("approval_queue", compute)
 
     def warm_anomalies():
-        warm_or_load("anomalies_scan", lambda: {
+        warm_or_load("anomalies_scan_v2", lambda: {
             "anomalies": [f.to_dict() for f in get_demo_anomalies(aito, tenant_id)],
         })
 
@@ -188,7 +191,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
                 "candidates": [c.to_dict() for c in candidates],
                 "summary": get_rule_summary(candidates),
             }
-        warm_or_load("rules_candidates", compute)
+        warm_or_load("rules_candidates_v2", compute)
 
     def warm_catalog():
         def compute():
@@ -208,7 +211,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("inventory_stock_v2", lambda: get_inventory_status(aito, tenant=tenant_id))
 
     def warm_overview():
-        warm_or_load("overview_metrics", lambda: get_overview(aito).to_dict())
+        warm_or_load("overview_metrics_v2", lambda: get_overview(aito).to_dict())
 
     def warm_projects():
         warm_or_load("projects_portfolio", lambda: get_portfolio(aito).to_dict())
@@ -485,7 +488,7 @@ def schema(request: Request):
 def po_pending(request: Request):
     """PO queue with live Aito predictions for account, cost center, approver."""
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "po_pending")
+    cache_key = _tk(tenant, "po_pending_v2")
     cached = cache.get(cache_key)
     submissions = submission_store.list_submissions()
     if cached and not submissions:
@@ -574,7 +577,7 @@ def po_submit(body: dict, request: Request):
     }
     entry = submission_store.add_submission(record)
     # Invalidate cached PO queue for this tenant.
-    cache._cache.pop(_tk(tenant, "po_pending"), None)
+    cache._cache.pop(_tk(tenant, "po_pending_v2"), None)
     return {"ok": True, "purchase_id": entry["purchase_id"], "submitted_at": entry["submitted_at"]}
 
 
@@ -601,7 +604,7 @@ def approval_queue(request: Request):
 @app.get("/api/anomalies/scan")
 def anomalies_scan(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "anomalies_scan")
+    cache_key = _tk(tenant, "anomalies_scan_v2")
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -627,7 +630,7 @@ def supplier_overview(request: Request):
 @app.get("/api/rules/candidates")
 def rules_candidates(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "rules_candidates")
+    cache_key = _tk(tenant, "rules_candidates_v2")
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -1251,7 +1254,7 @@ def coldstart_cutoffs():
 @app.get("/api/overview/metrics")
 def overview_metrics(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "overview_metrics")
+    cache_key = _tk(tenant, "overview_metrics_v2")
     cached = cache.get(cache_key)
     if cached:
         return cached

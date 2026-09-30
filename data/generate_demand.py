@@ -97,9 +97,10 @@ BAND_EDGES = [0, 1, 2, 3, 4, 6, 8, 11, 15, 20, 27, 36, 48, 64, 85, 113, 150, 200
 
 
 def units_band(units: int | None) -> str:
-    """Bucket a unit count. Aito matches a raw number in a `where` as an
-    exact value, which no other row shares; a band is evidence it can
-    generalise across — the same reason `quotes.price_band` exists."""
+    """Bucket a unit count. Measured, a raw number in a `where` carries
+    next to no evidence (docs/aito-cheatsheet.md, "Numbers in a where");
+    a band is a value Aito can count and generalise across — the same
+    reason `quotes.price_band` exists."""
     if units is None:
         return "none"
     for lo, hi in zip(BAND_EDGES, BAND_EDGES[1:]):

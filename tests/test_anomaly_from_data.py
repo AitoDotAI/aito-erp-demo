@@ -108,3 +108,27 @@ def test_a_tiny_probability_reads_as_below_one_percent_not_zero():
     flag = evaluate_transaction(client, _po(supplier="Valio", account_code="4030",
                                             flagged_field="account_code"))
     assert "<1%" in flag.explanation and " 0%" not in flag.explanation
+
+
+DATA = __import__("pathlib").Path(__file__).parent.parent / "data"
+
+
+@pytest.mark.skipif(not (DATA / "metsa" / "purchases.json").exists(), reason="fixtures not generated")
+@pytest.mark.parametrize("tenant", sorted(DEMO_ANOMALIES_BY_TENANT))
+def test_the_seed_rows_claims_hold_on_the_fixtures(tenant):
+    """The first-time vendor has no purchases; the other two suppliers
+    have history — checked on the data that is loaded, not just at
+    runtime."""
+    import json
+    history = json.loads((DATA / tenant / "purchases.json").read_text())
+    on_file = {r["supplier"] for r in history}
+    for row in DEMO_ANOMALIES_BY_TENANT[tenant]:
+        if row["flagged_field"] == "supplier":
+            assert row["supplier"] not in on_file, f"{row['supplier']} has history on {tenant}"
+        else:
+            assert row["supplier"] in on_file, f"{row['supplier']} has no history on {tenant}"
+        if row["flagged_field"] == "account_code":
+            own = [r["account_code"] for r in history if r["supplier"] == row["supplier"]]
+            share = own.count(row["account_code"]) / len(own)
+            assert share < 0.01, (f"{row['supplier']} used {row['account_code']} on "
+                                  f"{share:.1%} of its POs; that is not unusual")

@@ -114,8 +114,8 @@ def measure_rule(client: AitoClient, rule: dict) -> dict[str, tuple[str, int, in
     a rule the data contradicts must not be shown as confident.
     """
     res = client.search("purchases", {"supplier": rule["supplier"]}, limit=50_000)
-    rows = res.get("hits") or []
-    if res.get("total") != len(rows):
+    rows = res["hits"]
+    if res["total"] != len(rows):
         raise RuntimeError(f"{rule['name']}: read {len(rows)} of {res.get('total')} purchases")
     if not rows:
         raise ValueError(f"rule {rule['name']!r}: no purchases from {rule['supplier']} to measure it on")
@@ -242,7 +242,14 @@ def predict_single(
     # at the precision history gives it; Aito's answer stands elsewhere.
     rule = next((r for r in rules_for(tenant) if r["supplier"] == invoice["supplier"]), None)
     if rule is not None:
-        for field_name, (value, right, of) in measure_rule(client, rule).items():
+        # Measured once per rule and cached: it is a whole-history read, and
+        # rule rows used to cost no Aito call at all. Stored as a list so
+        # the cache's `_queries` stamp (dicts only) cannot land inside it.
+        from src import cache
+        measured = cache.get_or_compute(
+            cache.tenant_key(tenant, f"rule_measure:{rule['name']}:{id(client)}"),
+            lambda: list(measure_rule(client, rule).items()))
+        for field_name, (value, right, of) in measured:
             setattr(prediction, field_name, value)
             setattr(prediction, f"{field_name}_confidence", round(right / of, 3))
             setattr(prediction, f"{field_name}_alternatives", [])
@@ -281,7 +288,8 @@ def compute_metrics(predictions: list[POPrediction]) -> dict:
     """Compute automation metrics from a batch of predictions."""
     total = len(predictions)
     if total == 0:
-        return {"automation_rate": 0, "avg_confidence": 0, "total": 0}
+        return {"automation_rate": 0, "avg_confidence": 0, "total": 0,
+                "rule_count": 0, "aito_count": 0, "review_count": 0}
 
     rule_count = sum(1 for p in predictions if p.source == "rule")
     aito_count = sum(1 for p in predictions if p.source == "aito")

@@ -212,7 +212,7 @@ export default function POQueuePage() {
                       disabled={tabCounts.rule === 0}
                       style={{ fontSize: 11 }}
                     >
-                      📋 Accept rule coding ({tabCounts.rule})
+                      📋 Accept rule rows ({tabCounts.rule})
                     </button>
                     <button
                       className="btn btn-secondary"
@@ -263,6 +263,11 @@ export default function POQueuePage() {
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
                               <span className={`badge ${o.rule_fields?.cost_center ? "b-green" : o.cost_center_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
                                 {o.rule_fields?.cost_center ? "📋 " : o.cost_center_confidence >= 0.5 ? "🤖 " : "? "}{o.cost_center || "—"}
+                                {o.rule_fields?.cost_center && (
+                                  <span title={o.rule_fields.cost_center} style={{ marginLeft: 4, fontSize: 9, opacity: 0.8 }}>
+                                    {Math.round(o.cost_center_confidence * 100)}%
+                                  </span>
+                                )}
                               </span>
                               {!o.rule_fields?.cost_center && o.cost_center_why && (
                                 <WhyPopover
@@ -278,6 +283,11 @@ export default function POQueuePage() {
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
                               <span className={`badge ${o.rule_fields?.account_code ? "b-green" : o.account_code_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
                                 {o.rule_fields?.account_code ? "📋 " : o.account_code_confidence >= 0.5 ? "🤖 " : "? "}{o.account_code || "—"}
+                                {o.rule_fields?.account_code && (
+                                  <span title={o.rule_fields.account_code} style={{ marginLeft: 4, fontSize: 9, opacity: 0.8 }}>
+                                    {Math.round(o.account_code_confidence * 100)}%
+                                  </span>
+                                )}
                               </span>
                               {!o.rule_fields?.account_code && o.account_code_why && (
                                 <WhyPopover
@@ -293,6 +303,11 @@ export default function POQueuePage() {
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
                               <span className={`badge ${o.rule_fields?.approver ? "b-green" : o.approver_confidence >= 0.5 ? "b-gold" : "b-gray"}`}>
                                 {o.rule_fields?.approver ? "📋 " : o.approver_confidence >= 0.5 ? "🤖 " : "? "}{o.approver || "—"}
+                                {o.rule_fields?.approver && (
+                                  <span title={o.rule_fields.approver} style={{ marginLeft: 4, fontSize: 9, opacity: 0.8 }}>
+                                    {Math.round(o.approver_confidence * 100)}%
+                                  </span>
+                                )}
                               </span>
                               {!o.rule_fields?.approver && o.approver_why && (
                                 <WhyPopover

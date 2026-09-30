@@ -23,25 +23,44 @@ def test_the_response_says_routed_by_is_synthetic():
     assert "random" in ROUTED_BY_PROVENANCE
 
 
+needs_aito = pytest.mark.skipif(
+    not __import__("os").environ.get("AITO_API_URL"),
+    reason="AITO_API_URL not set — live Aito tests are opt-in",
+)
+
+
 def _live_client():
     from src.aito_client import AitoClient
     from src.config import load_config
-    try:
-        cfg = load_config()
-        cr = cfg.creds_for("metsa")
-    except Exception as exc:   # noqa: BLE001 — no credentials means no live test
-        pytest.skip(f"no Aito credentials: {exc}")
+    cfg = load_config()
+    cr = cfg.creds_for("metsa")
     return AitoClient.from_creds(cr.api_url, cr.api_key, api_version=cfg.api_version)
 
 
+@needs_aito
 def test_evaluate_leaves_each_test_row_out():
-    """The Overview's bands evaluate the first 200 rows of the very table
+    """The Overview's bands evaluate the first rows of the very table
     Aito predicts from. That is held out only if `_evaluate` hides each
-    test row from its own prediction. Proof: a row's `purchase_id` is
-    unique, so if the row were visible, its exact supplier, description,
-    amount and month would recover it. Measured 2026-09-30: 0 of 30."""
+    test row from its own prediction.
+
+    The evidence is the row's own `purchase_id`, a unique String, so it
+    says something only while that row is visible:
+      - visible (`_predict`): the id points at its own row, and the
+        cost centre comes back right nearly every time — the control
+        that shows this probe CAN tell the two cases apart;
+      - `_evaluate`: an id never seen, so accuracy falls to the base
+        rate.
+    Measured 2026-09-30 on metsa: visible 29/30; _evaluate 0.667 = base.
+    (A first probe predicted the id itself and got 0/30 — but a visible
+    row does not recover its id either, so it proved nothing.)"""
     client = _live_client()
-    result = client.evaluate_with_cases(
-        table="purchases", predict_field="purchase_id",
-        feature_fields=["supplier", "description", "amount_eur", "order_month"], limit=30)
-    assert result["accuracy"] == 0.0
+    rows = client.search("purchases", {}, limit=30)["hits"]
+    visible = sum(
+        client.predict("purchases", {"purchase_id": r["purchase_id"]}, "cost_center",
+                       limit=1)["hits"][0]["$value"] == r["cost_center"]
+        for r in rows)
+    assert visible >= 27, f"control: a visible row's id should point at its own row ({visible}/30)"
+
+    held_out = client.evaluate_with_cases(
+        table="purchases", predict_field="cost_center", feature_fields=["purchase_id"], limit=30)
+    assert held_out["accuracy"] <= held_out["baseAccuracy"] + 0.05

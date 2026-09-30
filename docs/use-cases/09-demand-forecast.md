@@ -30,10 +30,10 @@ POST /api/v2/_estimate
 - **`last_year_band`** — what this product sold in the same month last
   year, bucketed. Without it `_estimate` weighed every past December
   equally and lost to the seasonal naive rule by 6-9 points wherever a
-  product trended. Banded, not raw: Aito matches a raw number in a
-  `where` as an exact value no other row shares, while a band is
-  evidence it can generalise across (the same reason `quotes.price_band`
-  exists).
+  product trended. Banded, not raw: measured, a raw number in a
+  `where` carries next to no evidence, while a band is a value Aito can
+  count and generalise across (the same reason `quotes.price_band`
+  exists; see "Numbers in a where" in `docs/aito-cheatsheet.md`).
 - **`month` is deliberately absent.** It is unique per product, so it
   names a row instead of describing one.
 - `why` lists the history rows the estimate weighted; the view shows
