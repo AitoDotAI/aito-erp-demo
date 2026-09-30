@@ -50,7 +50,7 @@ import httpx
 from aito.client.v2 import AitoClientV2, AitoV2Error
 
 from src.config import ApiVersion, Config, DEFAULT_API_VERSION
-from src import timing
+from src import query_log, timing
 
 
 class AitoError(Exception):
@@ -79,6 +79,9 @@ class _TimedAitoClientV2(AitoClientV2):
 
     def request(self, method: str, path: str, query: Any = None,
                 timeout: float | None = None) -> Any:
+        # The body as the SDK sends it, after its own normalisation — what
+        # the query panes render (src/query_log.py). No headers, no host.
+        query_log.record(path, query)
         start = time.perf_counter()
         try:
             return super().request(method, path, query, timeout=timeout)
@@ -326,6 +329,7 @@ class AitoClient:
 
         Raises AitoError on non-2xx status or connection failure.
         """
+        query_log.record(path, json)
         start = time.perf_counter()
         try:
             # Timeout is set once on the pooled client (see __init__).

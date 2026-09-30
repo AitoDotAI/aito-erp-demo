@@ -32,7 +32,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.aito_client import AitoClient, AitoError
-from src import cache, timing
+from src import cache, query_log, timing
 from src.config import DEFAULT_TENANT, TENANT_IDS, TenantId, load_config
 from src.rate_limit import check_rate_limit
 
@@ -152,8 +152,9 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
             print(f"  [{tenant_id}] loaded: {key} (from cache)")
             return
         try:
-            result = compute_fn()
-            cache.set(scoped, result)
+            with query_log.recording():
+                result = compute_fn()
+                cache.set(scoped, result)
             print(f"  [{tenant_id}] computed: {key}")
         except Exception as e:
             print(f"  [{tenant_id}] error warming {key}: {e}")
@@ -325,7 +326,10 @@ async def aito_timing_middleware(request: Request, call_next):
     if not request.url.path.startswith("/api/"):
         return await call_next(request)
     timing.start_request()
-    response = await call_next(request)
+    # Every query this request sends is recorded, so whatever the endpoint
+    # caches carries them (see cache.set and src/query_log.py).
+    with query_log.recording():
+        response = await call_next(request)
     header_value = timing.render_header()
     if header_value:
         response.headers["X-Aito-Calls"] = header_value

@@ -30,6 +30,7 @@ import time
 import threading
 from typing import Any
 
+from src import query_log
 from src.aito_client import AitoClient, AitoError
 
 PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")
@@ -77,8 +78,11 @@ def get_or_compute(key: str, compute_fn, ttl: int = DEFAULT_TTL) -> Any:
         cached = get(key)
         if cached is not None:
             return cached
-        value = compute_fn()
-        set(key, value, ttl=ttl)
+        # The queries that produced the value travel with it, so a cache
+        # hit shows them too (the query panes render `_queries`).
+        with query_log.recording():
+            value = compute_fn()
+            set(key, value, ttl=ttl)
         return value
 
 # ── Layer 2: Aito persistent cache (per tenant) ───────────────────
@@ -183,7 +187,15 @@ def get(key: str) -> Any | None:
 
 
 def set(key: str, value: Any, ttl: int = DEFAULT_TTL) -> None:
-    """Write to memory and persist to the tenant's Aito in background."""
+    """Write to memory and persist to the tenant's Aito in background.
+
+    A dict value gets the queries recorded while it was computed, under
+    `_queries`, IN PLACE — the endpoint returns this same object, so the
+    first response carries them as well as every cache hit after it.
+    """
+    recorded = query_log.current()
+    if isinstance(value, dict) and "_queries" not in value and recorded:
+        value["_queries"] = query_log.capped(recorded)
     _cache[key] = (time.monotonic() + ttl, value)
 
     client = _client_for_key(key)
