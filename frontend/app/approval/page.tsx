@@ -8,6 +8,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
 import WhyPopover from "@/components/prediction/WhyPopover";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type { ApprovalResponse, ApprovalPrediction, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -26,16 +27,8 @@ const defaultPanel: AitoPanelConfig = {
     "Suggestions surface for governance review — they are not policy until promoted via " +
     "the Rule Mining workflow with explicit signoff. The audit trail records every " +
     "override and every promoted rule.",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"approval_history"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"amount"</span>: <span class="q-n">$amount</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"$supplier"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"cost_center"</span>: <span class="q-v">"$cost_center"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"approval_level"</span><br/>
-}`,
+  // Filled from the queue once it loads: no query is shown before one was sent.
+  queries: [],
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     { label: "Approval routing guide", url: "https://aito.ai/docs/guides/approval-routing" },
@@ -79,8 +72,11 @@ export default function ApprovalPage() {
     const avgConf = items.length > 0
       ? items.reduce((a, i) => a + i.confidence, 0) / items.length
       : 0;
+    // The approver prediction is the one whose `$p` the queue shows.
+    const first = findQuery(data._queries, { endpoint: "_predict", from: "purchases", target: "approver" });
     setPanel({
       ...defaultPanel,
+      queries: first ? [first] : [],
       stats: [
         { label: "Pending", value: String(items.length) },
         { label: "CFO + Board", value: String(cfo + board) },
@@ -91,6 +87,14 @@ export default function ApprovalPage() {
 
   const handleRowClick = (item: ApprovalPrediction) => {
     setSelected(item.purchase_id);
+    // Two predictions per row, both conditioned on the supplier (and
+    // category): the approver, whose `$p` is the row's confidence, then
+    // the level, which an escalation rule may override.
+    const forRow = (target: string) => findQuery(data?._queries, {
+      endpoint: "_predict", from: "purchases", target, where: { supplier: item.supplier },
+    });
+    const rowQueries = [forRow("approver"), forRow("approval_level")]
+      .filter((q): q is RecordedQuery => q !== null);
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
@@ -105,15 +109,7 @@ export default function ApprovalPage() {
         (item.escalation_reason
           ? `Escalation reason: <em>${item.escalation_reason}</em>.`
           : "No escalation required."),
-      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"approval_history"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"amount"</span>: <span class="q-n">${item.amount}</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"approval_level"</span><br/>
-}`,
+      queries: rowQueries,
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],

@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import statistics
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from src.aito_client import AitoClient
+from src.concurrency import parallel_map
 from src.demand_service import _whole_table
 
 # What a quote is judged on: the product, who quotes it and at what
@@ -132,8 +132,7 @@ def get_pricing_overview(client: AitoClient, tenant: str) -> dict:
             raise RuntimeError(f"{sku} is quoted but not in products")
         product = rows[0]   # name, category and list price from the same row as the SKU
         own = sorted((q for q in quotes if q["product_id"] == sku), key=lambda q: q["order_date"])
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            scored = list(pool.map(lambda q: score_quote(client, q, earlier.get(sku, [])), own))
+        scored = parallel_map(lambda q: score_quote(client, q, earlier.get(sku, [])), own, workers=6)
         products.append({
             "sku": sku, "name": product["name"], "category": product.get("category"),
             "list_price": product.get("unit_price"),

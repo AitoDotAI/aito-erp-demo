@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   MatchBatchResponse,
@@ -33,25 +34,8 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "returns the ranking <em>and</em> the matched product's own columns. " +
     "No mapping table, no model, no training step — the rows were " +
     "inserted and the prediction is a query.",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"invoice_lines"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: <span class="q-v">"PESUAINE 5L PYYKKI"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"billing_supplier"</span>: <span class="q-v">"Uusi Kanava Oy"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"unit_of_measure"</span>: <span class="q-v">"L"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"unit_price_eur"</span>: <span class="q-n">47.55</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"sku"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"basedOn"</span>: [<span class="q-v">"supplier"</span>],<br/>
-&nbsp;&nbsp;<span class="q-k">"config"</span>: { <span class="q-k">"ai"</span>: <span class="q-v">"and"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">5</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// sku links to products.sku, so each hit carries</span><br/>
-<span class="q-d">// the catalogue row's name, category and price.</span><br/>
-<span class="q-d">// basedOn lets a thinly-invoiced row be judged by what</span><br/>
-<span class="q-d">// its SUPPLIER's rows do — the ↳ chips in the shortlist.</span>`,
+  // Filled once a batch has run: a query this run actually sent.
+  queries: [],
   links: [
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/17-invoice-matching.md", kind: "doc" },
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
@@ -162,8 +146,10 @@ export default function MatchingPage() {
   useEffect(() => {
     if (!data?.batch) return;
     const b = data.batch;
+    const first = findQuery(data._queries, { endpoint: "_predict", from: "invoice_lines", target: "sku" });
     setPanel({
       ...DEFAULT_PANEL,
+      queries: first ? [first] : [],
       stats: [
         { label: "Batch", value: `${b.n} lines` },
         { label: "Throughput", value: `${b.rows_per_s}/s` },
@@ -175,8 +161,16 @@ export default function MatchingPage() {
   const onRow = (line: MatchedLine) => {
     setOpen(open === line.line_id ? null : line.line_id);
     const top = line.candidates[0];
+    // The one query sent for this line: its own description and supplier.
+    const sent = findQuery(data?._queries, {
+      endpoint: "_predict",
+      from: "invoice_lines",
+      target: "sku",
+      where: { description: line.description, billing_supplier: line.billing_supplier },
+    });
     setPanel({
       ...DEFAULT_PANEL,
+      queries: sent ? [sent] : [],
       stats: [
         { label: "Top candidate", value: top ? pct(top.p, 1) : "—" },
         { label: "Supplier", value: line.cold ? "never seen" : "in history" },
@@ -196,10 +190,10 @@ export default function MatchingPage() {
         `<em>P(sku | line)</em>; the teal chips are the terms Aito's ` +
         `<em>$why</em> named as evidence, the gold ones are agreements ` +
         `computed here that the database never argued. A dashed ` +
-        `<em>↳ via …</em> chip is a <em>prior</em>: the query passes ` +
-        `<em>basedOn: ["supplier"]</em>, so where a catalogue row's own ` +
-        `history was too thin to judge a factor, Aito fell back on rows ` +
-        `sharing its supplier — and reports which attribute carried it. ` +
+        `<em>↳ via …</em> chip is a <em>prior</em>: where the query below ` +
+        `passes <em>basedOn</em> and a catalogue row's own history was too ` +
+        `thin to judge a factor, Aito generalised across rows sharing the ` +
+        `attribute it names — and reports which attribute carried it. ` +
         `That is a generalisation rather than something it has seen, ` +
         `which is why it is drawn as the weaker claim it is.`,
     });

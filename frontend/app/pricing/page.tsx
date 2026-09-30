@@ -8,10 +8,10 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type {
   PricingResponse,
   PricingProduct,
-  PricedQuote,
   PricingMeasured,
   AitoPanelConfig,
 } from "@/lib/types";
@@ -21,30 +21,11 @@ import type {
 const fmtPrice = (n: number) =>
   "€ " + n.toLocaleString("fi-FI", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const recorded = (q: RecordedQuery | null) => (q ? [q] : []);
+
 const fmtPct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
 
 const signedPct = (x: number) => `${x > 0 ? "+" : ""}${x.toFixed(1)}%`;
-
-// A value as it would appear in the JSON body, made safe for the panel's
-// HTML: a supplier name must neither end the string early nor open a tag.
-const asJsonHtml = (v: string) =>
-  JSON.stringify(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-// The body the backend sends for one quote. The `where` is exactly the
-// response's `features`, filled from the quote's own row — the date is
-// not in it, because the date is what separates history from the quote.
-function estimateQuery(product: PricingProduct, quote: PricedQuote): string {
-  return (
-    `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n` +
-    `  <span class="q-k">"from"</span>: <span class="q-v">"price_reference"</span>,\n` +
-    `  <span class="q-k">"where"</span>: {\n` +
-    `    <span class="q-k">"product_id"</span>: <span class="q-v">${asJsonHtml(product.sku)}</span>,\n` +
-    `    <span class="q-k">"supplier"</span>: <span class="q-v">${asJsonHtml(quote.supplier)}</span>,\n` +
-    `    <span class="q-k">"volume"</span>: <span class="q-v">${quote.volume}</span>\n` +
-    `  },\n` +
-    `  <span class="q-k">"estimate"</span>: <span class="q-p">"unit_price"</span>\n}`
-  );
-}
 
 const PANEL_LINKS: AitoPanelConfig["links"] = [
   { label: "aito.ai/docs/estimate", url: "https://aito.ai/docs/api/estimate" },
@@ -62,11 +43,8 @@ const defaultPanel: AitoPanelConfig = {
   operation: "_estimate",
   endpoints: ["_estimate"],
   description: PANEL_DESCRIPTION,
-  query:
-    `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n` +
-    `  <span class="q-k">"from"</span>: <span class="q-v">"price_reference"</span>,\n` +
-    `  <span class="q-k">"where"</span>: { <span class="q-k">"product_id"</span>, <span class="q-k">"supplier"</span>, <span class="q-k">"volume"</span> },\n` +
-    `  <span class="q-k">"estimate"</span>: <span class="q-p">"unit_price"</span>\n}`,
+  // Filled from the loaded response: a quote's own estimate, or the first.
+  queries: [],
   links: PANEL_LINKS,
 };
 
@@ -129,9 +107,22 @@ export default function PricingPage() {
             { label: "Estimate", value: fmtPrice(quote.aito) },
             { label: "Neighbours", value: String(quote.neighbours) },
           ],
-          query: estimateQuery(product, quote),
+          // The estimate sent for this quote. The `where` is the
+          // response's `features` from the quote's own row — no date,
+          // because the date is what separates history from the quote.
+          queries: recorded(findQuery(data?._queries, {
+            endpoint: "_estimate",
+            from: "price_reference",
+            target: "unit_price",
+            where: { product_id: product.sku, supplier: quote.supplier, volume: quote.volume },
+          })),
         }
-      : defaultPanel;
+      : {
+          ...defaultPanel,
+          queries: recorded(findQuery(data?._queries, {
+            endpoint: "_estimate", from: "price_reference", target: "unit_price",
+          })),
+        };
 
   if (error) {
     return (

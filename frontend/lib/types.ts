@@ -1,3 +1,5 @@
+import type { RecordedQuery, WithQueries } from "./query";
+
 /* ─── PO Queue ─── */
 export interface POPrediction {
   purchase_id: string;
@@ -39,7 +41,7 @@ export interface RecentSubmission {
   submitted_at: string | null;
 }
 
-export interface POQueueResponse {
+export interface POQueueResponse extends WithQueries {
   pos: POPrediction[];
   metrics: POMetrics;
   /** User-submitted POs from the in-memory store. Drives the
@@ -59,7 +61,7 @@ export interface SmartEntryField {
   why?: WhyExplanation;
 }
 
-export interface SmartEntryResponse {
+export interface SmartEntryResponse extends WithQueries {
   where: Record<string, string>;
   fields: SmartEntryField[];
   predicted_count: number;
@@ -79,7 +81,7 @@ export interface ApprovalPrediction {
   why?: WhyExplanation;
 }
 
-export interface ApprovalResponse {
+export interface ApprovalResponse extends WithQueries {
   approvals: ApprovalPrediction[];
 }
 
@@ -96,7 +98,7 @@ export interface AnomalyFlag {
   explanation?: string;
 }
 
-export interface AnomalyResponse {
+export interface AnomalyResponse extends WithQueries {
   anomalies: AnomalyFlag[];
 }
 
@@ -119,7 +121,7 @@ export interface DeliveryRisk {
   risk_level: string;
 }
 
-export interface SupplierResponse {
+export interface SupplierResponse extends WithQueries {
   top_suppliers: SupplierSpend[];
   /** @deprecated Renamed to `top_suppliers`; will be dropped after migration. */
   spend_overview?: SupplierSpend[];
@@ -138,7 +140,7 @@ export interface RuleCandidate {
   strength: "strong" | "review" | "weak";
 }
 
-export interface RulesResponse {
+export interface RulesResponse extends WithQueries {
   candidates: RuleCandidate[];
   summary: {
     total: number;
@@ -163,7 +165,7 @@ export interface IncompleteProduct {
   completeness: number;
 }
 
-export interface CatalogResponse {
+export interface CatalogResponse extends WithQueries {
   products: IncompleteProduct[];
   total: number;
 }
@@ -207,7 +209,7 @@ export interface PricingMeasured {
   median_flagged: number;
 }
 
-export interface PricingResponse {
+export interface PricingResponse extends WithQueries {
   cutoff: string;
   flag_margin: number;
   features: string[];
@@ -245,7 +247,7 @@ export interface DemandMeasured {
   trailing: number;
 }
 
-export interface DemandResponse {
+export interface DemandResponse extends WithQueries {
   cutoff: string;
   products: DemandProduct[];
   features: string[];
@@ -284,7 +286,7 @@ export interface WarningScore {
   caught: number;
 }
 
-export interface InventoryResponse {
+export interface InventoryResponse extends WithQueries {
   as_of: string;
   items_checked: number;
   counts: Record<"critical" | "low" | "ok" | "overstock", number>;
@@ -325,7 +327,7 @@ export interface PredictionQuality {
   bands: ConfidenceBand[];
 }
 
-export interface OverviewMetrics {
+export interface OverviewMetrics extends WithQueries {
   automation: AutomationBreakdown;
   prediction_quality: PredictionQuality[];
   learning_curve: Array<{
@@ -384,7 +386,7 @@ export interface ColdStartCutoff {
   approx_rows: number;
 }
 
-export interface ColdStartLiveResponse {
+export interface ColdStartLiveResponse extends WithQueries {
   cutoff: string;
   fields: Array<ColdStartFieldSnapshot & { total_cases: number }>;
 }
@@ -428,7 +430,7 @@ export interface SimilarItem {
   score: number;
 }
 
-export interface RecommendationOverview {
+export interface RecommendationOverview extends WithQueries {
   products: RecommendationProduct[];
   trending: TrendingItem[];
 }
@@ -456,13 +458,13 @@ export interface UtilizationSummary {
   balanced_count: number;
 }
 
-export interface UtilizationOverview {
+export interface UtilizationOverview extends WithQueries {
   rows: UtilizationRow[];
   summary: UtilizationSummary;
   project_types: string[];
 }
 
-export interface CapacityForecast {
+export interface CapacityForecast extends WithQueries {
   person: string;
   project_type: string;
   predicted_role: string | null;
@@ -520,7 +522,7 @@ export interface SuccessFactor {
   success_rate_without: number;
 }
 
-export interface PortfolioResponse {
+export interface PortfolioResponse extends WithQueries {
   kpis: ProjectKPIs;
   projects: ProjectRow[];
   success_factors: SuccessFactor[];
@@ -562,7 +564,7 @@ export interface MaterialSuggestion {
   amount_confidence: number;
   coverage: number;
 }
-export interface TaskMaterialsResponse { materials: MaterialSuggestion[] }
+export interface TaskMaterialsResponse extends WithQueries { materials: MaterialSuggestion[] }
 
 export interface GeneratedPlanResponse {
   project_type: string;
@@ -608,9 +610,9 @@ export interface AssigneeOption {
   p: number;          // confidence from `_predict assignee`
   success_p: number;  // P(success) given this assignment
 }
-export interface NextPhaseResponse { options: PhaseOption[] }
-export interface NextTasksResponse { options: TaskOption[] }
-export interface NextAssigneeResponse { options: AssigneeOption[] }
+export interface NextPhaseResponse extends WithQueries { options: PhaseOption[] }
+export interface NextTasksResponse extends WithQueries { options: TaskOption[] }
+export interface NextAssigneeResponse extends WithQueries { options: AssigneeOption[] }
 export interface PhasePurchasesResponse { purchases: PurchaseSuggestion[] }
 
 /** One candidate supplier in the editable material-PO dropdown.
@@ -624,14 +626,17 @@ export interface SupplierOption {
   avg_amount_eur: number | null;
   why: WhyExplanation | null;
 }
-export interface SwapSupplierResponse { options: SupplierOption[] }
+export interface SwapSupplierResponse extends WithQueries { options: SupplierOption[] }
 
 /* ─── Aito Panel ─── */
 export interface AitoPanelConfig {
   operation: string;
   stats?: Array<{ label: string; value: string }>;
   description: string;
-  query: string;
+  /** Queries the backend recorded while producing what is on screen
+   *  (`findQuery` over a response's `_queries`). Never written by hand;
+   *  empty when nothing on screen came from a query. */
+  queries: RecordedQuery[];
   links?: Array<{ label: string; url: string; kind?: "doc" | "github" | "external" }>;
   /** Aito endpoints used on this page — rendered as purple-tinted pills,
    * matches aito-demo's ContextPanel. */
@@ -715,7 +720,7 @@ export interface OutlookKPIs {
   overdue_eur: number;
 }
 
-export interface OutlookResponse {
+export interface OutlookResponse extends WithQueries {
   as_of: string;
   kpis: OutlookKPIs;
   months: ForecastMonth[];
@@ -823,7 +828,7 @@ export interface PlannerSalesRisk {
   quote_history: number;
 }
 
-export interface EngagementPlan {
+export interface EngagementPlan extends WithQueries {
   customer: string;
   scope: string;
   project_type: string;
@@ -852,7 +857,7 @@ export interface EngagementPlan {
   sales: PlannerSalesRisk | null;
 }
 
-export interface PlannerOptions {
+export interface PlannerOptions extends WithQueries {
   project_types: string[];
   customers_by_type: Record<string, string[]>;
   sites: string[];
@@ -998,7 +1003,7 @@ export interface MatchMeasured {
   curve: MatchCurvePoint[];
 }
 
-export interface MatchBatchResponse {
+export interface MatchBatchResponse extends WithQueries {
   lines: MatchedLine[];
   batch: MatchBatchStats | null;
   measured: MatchMeasured;

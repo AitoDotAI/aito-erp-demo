@@ -41,13 +41,13 @@ most likely to object to. Sometimes the answer is `timing`, not
 `price`, which is the case where discounting would not have helped.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from statistics import median
 
 import logging
 
 from src.aito_client import AitoClient, AitoError
+from src.concurrency import parallel_map
 from src.availability_service import (WindowAvailability,
                                       availability_in_window, month_label,
                                       month_index, restrict, role_phases,
@@ -857,10 +857,9 @@ def plan_engagement(
         # shortlist out rather than paying for it six times in series.
         people_on_shortlist = [str(h.get("$value") or h.get("person"))
                                for h in hits]
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            quality_results = dict(zip(people_on_shortlist, pool.map(
-                lambda who: _quality_for(client, who, role, project_type),
-                people_on_shortlist)))
+        quality_results = dict(zip(people_on_shortlist, parallel_map(
+            lambda who: _quality_for(client, who, role, project_type),
+            people_on_shortlist, workers=6)))
         for hit in hits:
             person = str(hit.get("$value") or hit.get("person"))
             p = float(hit.get("$p", 0.0))

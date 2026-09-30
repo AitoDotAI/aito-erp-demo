@@ -8,6 +8,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import { apiFetch, fmtAmount } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   EngagementPlan,
@@ -44,17 +45,9 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "tables structurally cannot — <em>projects</em> only contains work that " +
     "was won, so the losses, and the objection behind each one, live only in " +
     "the quote history.",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"quotes"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"customer"</span>: <span class="q-v">"City of Tampere"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"price_band"</span>: <span class="q-v">"well_over"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"competing_bid"</span>: <span class="q-n">true</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"won"</span>: <span class="q-n">false</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"loss_reason"</span><br/>
-}`,
+  // Filled once a plan comes back (`defaultPanel`): the role-mix,
+  // delivery and sales predictions that plan actually sent.
+  queries: [],
   links: [
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/18-engagement-planner.md", kind: "doc" },
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
@@ -65,6 +58,19 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     },
   ],
 };
+
+/** The overview pane for a plan: one recorded query per question the
+ *  description names — the role mix, delivery risk, and the win odds. */
+function defaultPanel(plan: EngagementPlan | null): AitoPanelConfig {
+  if (!plan) return DEFAULT_PANEL;
+  const recorded = plan._queries;
+  const queries = [
+    findQuery(recorded, { endpoint: "_predict", from: "assignments", target: "role" }),
+    findQuery(recorded, { endpoint: "_predict", from: "projects", target: "success" }),
+    findQuery(recorded, { endpoint: "_predict", from: "quotes", target: "won" }),
+  ].filter((q): q is RecordedQuery => q !== null);
+  return { ...DEFAULT_PANEL, queries };
+}
 
 const DRIVER_FIELDS: { key: string; label: string }[] = [
   { key: "contract_type", label: "Contract" },
@@ -281,38 +287,49 @@ export default function PlannerPage() {
       .finally(() => setBusy(false));
   };
 
+  // A new plan (or a new tenant) resets the pane to the plan overview.
+  useEffect(() => {
+    setPanel(defaultPanel(plan));
+  }, [plan]);
+
   const showCandidate = (role: string, c: PlannerCandidate) => {
+    // The ranking this candidate came out of — the role's own
+    // `_predict person`, with whatever `person.*` filters this seat
+    // carried — and the "did well" read asked about them alone.
+    const planType = plan?.project_type;
+    const candidateQueries = [
+      findQuery(plan?._queries, {
+        endpoint: "_predict", from: "assignments", target: "person",
+        where: { project_type: planType, role },
+      }),
+      findQuery(plan?._queries, {
+        endpoint: "_predict", from: "assignments", target: "went_well",
+        where: { person: c.person, role, project_type: planType },
+      }),
+    ].filter((q): q is RecordedQuery => q !== null);
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
       stats: [
-        { label: "Fit", value: pct(c.fit) },
+        { label: "Usual pick", value: pct(c.fit) },
+        { label: "Did well", value: pct(c.quality_p) },
         { label: "Current load", value: `${c.current_load_pct}%` },
-        { label: "Site", value: c.site },
       ],
       description:
         `<em>${c.person}</em> — ${c.title}, ${c.seniority}, ` +
         `${c.years_experience}y, based in ${c.site}. Skills on record: ` +
         `<em>${c.skills.join(", ")}</em>. ` +
         `Ranked as <em>${role}</em> on ` +
-        `<em>${projectType}</em> work. Fit is P(person | project type, role) ` +
-        `over the assignment history — how often this person is the one who ` +
-        `actually does this job. Their current allocation is ` +
+        `<em>${planType}</em> work. "Usual pick" is P(person | project type, ` +
+        `role, stack, sector) over the assignment history — how often this ` +
+        `person is the one who does work like this, not a rating of how well. ` +
+        `Any <em>person.*</em> clause in the query is a filter on the ` +
+        `candidate, applied by Aito before ranking. "Did well" asks ` +
+        `<em>went_well</em> about this person alone. Their current allocation is ` +
         `<em>${c.current_load_pct}%</em>, read from the same aggregation the ` +
         `capacity view uses, so best-fit and actually-free are visible ` +
         `together. They are often not the same person.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"assignments"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"${projectType}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"role"</span>: <span class="q-v">"${role}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"person"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// person links to people — one call returns the</span><br/>
-<span class="q-d">// ranking AND the matched person's whole row</span>`,
+      queries: candidateQueries,
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],

@@ -106,7 +106,11 @@ def get_spend_overview(client: AitoClient) -> list[SupplierSpend]:
     In production this would use Aito's aggregation or a data warehouse.
     """
     result = client.search("purchases", {}, limit=5000)
-    hits = result.get("hits", [])
+    hits = result["hits"]
+    # Totals over a truncated read would look like smaller spend, not an error.
+    if result["total"] > len(hits):
+        raise RuntimeError(f"spend overview read {len(hits)} of {result['total']} purchases; "
+                           "raise the limit or page the read")
 
     # Group by supplier
     by_supplier: dict[str, list[dict]] = {}

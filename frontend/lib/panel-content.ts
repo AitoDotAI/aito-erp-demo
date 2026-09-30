@@ -18,6 +18,7 @@
 import { referenceLinks } from "./references";
 import type { TenantId } from "./tenants";
 import type { AitoPanelConfig } from "./types";
+import { findQuery, type RecordedQuery } from "./query";
 
 interface PersonaContext {
   /** Industry term used in description copy. */
@@ -32,8 +33,6 @@ interface PersonaContext {
   approver: string;
   /** A human-readable example description for a typical PO. */
   poDescription: string;
-  /** A category that's interesting for anomaly examples. */
-  anomalyCategory: string;
   /** A supplier that sees occasional late deliveries. */
   riskySupplier: string;
 }
@@ -46,7 +45,6 @@ const CONTEXT: Record<TenantId, PersonaContext> = {
     account: "4220",
     approver: "T. Virtanen",
     poDescription: "Hydraulic seals #WS-442",
-    anomalyCategory: "production",
     riskySupplier: "NCC Suomi",
   },
   aurora: {
@@ -56,7 +54,6 @@ const CONTEXT: Record<TenantId, PersonaContext> = {
     account: "4010",
     approver: "M. Eronen",
     poDescription: "Weekly delivery — dairy",
-    anomalyCategory: "groceries",
     riskySupplier: "Posti",
   },
   studio: {
@@ -66,7 +63,6 @@ const CONTEXT: Record<TenantId, PersonaContext> = {
     account: "5530",
     approver: "A. Lahti",
     poDescription: "Adobe CC team licenses",
-    anomalyCategory: "software",
     riskySupplier: "RecruitFinland",
   },
 };
@@ -75,8 +71,12 @@ const CONTEXT: Record<TenantId, PersonaContext> = {
 // ── Page-specific panel builders ────────────────────────────────────
 
 
-export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
+/** `queries`: what the backend recorded for the queue (`_queries`). The
+ *  default pane shows the first cost-centre prediction it sent. */
+export function poQueuePanel(tenant: TenantId, recorded?: RecordedQuery[]): AitoPanelConfig {
   const c = CONTEXT[tenant];
+  const first = findQuery(recorded, { endpoint: "_predict", from: "purchases", target: "cost_center" });
+  const queries = first ? [first] : [];
   return {
     operation: "_predict",
     endpoints: ["_predict"],
@@ -91,17 +91,7 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
       `route to <em>${c.costCenter}</em> / account <em>${c.account}</em>; ` +
       `${c.approver} signs the typical case. High-confidence predictions ` +
       `auto-code; low-confidence ones queue for review.`,
-    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${c.supplier}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: <span class="q-v">"${c.poDescription}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// → cost_center: "${c.costCenter}" (p ≈ 0.94)</span>`,
+    queries,
     links: [
       { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/01-po-queue.md", kind: "doc" },
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
@@ -122,39 +112,33 @@ export interface SupplierRiskExample {
   risk_level: string;
 }
 
+/** `recorded`: what the backend sent for the overview (`_queries`). The
+ *  pane shows the one `_relate` behind the delivery-risk list. */
 export function supplierPanel(
   tenant: TenantId,
   top?: SupplierRiskExample,
+  recorded?: RecordedQuery[],
 ): AitoPanelConfig {
   const c = CONTEXT[tenant];
   const example = top?.supplier ?? c.riskySupplier;
-  const result = top
-    ? `// → ${top.supplier}: lift × ${top.lift.toFixed(2)}, ` +
-      `late ${(top.late_rate * 100).toFixed(1)}% (${top.risk_level} risk)`
-    : `// → suppliers ranked by lift`;
+  const relate = findQuery(recorded, {
+    endpoint: "_relate", from: "purchases", target: "supplier", where: { delivery_late: true },
+  });
   return {
     operation: "_relate",
     endpoints: ["_relate"],
     stats: [
-      { label: "Patterns", value: "spend × delivery" },
-      { label: "Discovery", value: "lift threshold" },
-      { label: "Scan freq.", value: "daily" },
+      { label: "Patterns", value: "supplier × late delivery" },
+      { label: "Ranked by", value: "lift" },
     ],
     description:
       `Supplier intelligence uses <em>aito.._relate</em> to find statistical ` +
-      `links between supplier attributes and delivery outcomes. For ${c.industry}, ` +
+      `links between suppliers and late delivery. For ${c.industry}, ` +
       `this surfaces patterns like &ldquo;<em>${example}</em> orders ` +
       `correlate with late delivery&rdquo; — discovered, not configured. ` +
       `The lift score tells you how much more likely the bad outcome is, ` +
       `compared to baseline.`,
-    query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"delivery_late"</span>: <span class="q-n">true</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: [<span class="q-p">"supplier"</span>, <span class="q-p">"category"</span>]<br/>
-}<br/>
-<br/>
-<span class="q-d">${result}</span>`,
+    queries: relate ? [relate] : [],
     links: [
       { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/05-supplier-intel.md", kind: "doc" },
       { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
@@ -164,35 +148,30 @@ export function supplierPanel(
 }
 
 
-export function anomaliesPanel(tenant: TenantId): AitoPanelConfig {
+/** `recorded`: what the backend sent for the scan (`_queries`). The
+ *  default pane shows the one Aito prediction in it — the account code
+ *  the mis-coded row is checked against. The other two rows are
+ *  `_search` reads, shown when their row is selected. */
+export function anomaliesPanel(tenant: TenantId, recorded?: RecordedQuery[]): AitoPanelConfig {
   const c = CONTEXT[tenant];
+  const predict = findQuery(recorded, { endpoint: "_predict", from: "purchases", target: "account_code" });
   return {
     operation: "_predict (inverse)",
-    endpoints: ["_predict"],
+    endpoints: ["_predict", "_search"],
     stats: [
-      { label: "Patterns", value: "amount × code × CC" },
+      { label: "Checks", value: "account × amount × vendor" },
       { label: "Method", value: "low p = anomaly" },
-      { label: "Coverage", value: "every PO" },
     ],
     description:
       `Anomaly detection inverts <em>aito.._predict</em>: instead of asking ` +
       `&ldquo;what's the most likely value?&rdquo; we ask &ldquo;how likely ` +
-      `is the value that's actually there?&rdquo;. A PO from ${c.supplier} ` +
-      `coded to a non-${c.costCenter} cost-centre, or a ${c.anomalyCategory} ` +
-      `purchase posted to a wildly off-pattern account, returns a low ` +
-      `probability — that's the anomaly score. No rules, no thresholds to ` +
-      `maintain.`,
-    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${c.supplier}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"category"</span>: <span class="q-v">"${c.anomalyCategory}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// p(actual) = 0.04 → flagged</span>`,
+      `is the value that's actually there?&rdquo;. For a PO from ${c.supplier}, ` +
+      `Aito predicts the account code from the supplier alone; an account ` +
+      `it gives little probability to scores high, as (1 − p) × 100. ` +
+      `Amount spikes and first-time vendors use the same score, with p ` +
+      `counted from a <em>_search</em> over the purchase history. ` +
+      `No rules, no thresholds to maintain.`,
+    queries: predict ? [predict] : [],
     links: [
       { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/04-anomaly-detection.md", kind: "doc" },
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },

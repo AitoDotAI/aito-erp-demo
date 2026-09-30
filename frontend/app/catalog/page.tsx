@@ -1,45 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Nav from "@/components/shell/Nav";
 import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type WithQueries } from "@/lib/query";
 import type { CatalogResponse, IncompleteProduct, AitoPanelConfig } from "@/lib/types";
 
-// The query the backend sends for one missing field, drawn from the row
-// itself. It never names the SKU: a unique id matches only the product
-// being filled, blank in exactly that field, and the answer collapses
-// onto it. A number is estimated from comparable products rather than
-// predicted as an exact value, and the name stays out of that `where`.
+// A number is estimated from comparable products rather than predicted
+// as an exact value, so those fields go to `_estimate`.
 const NUMERIC_FIELDS = new Set(["unit_price", "weight_kg"]);
-
-// A value as it would appear in the JSON body, made safe for the panel's
-// HTML: `TV 55"` must neither end the string early nor open a tag.
-const asJsonHtml = (v: string) =>
-  JSON.stringify(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-function catalogQuery(p: Pick<IncompleteProduct, "name" | "supplier" | "category" | "hs_code" | "unit_of_measure">, field: string): string {
-  const numeric = NUMERIC_FIELDS.has(field);
-  const context: [string, string | null][] = [
-    ["name", numeric ? null : p.name],
-    ["supplier", p.supplier],
-    ["category", p.category],
-    ["hs_code", p.hs_code],
-    ["unit_of_measure", p.unit_of_measure],
-  ];
-  const where = context
-    .filter(([k, v]) => k !== field && v != null && v !== "")
-    .map(([k, v]) => `    <span class="q-k">"${k}"</span>: <span class="q-v">${asJsonHtml(v as string)}</span>`)
-    .join(",\n");
-  const op = numeric ? "_estimate" : "_predict";
-  return `<span class="q-k">POST</span> <span class="q-v">/api/{version}/${op}</span>\n{\n` +
-    `  <span class="q-k">"from"</span>: <span class="q-v">"products"</span>,\n` +
-    `  <span class="q-k">"where"</span>: {\n${where}\n  },\n` +
-    `  <span class="q-k">"${numeric ? "estimate" : "predict"}"</span>: <span class="q-p">"${field}"</span>\n}`;
-}
 
 const defaultPanel: AitoPanelConfig = {
   operation: "_predict",
@@ -52,8 +25,10 @@ const defaultPanel: AitoPanelConfig = {
     { label: "Avg missing", value: "—" },
   ],
   description:
-    "Products with <em>missing attributes</em> block downstream workflows: quoting, customs export, warehouse picking. aito.._predict fills categorical gaps by learning from complete products in the same category, and aito.._estimate fills numbers such as price from comparable products &mdash; no rules needed.",
-  query: catalogQuery({ name: "Cable Tray 300mm", supplier: "Onninen", category: "Electrical", hs_code: null, unit_of_measure: "m" }, "hs_code"),
+    "Products with <em>missing attributes</em> block downstream workflows: quoting, customs export, warehouse picking. aito.._predict fills categorical gaps by learning from complete products in the same category, and aito.._estimate fills numbers such as price from comparable products &mdash; no rules needed.<br/><br/>Below: the read that found the incomplete rows. Select a row and apply to see a prediction query.",
+  // The list's own read, once it has loaded (see the fetch below). A
+  // row's pane shows the predictions sent for it after "Apply".
+  queries: [],
   links: [
     { label: "aito.ai/docs/predict", url: "https://aito.ai/docs/api/predict" },
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/07-catalog-intelligence.md", kind: "doc" },
@@ -79,7 +54,7 @@ interface CatalogPrediction {
   why?: WhyExplanation;
 }
 
-interface CatalogPredictionResponse {
+interface CatalogPredictionResponse extends WithQueries {
   sku: string;
   name: string;
   predictions: CatalogPrediction[];
@@ -97,6 +72,9 @@ export default function CatalogPage() {
   const [bannerOpen, setBannerOpen] = useState(true);
   const [appliedSku, setAppliedSku] = useState<string | null>(null);
   const [predictedFields, setPredictedFields] = useState<CatalogPredictionResponse | null>(null);
+  // Which row the panel is about, so a late "Apply" response for another
+  // row cannot paste its query under this one.
+  const panelSku = useRef<string | null>(null);
 
   const [bulkApplied, setBulkApplied] = useState<{ count: number; fields: number; failed: number } | null>(null);
   // What has been filled in, per SKU and field, so the TABLE shows it.
@@ -118,6 +96,23 @@ export default function CatalogPage() {
       setPredictedFields(res);
       setAppliedSku(sku);
       applyTo(sku, res.predictions);
+      // The query sent for the first field that got a real answer — a
+      // field that does not apply to the category sent nothing worth showing.
+      const shown = res.predictions.find((pr) => pr.kind !== "not_applicable");
+      const sent = shown
+        ? findQuery(res._queries, {
+            endpoint: shown.kind === "estimate" ? "_estimate" : "_predict",
+            from: "products",
+            target: shown.field,
+          })
+        : null;
+      if (panelSku.current === sku) {
+        setPanel((current) => ({
+          ...current,
+          operation: shown?.kind === "estimate" ? "_estimate" : "_predict",
+          queries: sent ? [sent] : [],
+        }));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -171,8 +166,10 @@ export default function CatalogPage() {
         const missing = data.products.reduce((a, p) => a + p.missing_count, 0);
         // Only while no row is selected: a row's own panel must not get the
         // list's stats pasted under it when a tenant switch resolves late.
+        const read = findQuery(data._queries, { endpoint: "_search", from: "products" });
         setPanel((current) => current.description !== defaultPanel.description ? current : ({
           ...defaultPanel,
+          queries: read ? [read] : [],
           stats: [
             { label: "Incomplete", value: String(data.products.length) },
             { label: "Catalogue", value: String(data.total) },
@@ -187,6 +184,7 @@ export default function CatalogPage() {
   const handleRowClick = (idx: number) => {
     const p = products[idx];
     setSelected(idx);
+    panelSku.current = p.sku;
     setAppliedSku(null);
     setPredictedFields(null);
     setPanel({
@@ -197,8 +195,8 @@ export default function CatalogPage() {
         { label: "Completeness", value: `${Math.round(p.completeness * 100)}%` },
         { label: "Category", value: p.category ?? "—" },
       ],
-      description: `<strong>${p.name}</strong> (${p.sku}) is missing ${p.missing_count} field(s): <em>${p.missing_fields.join(", ")}</em>.<br/><br/>Completeness: ${Math.round(p.completeness * 100)}%.<br/><br/>aito.._predict learns from <em>${p.category ?? "similar"}</em> products with complete data to fill these gaps with no manual rules.`,
-      query: catalogQuery(p, p.missing_fields[0] ?? "hs_code"),
+      description: `<strong>${p.name}</strong> (${p.sku}) is missing ${p.missing_count} field(s): <em>${p.missing_fields.join(", ")}</em>.<br/><br/>Completeness: ${Math.round(p.completeness * 100)}%.<br/><br/>aito.._predict learns from <em>${p.category ?? "similar"}</em> products with complete data to fill these gaps with no manual rules. <em>Apply</em> sends the queries; the first one appears here.`,
+      queries: [],
       links: [
         { label: "aito.ai/docs/predict", url: "https://aito.ai/docs/api/predict" },
       ],

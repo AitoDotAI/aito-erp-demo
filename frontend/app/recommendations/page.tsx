@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type RecordedQuery, type WithQueries } from "@/lib/query";
 import type {
   AitoPanelConfig,
   RecommendationOverview,
@@ -32,13 +33,8 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "products each anchor is really bought with as often &mdash; parity, not better. " +
     "<em>Similar products</em> is a <em>_search</em> over the anchor's category, " +
     "scored here on supplier and price &mdash; a hand-weighted rule, not a prediction.",
-  query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"baskets"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"products"</span>: { <span class="q-k">"$has"</span>: <span class="q-v">"SKU-…"</span> } },<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: <span class="q-p">"products"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">60</span><br/>
-}`,
+  // Filled once an anchor's lists load: the queries sent for that anchor.
+  queries: [],
   links: [
     { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
     { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
@@ -59,6 +55,8 @@ export default function RecommendationsPage() {
   const [anchorSku, setAnchorSku] = useState<string | null>(null);
   const [crossSell, setCrossSell] = useState<CrossSellItem[]>([]);
   const [similar, setSimilar] = useState<SimilarItem[]>([]);
+  // What the backend sent for the two lists of the current anchor.
+  const [recorded, setRecorded] = useState<RecordedQuery[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
   const [filter, setFilter] = useState("");
   const [panel, setPanel] = useState<AitoPanelConfig>(DEFAULT_PANEL);
@@ -82,16 +80,17 @@ export default function RecommendationsPage() {
     if (!anchorSku) return;
     setRecsLoading(true);
     Promise.all([
-      apiFetch<{ items: CrossSellItem[] }>(
+      apiFetch<{ items: CrossSellItem[] } & WithQueries>(
         `/api/recommendations/cross-sell?sku=${encodeURIComponent(anchorSku)}`,
       ),
-      apiFetch<{ items: SimilarItem[] }>(
+      apiFetch<{ items: SimilarItem[] } & WithQueries>(
         `/api/recommendations/similar?sku=${encodeURIComponent(anchorSku)}`,
       ),
     ])
       .then(([cs, sim]) => {
         setCrossSell(cs.items);
         setSimilar(sim.items);
+        setRecorded([...(cs._queries ?? []), ...(sim._queries ?? [])]);
       })
       .catch((e) => setError(e.message))
       .finally(() => setRecsLoading(false));
@@ -105,8 +104,21 @@ export default function RecommendationsPage() {
   // Update Aito panel whenever the anchor changes.
   useEffect(() => {
     if (!anchorProduct) return;
+    // The lift query for this anchor, and the category read the
+    // similar-products rule scores. The per-SKU lookups that fill in
+    // names are left out: they carry no inference.
+    const together = findQuery(recorded, {
+      endpoint: "_relate",
+      from: "baskets",
+      target: "products",
+      where: { products: { $has: anchorProduct.sku } },
+    });
+    const sameCategory = anchorProduct.category
+      ? findQuery(recorded, { endpoint: "_search", from: "products", where: { category: anchorProduct.category } })
+      : null;
     setPanel({
       ...DEFAULT_PANEL,
+      queries: [together, sameCategory].filter((q): q is RecordedQuery => q !== null),
       stats: [
         { label: "Anchor", value: anchorProduct.name.slice(0, 18) },
         { label: "Cross-sell", value: String(crossSell.length) },
@@ -125,7 +137,7 @@ export default function RecommendationsPage() {
           : "") +
         `Both lists update on every anchor change &mdash; no precomputed batch.`,
     });
-  }, [anchorProduct, crossSell, similar]);
+  }, [anchorProduct, crossSell, similar, recorded]);
 
   const filteredProducts = useMemo(() => {
     if (!overview) return [];

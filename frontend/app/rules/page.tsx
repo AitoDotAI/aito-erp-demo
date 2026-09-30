@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery } from "@/lib/query";
 import type { RulesResponse, RuleCandidate, AitoPanelConfig } from "@/lib/types";
 
 const defaultPanel: AitoPanelConfig = {
@@ -23,19 +24,8 @@ const defaultPanel: AitoPanelConfig = {
     "data as <strong>candidates for governance review</strong>. Nothing is promoted to policy " +
     "without an explicit human signoff. The lift and support columns let an auditor judge " +
     "whether a candidate is statistically meaningful before it becomes a hardcoded rule.",
-  query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {},<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: [<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-p">"cost_center"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-p">"account_code"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-p">"approver"</span><br/>
-&nbsp;&nbsp;],<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"$p"</span>: { <span class="q-k">"$gt"</span>: <span class="q-n">0.85</span> }<br/>
-&nbsp;&nbsp;}<br/>
-}`,
+  // Filled with the query behind the top candidate once the list loads.
+  queries: [],
   links: [
     { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
     { label: "Rule lifecycle guide", url: "https://aito.ai/docs/guides/rule-mining" },
@@ -43,6 +33,19 @@ const defaultPanel: AitoPanelConfig = {
     { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/rulemining_service.py", kind: "github" },
   ],
 };
+
+/** The `_relate` that produced this candidate: one query per condition
+ *  value (a supplier or a category), relating it to the predicted field. */
+function ruleQuery(data: RulesResponse | null, rule: RuleCandidate | undefined) {
+  if (!rule) return [];
+  const q = findQuery(data?._queries, {
+    endpoint: "_relate",
+    from: "purchases",
+    target: rule.predicted_field,
+    where: { [rule.condition_field]: rule.condition_value },
+  });
+  return q ? [q] : [];
+}
 
 export default function RulesPage() {
   const { tenantId } = useTenant();
@@ -70,6 +73,7 @@ export default function RulesPage() {
         { label: "Strong", value: String(data.summary?.strong ?? data.candidates.filter(c => c.strength === "strong").length) },
         { label: "Min support", value: String(data.summary.min_support) },
       ],
+      queries: ruleQuery(data, data.candidates[0]),
     });
   }, [data]);
 
@@ -92,18 +96,7 @@ export default function RulesPage() {
           : rule.strength === "weak"
           ? "Weak candidate — confidence too low; do not promote without more data."
           : "Review candidate — moderate signal; needs subject-matter judgement before promotion."),
-      query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-p">"${rule.condition_field}"</span>: <span class="q-v">"${rule.condition_value}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"relate"</span>: <span class="q-p">"${rule.predicted_field}"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// Confidence: ${Math.round(rule.confidence * 100)}%</span><br/>
-<span class="q-d">// Support: ${rule.support}</span><br/>
-<span class="q-d">// Lift: ${rule.lift.toFixed(1)}x</span>`,
+      queries: ruleQuery(data, rule),
       links: [
         { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
         { label: "Rule lifecycle guide", url: "https://aito.ai/docs/guides/rule-mining" },

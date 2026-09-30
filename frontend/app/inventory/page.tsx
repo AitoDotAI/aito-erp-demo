@@ -7,6 +7,7 @@ import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type { InventoryResponse, StockCheck, WarningScore, AitoPanelConfig } from "@/lib/types";
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -30,20 +31,18 @@ const fmtDaily = (n: number) => n.toFixed(2);
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-// A value as it would appear in the JSON body, made safe for the panel's HTML.
-const asJsonHtml = (v: string) => escapeHtml(JSON.stringify(v));
-
-// The forecast body the backend sent for one item, read from the
-// response rather than rebuilt here, so the panel cannot drift from it.
-function forecastQuery(item: StockCheck): string {
-  const where = Object.entries(item.where)
-    .map(([k, v]) => `    <span class="q-k">"${escapeHtml(k)}"</span>: <span class="q-v">${asJsonHtml(v)}</span>`)
-    .join(",\n");
-  return `<span class="q-k">POST</span> <span class="q-v">/api/{version}/_estimate</span>\n{\n` +
-    `  <span class="q-k">"from"</span>: <span class="q-v">"monthly_demand"</span>,\n` +
-    `  <span class="q-k">"where"</span>: {\n${where}\n  },\n` +
-    `  <span class="q-k">"estimate"</span>: <span class="q-p">"units_sold"</span>\n}`;
+// The forecast the backend sent for one item, matched on the `where`
+// the response reports for it, so the panel cannot drift from it.
+function forecastQuery(data: InventoryResponse, item: StockCheck): RecordedQuery | null {
+  return findQuery(data._queries, {
+    endpoint: "_estimate",
+    from: "monthly_demand",
+    target: "units_sold",
+    where: item.where,
+  });
 }
+
+const present = (qs: (RecordedQuery | null)[]) => qs.filter((q): q is RecordedQuery => q !== null);
 
 const panelDescription =
   "Will what is on the shelf, plus what lands within the lead time, cover demand until a new order could arrive? " +
@@ -70,10 +69,14 @@ function panelFor(data: InventoryResponse | null, item: StockCheck | null): Aito
         ]
         : [{ label: "Critical", value: "—" }, { label: "Low", value: "—" }, { label: "Overstock", value: "—" }],
       description: panelDescription,
-      query: data && data.items.length > 0
-        ? forecastQuery(data.items[0])
-        // Before the first response there is no real query to show.
-        : "",
+      // The first item's forecast and the read of the synthetic stock
+      // table. Before the first response there is no real query to show.
+      queries: data
+        ? present([
+          data.items.length > 0 ? forecastQuery(data, data.items[0]) : null,
+          findQuery(data._queries, { endpoint: "_search", from: "stock" }),
+        ])
+        : [],
     };
   }
   const cover = item.days_of_cover === null ? "unbounded (no demand forecast)" : `${item.days_of_cover} days`;
@@ -91,7 +94,7 @@ function panelFor(data: InventoryResponse | null, item: StockCheck | null): Aito
       `Aito says <em>${item.aito_short ? "will run short" : "covered"}</em>; the trailing rule says <em>${item.rule_short ? "will run short" : "covered"}</em>. ` +
       `At the held-out month's actual sales rate it <em>${item.actually_short ? "would not last the lead time" : "would last the lead time"}</em>.` +
       `<br/><br/>${panelDescription}`,
-    query: forecastQuery(item),
+    queries: present([forecastQuery(data, item)]),
   };
 }
 

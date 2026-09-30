@@ -8,6 +8,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
 import { anomaliesPanel } from "@/lib/panel-content";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type { AnomalyResponse, AnomalyFlag, AitoPanelConfig } from "@/lib/types";
 
 function ringClass(score: number): string {
@@ -17,10 +18,9 @@ function ringClass(score: number): string {
 }
 
 // Each anomaly type runs a different Aito call (see src/anomaly_service.py).
-// The panel mirrors what the backend actually executes, not a generic
-// `_evaluate` placeholder — `_evaluate` is for batch accuracy testing,
-// never used by this view.
-function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
+// The pane shows the bodies the backend recorded for THIS row — matched
+// on the row's supplier — so it is what was sent, not a template.
+function buildRowPanel(item: AnomalyFlag, recorded: RecordedQuery[] | undefined): AitoPanelConfig {
   const stats = [
     { label: "Score", value: `${item.anomaly_score}` },
     { label: "Flagged field", value: item.flagged_field },
@@ -31,25 +31,25 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
     `Field <em>${item.flagged_field}</em> scored <em>${item.anomaly_score}</em>. ` +
     `Expected: <em>${item.expected_value}</em>, actual: <em>${item.actual_value}</em>.` +
     (item.explanation ? ` ${item.explanation}.` : "");
+  const bySupplier = { supplier: item.supplier };
 
   if (item.flagged_field === "supplier") {
+    // Two reads: this vendor's history (checked empty), then the size of
+    // the whole purchase history, which is the only query with no clause.
+    const vendor = findQuery(recorded, { endpoint: "_search", from: "purchases", where: bySupplier });
+    const all = (recorded ?? []).find((q) =>
+      q.endpoint === "_search" && q.body.from === "purchases"
+      && Object.keys((q.body.where ?? {}) as Record<string, unknown>).length === 0) ?? null;
     return {
       operation: "_search",
       endpoints: ["_search"],
       stats,
       description:
         baseDescription +
-        ` <strong>Unknown-vendor check</strong>: a <em>_search</em> for prior POs ` +
-        `from this supplier returns no hits, so the row is flagged with a ` +
-        `high baseline anomaly score.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">1</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// hits = [] → unknown vendor → score ${item.anomaly_score}</span>`,
+        ` <strong>First-time vendor check</strong>: a <em>_search</em> for ` +
+        `prior POs from this supplier must return none (the backend raises ` +
+        `if it finds any), and p = 1 / (purchases on file + 1).`,
+      queries: [vendor, all].filter((q): q is RecordedQuery => q !== null),
       links: [
         { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/04-anomaly-detection.md", kind: "doc" },
         { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
@@ -58,24 +58,17 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
   }
 
   if (item.flagged_field === "amount") {
+    const history = findQuery(recorded, { endpoint: "_search", from: "purchases", where: bySupplier });
     return {
       operation: "_search",
       endpoints: ["_search"],
       stats,
       description:
         baseDescription +
-        ` <strong>Amount-spike check</strong>: <em>_search</em> retrieves the ` +
-        `supplier's prior PO amounts; the ratio of this PO against the supplier ` +
-        `average is converted to an anomaly score in app code.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">50</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// avg(amount_eur) over hits, then</span><br/>
-<span class="q-d">// ratio = ${item.amount} / avg → score ${item.anomaly_score}</span>`,
+        ` <strong>Amount-spike check</strong>: <em>_search</em> reads every ` +
+        `prior PO from this supplier; p is the share at least this large, ` +
+        `smoothed as (k + 1) / (n + 1), computed in app code.`,
+      queries: history ? [history] : [],
       links: [
         { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
       ],
@@ -85,6 +78,9 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
   // Categorical anomaly (account_code, cost_center, …): real inverse
   // _predict — pull the predicted distribution, look up the actual
   // value's probability, score = (1 − p) × 100.
+  const predict = findQuery(recorded, {
+    endpoint: "_predict", from: "purchases", target: item.flagged_field, where: bySupplier,
+  });
   return {
     operation: "_predict (inverse)",
     endpoints: ["_predict"],
@@ -95,17 +91,7 @@ function buildRowPanel(item: AnomalyFlag): AitoPanelConfig {
       `the distribution Aito would predict for <em>${item.flagged_field}</em> ` +
       `given this supplier; the actual value <em>${item.actual_value}</em> ` +
       `received low probability mass, so the row is flagged.`,
-    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"supplier"</span>: <span class="q-v">"${item.supplier}"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"${item.flagged_field}"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// p(${item.flagged_field}=${item.actual_value}) ≈ ${(
-  (100 - item.anomaly_score) / 100
-).toFixed(2)}</span><br/>
-<span class="q-d">// score = (1 − p) × 100 = ${item.anomaly_score}</span>`,
+    queries: predict ? [predict] : [],
     links: [
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
     ],
@@ -133,7 +119,7 @@ export default function AnomaliesPage() {
   // Re-tone whenever data loads OR the tenant changes — persona
   // description swaps to the new industry, live stats stay intact.
   useEffect(() => {
-    const base = anomaliesPanel(tenantId);
+    const base = anomaliesPanel(tenantId, data?._queries);
     if (!data) {
       setPanel(base);
       return;
@@ -161,7 +147,7 @@ export default function AnomaliesPage() {
 
   const handleRowClick = (item: AnomalyFlag) => {
     setSelected(item.purchase_id);
-    setPanel(buildRowPanel(item));
+    setPanel(buildRowPanel(item, data?._queries));
   };
 
   const anomalies = data?.anomalies ?? [];

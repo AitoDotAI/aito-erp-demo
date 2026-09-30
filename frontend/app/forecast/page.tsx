@@ -8,6 +8,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import { apiFetch, fmtAmount } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
+import { findQuery, type RecordedQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   OutlookResponse,
@@ -31,19 +32,9 @@ const DEFAULT_PANEL: AitoPanelConfig = {
     "this size, this duration, under this manager, how often did the schedule " +
     "survive? The blue bar is the schedule. The gold bar is the schedule after " +
     "that answer is applied — the same money, moved in time.",
-  query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"construction"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"manager"</span>: <span class="q-v">"M. Hakala"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"team_size"</span>: <span class="q-n">9</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"budget_eur"</span>: <span class="q-n">130400</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"duration_days"</span>: <span class="q-n">136</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"priority"</span>: <span class="q-v">"high"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"on_time"</span><br/>
-}`,
+  // Filled from the outlook response once it loads: the first on_time
+  // prediction the backend actually sent.
+  queries: [],
   links: [
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/19-revenue-outlook.md", kind: "doc" },
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
@@ -97,8 +88,10 @@ export default function ForecastPage() {
 
   useEffect(() => {
     if (!data) return;
+    const first = findQuery(data._queries, { endpoint: "_predict", from: "projects", target: "on_time" });
     setPanel({
       ...DEFAULT_PANEL,
+      queries: first ? [first] : [],
       stats: [
         { label: "In flight", value: String(data.kpis.active_count) },
         { label: "Order book", value: fmtAmount(data.kpis.order_book_eur) },
@@ -129,6 +122,12 @@ export default function ForecastPage() {
 
   const handleRowClick = (p: ProjectOutlook) => {
     setSelected(p.project_id);
+    // The two predictions behind this row's numbers, found by the
+    // project's own shape. A project that got no prediction shows none.
+    const where = { project_type: p.project_type, manager: p.manager, budget_eur: p.budget_eur };
+    const rowQueries = (["on_time", "on_budget"] as const)
+      .map((target) => findQuery(data?._queries, { endpoint: "_predict", from: "projects", target, where }))
+      .filter((q): q is RecordedQuery => q !== null);
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
@@ -145,18 +144,7 @@ export default function ForecastPage() {
         `<em>${fmtAmount(p.at_risk_eur)}</em> of it past the scheduled end. ` +
         `Open the <em>?</em> on the row for which parts of the project's ` +
         `shape drove that number.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"projects"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"project_type"</span>: <span class="q-v">"${p.project_type}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"manager"</span>: <span class="q-v">"${p.manager}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"budget_eur"</span>: <span class="q-n">${p.budget_eur}</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"on_time"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// P(on_time) = ${pct(p.on_time_p)} → ${fmtAmount(p.at_risk_eur)} slips</span>`,
+      queries: rowQueries,
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
