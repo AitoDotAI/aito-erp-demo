@@ -180,6 +180,14 @@ def get_overview(client: AitoClient, top_n_products: int = 60) -> Recommendation
     return RecommendationOverview(products=products, trending=trending_items)
 
 
+# `./do crosssell-eval`, 2026-09-30: each anchor's known companions in
+# the view's top 8, against counting co-occurrences. Restated because the
+# retail landing quotes it — both bands, not only the one at parity.
+CROSS_SELL_MEASURED = {
+    "well_bought": {"view": 55, "counting": 57, "of": 90},
+    "rarely_bought": {"view": 1, "counting": 18, "of": 90},
+}
+
 # Fewer shared baskets than this and a lift is one or two coincidences.
 MIN_TOGETHER = 3
 # `_relate` answers in lift order; ask for enough that the support filter

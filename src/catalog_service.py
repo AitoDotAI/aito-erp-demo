@@ -256,9 +256,10 @@ def predict_attributes(client: AitoClient, sku: str) -> CatalogEnrichment:
     # CATEGORY ("Speaker" -> Electronics at 96%), so it stays for
     # `_predict` and is dropped for `_estimate` below.
     #
-    # The continuous columns are left out as well: a raw price is matched
-    # as an exact categorical value, which no other product shares.
-    # `quotes.price_band` is bucketed for the same reason.
+    # The continuous columns are left out as well: measured, a raw number
+    # in a `where` carries next to no evidence (docs/aito-cheatsheet.md,
+    # "Numbers in a where"). `quotes.price_band` is bucketed for the same
+    # reason.
     for f in ["name", "supplier"] + PREDICTABLE_FIELDS:
         if f in NUMERIC_FIELDS:
             continue

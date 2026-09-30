@@ -14,9 +14,11 @@ const defaultPanel: AitoPanelConfig = {
   operation: "_predict",
   endpoints: ["_predict"],
   stats: [
-    { label: "Auto-routed", value: "71%" },
-    { label: "Escalations", value: "6" },
-    { label: "Override rate", value: "3.1%" },
+    // Filled from the queue once it loads (see the effect below). These
+    // were "71% / 6 / 3.1%", constants with no data behind them.
+    { label: "Pending", value: "—" },
+    { label: "CFO + Board", value: "—" },
+    { label: "Avg conf.", value: "—" },
   ],
   description:
     "Approval routing uses <em>aito.._predict</em> to suggest the correct approver and " +
@@ -82,7 +84,7 @@ export default function ApprovalPage() {
       stats: [
         { label: "Pending", value: String(items.length) },
         { label: "CFO + Board", value: String(cfo + board) },
-        { label: "Avg conf.", value: `${Math.round(avgConf * 100)}%` },
+        { label: "Avg conf.", value: items.length ? `${Math.round(avgConf * 100)}%` : "—" },
       ],
     });
   }, [data]);
@@ -146,26 +148,34 @@ export default function ApprovalPage() {
                     </span>
                   </div>
                 </div>
+                {/* The queue on screen, counted. "71% auto-routed", "1.4h average
+                    approval time" and "3.1% override rate" stood here as
+                    constants: there is no approval-time or override data in
+                    this demo, so those two are gone rather than measured. */}
                 <div className="kpi-row">
-                  <div className="kpi">
-                    <div className="kpi-label">Auto-routed</div>
-                    <div className="kpi-val">71%</div>
-                    <div className="kpi-sub">routed without escalation</div>
-                  </div>
                   <div className="kpi">
                     <div className="kpi-label">Approvals</div>
                     <div className="kpi-val">{approvals.length}</div>
                     <div className="kpi-sub">pending routing</div>
                   </div>
                   <div className="kpi">
-                    <div className="kpi-label">Avg Approval Time</div>
-                    <div className="kpi-val">1.4h</div>
-                    <div className="kpi-sub">from submission to approval</div>
+                    <div className="kpi-label">Routed by prediction</div>
+                    <div className="kpi-val">{approvals.filter((a) => !a.escalation_reason).length}</div>
+                    <div className="kpi-sub">no policy rule escalated them</div>
                   </div>
                   <div className="kpi">
-                    <div className="kpi-label">Override Rate</div>
-                    <div className="kpi-val">3.1%</div>
-                    <div className="kpi-sub">predictions overridden</div>
+                    <div className="kpi-label">Escalated by rule</div>
+                    <div className="kpi-val">{approvals.filter((a) => a.escalation_reason).length}</div>
+                    <div className="kpi-sub">a spend policy applies</div>
+                  </div>
+                  <div className="kpi">
+                    <div className="kpi-label">Avg Confidence</div>
+                    <div className="kpi-val">
+                      {approvals.length
+                        ? `${Math.round((approvals.reduce((a, i) => a + i.confidence, 0) / approvals.length) * 100)}%`
+                        : "—"}
+                    </div>
+                    <div className="kpi-sub">across the queue</div>
                   </div>
                 </div>
 

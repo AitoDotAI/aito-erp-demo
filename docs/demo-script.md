@@ -27,9 +27,11 @@ enough that the Aito free tier handles it.
 
 **Open:** `/po-queue/`
 
-**Say:** "47 POs received today, 14 still unrouted. Two are handled by a
-hardcoded rule — Elenia is always Facilities, Telia is always IT. The
-others go to Aito.
+**Say:** "These are the POs waiting to be coded. A few suppliers have a
+rule — Elenia's POs go to account 6110, and the row says the rule was
+right on 140 of 145. The rule only sets what history bears out; the
+cost centre and approver are still Aito's, so most rule rows read
+'Rule, check approver'. Everything else goes to Aito.
 
 > Click `?` next to *Production* on the Wärtsilä row (PO-7842).
 

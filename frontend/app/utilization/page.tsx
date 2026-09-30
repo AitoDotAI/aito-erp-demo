@@ -20,7 +20,6 @@ const DEFAULT_PANEL: AitoPanelConfig = {
   stats: [
     { label: "Tables", value: "assignments + projects" },
     { label: "Target", value: "role / allocation_pct" },
-    { label: "Latency", value: "30-80ms" },
   ],
   description:
     "Utilisation rolls up active <em>assignments × allocation_pct</em> per " +

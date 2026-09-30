@@ -18,6 +18,10 @@ export interface POPrediction {
   cost_center_why?: WhyExplanation;
   account_code_why?: WhyExplanation;
   approver_why?: WhyExplanation;
+  /** Fields a rule decided, each with "rule …: right on M of T POs". */
+  rule_fields: Partial<Record<"cost_center" | "account_code" | "approver", string>>;
+  /** "Rule", "Rule, check approver", "Aito" or "Review". */
+  status_label: string;
 }
 
 export interface POMetrics {
@@ -141,6 +145,7 @@ export interface RulesResponse {
     strong: number;
     review: number;
     weak: number;
+    min_support: number;
   };
 }
 
@@ -341,6 +346,8 @@ export interface OverviewMetrics {
     baseline_accuracy?: number;
     accuracy_gain?: number;
   };
+  /** Which figures describe the demo data generator rather than Aito. */
+  provenance: { routed_by: string };
 }
 
 /* ─── Cold-start snapshot ─── */

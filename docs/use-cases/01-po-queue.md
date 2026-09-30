@@ -28,31 +28,20 @@ visualization and a `?` button that opens the full `$why` decomposition.
 - 21% automation ceiling typical for rule-only systems
 
 **With Aito:**
-- Hardcoded rules cover known deterministic cases (Telia, Elenia)
+- Rules cover what a supplier's history bears out — Elenia → account
+  6110 (right on 140 of 145 POs), Telia → 5510 and approver J. Lehtinen —
+  and show that count instead of a flat 99%
 - Aito `_predict` covers the long tail — every supplier with history
 - `$why` shows exactly why each prediction was made
 - 70%+ realistic auto-coding ceiling on real SMB data
 
 ### Implementation
 
-The PO service in `src/po_service.py` runs a hybrid rules-then-Aito flow:
+The PO service in `src/po_service.py` asks Aito for all three fields,
+then lets a supplier rule override only the fields it measurably decides:
 
 ```python
-def predict_single(client: AitoClient, invoice: dict) -> POPrediction:
-    """Predict cost_center, account_code, and approver for a single PO."""
-    # 1. Check hardcoded rules first (deterministic patterns)
-    for rule in RULES:
-        if rule["match"](invoice):
-            return POPrediction(
-                source="rule",
-                confidence=0.99,
-                cost_center=rule["cost_center"],
-                account_code=rule["account_code"],
-                approver=rule["approver"],
-                ...
-            )
-
-    # 2. Fall back to Aito predictions for the long tail
+def predict_single(client: AitoClient, invoice: dict, tenant: str | None = None) -> POPrediction:
     where = {"supplier": invoice["supplier"]}
     if invoice.get("description"):
         where["description"] = invoice["description"]
@@ -60,20 +49,22 @@ def predict_single(client: AitoClient, invoice: dict) -> POPrediction:
     cc_result = client.predict("purchases", where, "cost_center", limit=10)
     ac_result = client.predict("purchases", where, "account_code", limit=10)
     ap_result = client.predict("purchases", where, "approver", limit=10)
+    prediction = POPrediction(...)          # top hit, $p, $why and alternatives per field
 
-    # Each result includes $p, feature (predicted value), $why, and alternatives
-    cc_top = cc_result["hits"][0]
-    overall = min(cc_top["$p"], ac_top["$p"], ap_top["$p"])
-    source = "review" if overall < REVIEW_THRESHOLD else "aito"   # 0.75
+    # A rule sets only the fields its supplier's history bears out at
+    # RULE_MIN_PRECISION (0.90), at the precision measured — never a flat 0.99.
+    rule = next((r for r in rules_for(tenant) if r["supplier"] == invoice["supplier"]), None)
+    if rule is not None:
+        for field_name, (value, right, of) in measure_rule(client, rule).items():
+            setattr(prediction, field_name, value)
+            setattr(prediction, f"{field_name}_confidence", round(right / of, 3))
+            prediction.rule_fields[field_name] = f"rule {rule['name']}: right on {right} of {of} POs"
 
-    return POPrediction(
-        source=source,
-        cost_center=cc_top["feature"],
-        cost_center_confidence=cc_top["$p"],
-        cost_center_alternatives=extract_alternatives(cc_result["hits"]),
-        cost_center_why=process_factors(cc_top["$why"], cc_top["$p"]),
-        ...
-    )
+    # The weakest field decides, for rule rows and Aito rows alike.
+    prediction.confidence = min(prediction.cost_center_confidence,
+                                prediction.account_code_confidence,
+                                prediction.approver_confidence)
+    ...
 ```
 
 The `_predict` query shape:

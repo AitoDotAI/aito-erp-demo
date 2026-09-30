@@ -13,9 +13,10 @@ const defaultPanel: AitoPanelConfig = {
   operation: "_relate",
   endpoints: ["_relate"],
   stats: [
-    { label: "Candidates", value: "12" },
-    { label: "Strong", value: "4" },
-    { label: "Min support", value: "20" },
+    // Filled from the response once it loads (see the effect below).
+    { label: "Candidates", value: "—" },
+    { label: "Strong", value: "—" },
+    { label: "Min support", value: "—" },
   ],
   description:
     "Rule mining uses <em>aito.._relate</em> to surface recurring patterns in procurement " +
@@ -67,7 +68,7 @@ export default function RulesPage() {
       stats: [
         { label: "Candidates", value: String(data.summary?.total ?? data.candidates.length) },
         { label: "Strong", value: String(data.summary?.strong ?? data.candidates.filter(c => c.strength === "strong").length) },
-        { label: "Min support", value: "10" },
+        { label: "Min support", value: String(data.summary.min_support) },
       ],
     });
   }, [data]);

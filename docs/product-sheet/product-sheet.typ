@@ -113,7 +113,7 @@ Aito is a predictive database. Load your transaction history; query for predicti
 
 = Predictive PO Coding
 
-Pending POs land in the queue with cost center, account code, and approver predicted from history. Hardcoded rules cover the deterministic patterns (Telia → IT/5510); Aito's `_predict` covers the long tail. Confidence-tier visualisation flags low-confidence rows for review before they post.
+Pending POs land in the queue with cost center, account code, and approver predicted from history. Rules set only the fields a supplier's history bears out, and say how often (Elenia → account 6110, right on 140 of 145 POs); Aito's `_predict` covers everything else. Confidence-tier visualisation flags low-confidence rows for review before they post.
 
 #image("screenshots/01-po-queue.png", width: 100%)
 

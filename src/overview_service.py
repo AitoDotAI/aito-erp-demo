@@ -100,6 +100,19 @@ class PredictionQuality:
         }
 
 
+# `routed_by` is drawn by data/generate_personas.py from a fixed random
+# mix, independent of the purchase, so every figure counted from it
+# describes the fixture, not Aito. Shipped with the response so the page
+# says so next to those figures.
+ROUTED_BY_PROVENANCE = (
+    "routed_by is a synthetic label: the demo's data generator draws it "
+    "at random from a fixed mix, independent of the purchase. The "
+    "automation rate, POs automated and the learning curve count it, so "
+    "they show how the demo data was made, not what Aito achieved. The "
+    "accuracy figures are measured, on held-out rows."
+)
+
+
 @dataclass
 class OverviewMetrics:
     automation: AutomationBreakdown
@@ -113,6 +126,7 @@ class OverviewMetrics:
             "prediction_quality": [q.to_dict() for q in self.prediction_quality],
             "learning_curve": self.learning_curve,
             "summary": self.summary,
+            "provenance": {"routed_by": ROUTED_BY_PROVENANCE},
         }
 
 

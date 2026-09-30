@@ -29,7 +29,9 @@ const config: VerticalEntryConfig = {
       href: "/demand",
       pitch:
         "_estimate forecasts six held-out months, shown next to what actually " +
-        "sold, last year and the trailing reorder rule.",
+        "sold, last year and the trailing reorder rule. On Aurora it misses by " +
+        "18.8% against the reorder rule's 24.0% — and against 17.7% for plain " +
+        "\"same month last year\", which it does not beat.",
       stat: "22% less error than the reorder rule",
     },
     {
@@ -44,7 +46,9 @@ const config: VerticalEntryConfig = {
       href: "/recommendations",
       pitch:
         "Bought together: one _relate over baskets, ranked by lift, with the " +
-        "basket counts behind every ratio.",
+        "basket counts behind every ratio. At parity with counting on " +
+        "well-bought products (55/90 vs 57/90). On rarely bought ones counting " +
+        "finds 18/90 and the view 1/90.",
       stat: "at parity with counting",
     },
   ],

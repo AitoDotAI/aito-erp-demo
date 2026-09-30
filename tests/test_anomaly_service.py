@@ -7,7 +7,10 @@ from src.anomaly_service import (
 
 
 def _client_returning_low_p_for_actual(actual_value, p=0.02):
-    """Client where the actual value has very low predicted probability."""
+    """Client where the actual value has very low predicted probability.
+    `search` answers with a real count: a MagicMock would answer the
+    "has this supplier any history" check with a truthy Mock and the
+    check would never be exercised."""
     client = MagicMock()
     client.predict.return_value = {
         "hits": [
@@ -15,6 +18,7 @@ def _client_returning_low_p_for_actual(actual_value, p=0.02):
             {"$p": p, "$value": actual_value, "$why": {}},
         ]
     }
+    client.search.return_value = {"total": 12, "hits": []}
     return client
 
 
@@ -31,12 +35,10 @@ def test_evaluate_transaction_high_anomaly_score():
     client = _client_returning_low_p_for_actual("4220", p=0.03)
     transaction = {
         "purchase_id": "PO-7812",
-        "supplier": "Fazer Food Services",
-        "amount": 14200,
+        "supplier": "Wärtsilä Components",
+        "amount": 1450,
         "account_code": "4220",
         "flagged_field": "account_code",
-        "expected_value": "5710 (catering)",
-        "actual_value": "4220 (raw mat.)",
     }
     flag = evaluate_transaction(client, transaction)
     # 1 - 0.03 = 0.97 → score 97 → high
@@ -53,8 +55,6 @@ def test_evaluate_transaction_uses_predict_not_evaluate():
         "amount": 1000,
         "account_code": "4220",
         "flagged_field": "account_code",
-        "expected_value": "x",
-        "actual_value": "y",
     }
     evaluate_transaction(client, transaction)
     client.predict.assert_called_once()
@@ -65,9 +65,9 @@ def test_detect_anomalies_sorts_by_score_descending():
     client = _client_returning_low_p_for_actual("4220", p=0.03)
     transactions = [
         {"purchase_id": "PO-1", "supplier": "A", "amount": 100, "account_code": "4220",
-         "flagged_field": "x", "expected_value": "x", "actual_value": "y"},
-        {"purchase_id": "PO-2", "supplier": "B", "amount": 200, "account_code": "4220",
-         "flagged_field": "x", "expected_value": "x", "actual_value": "y"},
+         "flagged_field": "account_code"},
+        {"purchase_id": "PO-2", "supplier": "B", "amount": 200, "account_code": "5710",
+         "flagged_field": "account_code"},
     ]
     flags = detect_anomalies(client, transactions)
     assert len(flags) == 2
@@ -75,8 +75,8 @@ def test_detect_anomalies_sorts_by_score_descending():
 
 
 def test_demo_anomalies_have_required_fields():
-    """All demo anomalies must have the keys the service expects."""
-    required = {"purchase_id", "supplier", "amount", "account_code",
-                "flagged_field", "expected_value", "actual_value"}
+    """The incoming transaction only; conclusions are computed (see
+    tests/test_anomaly_from_data.py)."""
+    required = {"purchase_id", "supplier", "amount", "account_code", "flagged_field"}
     for tx in DEMO_ANOMALIES:
         assert required.issubset(tx.keys()), f"Missing keys in {tx}"

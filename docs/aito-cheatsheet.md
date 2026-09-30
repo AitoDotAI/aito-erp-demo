@@ -38,6 +38,24 @@ POST /api/v1/_predict
 - `$why` is a recursive tree of `relatedPropositionLift` nodes
 - Used in: PO Queue, Smart Entry, Approval, Catalog, Demand
 
+### Numbers in a where: next to no evidence — bucket them
+
+An earlier note here, and comments in the code, said a raw number in a
+`where` is "matched as an exact value no other row shares". Probed on
+metsa `purchases` (v2, 2.10.3), 30 rows, `_predict` of a field whose
+base rate is 67%, with the row itself visible to the query:
+
+| evidence in `where` | top-1 right |
+|---|---|
+| the row's own `purchase_id` (a unique String) | 29/30 |
+| the row's own `amount_eur` (a unique Decimal) | 20/30 = base rate |
+
+If the raw amount were an exact-match singleton it would identify the
+row the way the id does; it moved nothing. So the reason to bucket a
+number (`price_band`, `last_year_band`) is that raw it contributes
+next to nothing, not that it over-matches. A band is a value Aito can
+count.
+
 ## _relate — Discover feature relationships
 
 ```json

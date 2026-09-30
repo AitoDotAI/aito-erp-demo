@@ -1,6 +1,6 @@
 # ADR 0001: Hybrid rules + Aito routing for PO Queue
 
-**Status:** Accepted
+**Status:** Accepted, amended 2026-09-30 (see "Amendment" at the end)
 **Date:** 2026-04
 **Deciders:** Demo team
 
@@ -55,3 +55,22 @@ predictions with a gold `🤖` badge. Low-confidence Aito predictions
 - **All rules**: rejected — defeats the purpose of the demo
 - **Aito with a confidence-based bypass cache**: too clever; the
   hybrid model maps to how real ERPs evolve (rule policy + ML fill-in)
+
+## Amendment (2026-09-30): a rule decides only what it measurably decides
+
+The premise above did not survive measurement against the loaded
+history. Elenia and Telia code to 6110 / 5510 on 94-97% of their POs,
+but "Facilities" and "IT" are not cost centres in the data at all, the
+approvers the rules named were right 0 times in N for most suppliers,
+and Metsä's Elisa rule matched no purchases. Every rule row nevertheless
+showed a constant 0.99 on all three fields.
+
+So a rule now names only the fields its supplier's history bears out
+at `RULE_MIN_PRECISION` (0.90) or better; `measure_rule` counts that
+precision from the history and refuses a rule below it, and the row
+shows the count ("right on 140 of 145 POs") instead of 0.99. Every
+field a rule does not set is Aito's, and the row is judged by the same
+review bar as any other — which is why most rule rows read
+"Rule, check approver". The accounting demo's ADR 0028 made the same
+decision. The text above is kept as written; the numbers in it are the
+part that was wrong.
