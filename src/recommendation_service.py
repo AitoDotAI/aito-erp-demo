@@ -2,25 +2,19 @@
 
 Two complementary recommendation patterns from the same data:
 
-  1. **Frequently bought together** — `_recommend` against the
-     `impressions` table with `goal: {clicked: true}`. For each
-     candidate `product_id`, Aito ranks by the predicted probability
-     that the impression would be clicked given `prev_product_id`
-     (and optionally `customer_segment`). This is the same operator
-     pattern that powers help-article CTR ranking — see
-     `aito-accounting-demo/.ai/guides/07-recommend-with-goal-driven-ranking.md`.
-
-     We name the product columns in `select` (`name`, `category`, …)
-     so one call returns what the row renders — no separate `_search`
-     to fetch names.
+  1. **Frequently bought together** — `_relate` over `baskets`: which
+     products turn up in baskets that contain this one, and how many
+     times more often than in baskets at large (lift), with the basket
+     counts behind each ratio. See `get_cross_sell` for why it is not
+     goal `_recommend` or a non-exclusive `_predict`.
 
   2. **Similar products** — for a given product, find products with
      overlapping category + supplier signals via Aito's search ranked
      by attribute overlap. Same idea as Spotify's "similar artists" —
      vector similarity over attributes the database already knows.
 
-Both views also surface a **trending** ribbon: top products ranked by
-recent units sold, derived from the orders table.
+Both views also surface a **trending** ribbon: the products in the most
+baskets over the last six months.
 
 Why this matters for the demo: this is the most-used Aito capability
 in retail (and the one missing from the existing demo). Aurora
@@ -34,13 +28,21 @@ from src.aito_client import AitoClient
 
 @dataclass
 class CrossSellItem:
+    """A product bought in the same baskets as the anchor, from `_relate`.
+
+    `together` of the `anchor_baskets` that contain the anchor also contain
+    this product; `lift` is how many times more often than in baskets at
+    large. Counts travel with the ratio so a reader can see what a lift
+    rests on — 12x on 82 baskets and 12x on 3 are different claims.
+    """
     sku: str
     name: str
     category: str | None
     supplier: str | None
     unit_price: float | None
-    p_click: float           # P(clicked | prev_product_id, ...) from Aito _recommend
-    score: float             # alias for p_click — kept for UI back-compat
+    lift: float
+    together: int
+    anchor_baskets: int
 
     def to_dict(self) -> dict:
         return {
@@ -49,8 +51,9 @@ class CrossSellItem:
             "category": self.category,
             "supplier": self.supplier,
             "unit_price": self.unit_price,
-            "p_click": self.p_click,
-            "score": self.score,
+            "lift": self.lift,
+            "together": self.together,
+            "anchor_baskets": self.anchor_baskets,
         }
 
 
@@ -79,7 +82,7 @@ class TrendingItem:
     sku: str
     name: str
     category: str | None
-    units_sold: int
+    baskets: int
     months: int
 
     def to_dict(self) -> dict:
@@ -87,7 +90,7 @@ class TrendingItem:
             "sku": self.sku,
             "name": self.name,
             "category": self.category,
-            "units_sold": self.units_sold,
+            "baskets": self.baskets,
             "months": self.months,
         }
 
@@ -131,60 +134,57 @@ def _safe_search(client: AitoClient, table: str, where: dict, limit: int) -> lis
 def get_overview(client: AitoClient, top_n_products: int = 60) -> RecommendationOverview:
     """Build the recommendations landing data: a browsable product set
     plus a trending ribbon."""
-    # Pull a slice of the product catalog with category populated — these
-    # populate the picker. Skipping incomplete rows keeps the picker
-    # tidy; the catalog view already handles those.
-    products = [
-        {
-            "sku": p.get("sku"),
-            "name": p.get("name"),
+    # The picker offers the products people actually buy — the most
+    # frequent in `baskets` — because cross-sell for a product nobody
+    # buys is an empty list. It used to be the first 60 catalogue rows
+    # in SKU order, and the default anchor had no baskets at all.
+    from collections import Counter
+    from src.demand_service import _whole_table
+    basket_rows = _whole_table(client, "baskets")
+    bought = Counter(s for b in basket_rows for s in b["products"])
+    catalogue = {p["sku"]: p for p in _whole_table(client, "products")}
+    products = []
+    for sku, _ in sorted(bought.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n_products]:
+        p = catalogue.get(sku)
+        if p is None:
+            raise RuntimeError(f"{sku} is in baskets but not in products")
+        products.append({
+            "sku": sku,
+            "name": p["name"],
             "category": p.get("category"),
             "supplier": p.get("supplier"),
             "unit_price": p.get("unit_price"),
-        }
-        for p in _safe_search(client, "products", {}, top_n_products)
-        if p.get("category")
-    ]
+        })
 
-    # Trending: aggregate orders client-side. Aito _search returns rows;
-    # we sum units per product. Filter to the most recent ~6 months for
-    # a "what's hot now" framing.
-    orders = _safe_search(client, "orders", {}, 2000)
-    recent_months = sorted({o["month"] for o in orders})[-6:]
-    by_sku: dict[str, dict] = {}
-    for o in orders:
-        if o["month"] not in recent_months:
-            continue
-        sku = o["product_id"]
-        rec = by_sku.setdefault(sku, {"units": 0, "months": set()})
-        rec["units"] += int(o.get("units_sold") or 0)
-        rec["months"].add(o["month"])
-
-    # Resolve names via the catalog we already have.
-    name_lookup = {p["sku"]: p for p in products}
+    # Trending: the products in the most baskets over the last six
+    # months — the same baskets cross-sell reads, so every chip opens a
+    # list. It was units from `orders`, which is uniform noise, and most
+    # of its products had no baskets at all.
+    months = sorted({b["month"] for b in basket_rows})[-6:]
+    recent = [b for b in basket_rows if b["month"] in months]
+    in_baskets = Counter(s for b in recent for s in b["products"])
+    months_seen: dict[str, set] = {}
+    for b in recent:
+        for sku in b["products"]:
+            months_seen.setdefault(sku, set()).add(b["month"])
     trending_items: list[TrendingItem] = []
-    for sku, rec in sorted(by_sku.items(), key=lambda kv: -kv[1]["units"])[:15]:
-        prod = name_lookup.get(sku)
-        if not prod:
-            # Fallback for SKUs not in the slice we pulled — fetch directly.
-            full = _fetch_product(client, sku)
-            if not full:
-                continue
-            prod = {"name": full.get("name"), "category": full.get("category")}
+    for sku, n in sorted(in_baskets.items(), key=lambda kv: (-kv[1], kv[0]))[:15]:
+        p = catalogue.get(sku)
+        if p is None:
+            raise RuntimeError(f"{sku} is in baskets but not in products")
         trending_items.append(TrendingItem(
-            sku=sku,
-            name=prod.get("name") or sku,
-            category=prod.get("category"),
-            units_sold=rec["units"],
-            months=len(rec["months"]),
+            sku=sku, name=p["name"], category=p.get("category"),
+            baskets=n, months=len(months_seen[sku]),
         ))
 
     return RecommendationOverview(products=products, trending=trending_items)
 
 
-# The product columns a cross-sell card shows, named explicitly — see
-# get_cross_sell for why the default projection is not enough on v2.
-CROSS_SELL_FIELDS = ["name", "category", "supplier", "unit_price"]
+# Fewer shared baskets than this and a lift is one or two coincidences.
+MIN_TOGETHER = 3
+# `_relate` answers in lift order; ask for enough that the support filter
+# still leaves a full list for a well-bought anchor.
+RELATE_LIMIT = 60
 
 
 def get_cross_sell(
@@ -193,61 +193,51 @@ def get_cross_sell(
     limit: int = 8,
     customer_segment: str | None = None,
 ) -> list[CrossSellItem]:
-    """Rank products by P(click | prev_product = `product_id`).
+    """Products bought together with `product_id`, ranked by lift.
 
-    One `_recommend` call. The product columns are named in `select`,
-    so we don't need a follow-up `_search`. Optional
-    `customer_segment` adds personalisation without changing the
-    query shape — same operator, one extra `where` constraint.
+    One `_relate` over `baskets`: the condition is "the basket contains
+    the anchor", the related field is the basket's other products. It
+    replaced goal `_recommend` over impressions, which ranked products
+    seen once or twice anywhere above ones bought with the anchor
+    hundreds of times (aito-core#1525), and a non-exclusive `_predict
+    products.$feature`, which answers "how likely is X in this basket"
+    and so fills every list with the store's best-sellers. Lift asks the
+    cross-sell question: how much MORE likely, given the anchor.
+
+    Measured (`./do crosssell-eval`): on well-bought anchors it finds the
+    products each is co-bought with as often as counting co-occurrences
+    does — parity, not better. On rarely-bought anchors the support floor
+    leaves few rows, and the view shows few rather than guessing.
     """
-    where: dict = {"prev_product_id": product_id}
+    where: dict = {"products": {"$has": product_id}}
     if customer_segment:
         where["customer_segment"] = customer_segment
 
-    # Name the product columns. On v2 a `_recommend` over a link returns
-    # `$p` and `$value` per hit and NOTHING else unless the columns are
-    # selected; the linked-row expansion this code used to rely on is v1
-    # behaviour. Reading `hit["sku"]` on v2 found None on every hit, so
-    # "frequently bought together" was empty for every product while the
-    # query was answering correctly. The SKU is `$value` — it is the
-    # value being recommended — and this select works on both engines.
-    #
-    # No try/except. An empty list tells the viewer "nothing is bought
-    # with this"; a failed query has not said that, and a blanket except
-    # here is what kept this bug invisible.
-    response = client.recommend(
-        table="impressions",
-        where=where,
-        recommend_field="product_id",
-        goal={"clicked": True},
-        select=["$p", "$value", *CROSS_SELL_FIELDS],
-        limit=limit + 4,   # over-fetch in case the anchor itself appears
-    )
+    response = client.relate("baskets", where, "products", limit=RELATE_LIMIT)
+
+    ranked = []
+    for hit in response.get("hits", []):
+        sku = hit["related"]["products"]
+        if sku == product_id:
+            continue   # the anchor relates to itself perfectly and says nothing
+        fs = hit["fs"]
+        if fs["fOnCondition"] < MIN_TOGETHER:
+            continue
+        ranked.append((hit["lift"], sku, int(fs["fOnCondition"]), int(fs["fCondition"])))
+    ranked.sort(key=lambda r: (-r[0], r[1]))
 
     items: list[CrossSellItem] = []
-    for hit in response.get("hits", []):
-        if hit.get("$value") == product_id:
-            # Skip the anchor — recommending a product against itself
-            # is a trivially correct but useless answer.
-            continue
-        # The columns this row cannot render without. A hit missing one
-        # is the same class of bug as the one above, so it is loud:
-        # filling in the SKU as a name would half-hide it again.
-        missing = [k for k in ("$value", "$p", "name") if hit.get(k) is None]
-        if missing:
-            raise ValueError(f"_recommend hit without {missing}: {hit}")
-        sku = hit["$value"]
+    for lift, sku, together, anchor_baskets in ranked[:limit]:
+        rows = client.search("products", {"sku": sku}, limit=1).get("hits") or []
+        if not rows:
+            raise RuntimeError(f"{sku} is in baskets but not in products")
+        p = rows[0]
         items.append(CrossSellItem(
-            sku=sku,
-            name=hit["name"],
-            category=hit.get("category"),
-            supplier=hit.get("supplier"),
-            unit_price=hit.get("unit_price"),
-            p_click=round(float(hit["$p"]), 3),
-            score=round(float(hit["$p"]), 3),
+            sku=sku, name=p["name"], category=p.get("category"),
+            supplier=p.get("supplier"), unit_price=p.get("unit_price"),
+            lift=round(float(lift), 2), together=together,
+            anchor_baskets=anchor_baskets,
         ))
-        if len(items) >= limit:
-            break
     return items
 
 

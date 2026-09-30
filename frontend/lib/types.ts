@@ -395,7 +395,7 @@ export interface TrendingItem {
   sku: string;
   name: string;
   category: string | null;
-  units_sold: number;
+  baskets: number;       // baskets containing it, last six months
   months: number;
 }
 
@@ -405,10 +405,11 @@ export interface CrossSellItem {
   category: string | null;
   supplier: string | null;
   unit_price: number | null;
-  /** P(clicked | prev_product = anchor) from Aito _recommend. */
-  p_click: number;
-  /** Same value as p_click — kept for back-compat with prior UI. */
-  score: number;
+  /** How many times more often than in baskets at large (`_relate` lift). */
+  lift: number;
+  /** Baskets containing both, of `anchor_baskets` containing the anchor. */
+  together: number;
+  anchor_baskets: number;
 }
 
 export interface SimilarItem {

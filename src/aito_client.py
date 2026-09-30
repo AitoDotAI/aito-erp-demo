@@ -167,9 +167,11 @@ def _canonical_relate_hits(response: dict, api_version: ApiVersion) -> dict:
     Two v1↔v2 differences, both in the hit body:
 
     * `related` — v1 wraps the matched value in the operator that
-      matched it (`{"supplier": {"$has": "Neste Oyj"}}`); v2 returns the
-      value directly (`{"supplier": "Neste Oyj"}`). We unwrap v1 so
-      callers read one shape.
+      matched it (`{"supplier": {"$has": "Neste Oyj"}}`); v2 returns a
+      distinct value directly (`{"supplier": "Neste Oyj"}`) but a
+      FEATURE — a member of an array or a token of a Text field — as
+      `{"products": {"$has": "SKU-1"}}`, which is the correct answer for
+      a feature. We unwrap both so callers read one shape.
     * `ps` — core `38a234a6` returns it on v2 too, so the loop below
       leaves it alone (`if "ps" in hit`). Builds before that returned
       `fs` only, and a caller reading `ps` for a percentage would see a
@@ -190,6 +192,13 @@ def _canonical_relate_hits(response: dict, api_version: ApiVersion) -> dict:
         return response
 
     for hit in response.get("hits", []):
+        related = hit.get("related")
+        if isinstance(related, dict):
+            hit["related"] = {
+                field: (matched["$has"] if isinstance(matched, dict) and set(matched) == {"$has"}
+                        else matched)
+                for field, matched in related.items()
+            }
         if "ps" in hit:
             continue
         fs = hit.get("fs", {})
@@ -703,7 +712,8 @@ class AitoClient:
                 return self._empty("recommend")
             raise
 
-    def relate(self, table: str, where: dict, relate_field: str) -> dict:
+    def relate(self, table: str, where: dict, relate_field: str,
+               limit: int | None = None) -> dict:
         """Run a _relate query to discover feature relationships.
 
         Example:
@@ -724,7 +734,7 @@ class AitoClient:
         if self._v2 is not None:
             # The SDK wraps a bare field name into the list v2 requires.
             response = self._v2_result("relate", table, lambda: self._v2.relate(
-                from_table=table, where=where, relate=relate_field))
+                from_table=table, where=where, relate=relate_field, limit=limit))
             return _canonical_relate_hits(response, self._api_version)
 
         query = {
@@ -733,6 +743,8 @@ class AitoClient:
             # v1 takes a bare field name; v2 takes a list of fields.
             "relate": relate_field,
         }
+        if limit is not None:
+            query["limit"] = limit
         try:
             response = self._request("POST", "/_relate", json=query)
         except AitoError as exc:
