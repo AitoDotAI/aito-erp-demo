@@ -200,6 +200,15 @@ export default function LandingPage() {
               </a>.
             </span>
           </div>
+          <div className="landing-foot-row">
+            <span>
+              <strong>All data is synthetic.</strong> Real company names appear
+              as suppliers and customers for recognisability only: the
+              invoices, orders, delivery records, prices and projects are
+              generated, and no real transaction, rating or affiliation is
+              implied.
+            </span>
+          </div>
           <div className="landing-foot-row landing-foot-meta">
             <a href="https://aito.ai" target="_blank" rel="noopener noreferrer">
               aito.ai →
@@ -212,7 +221,7 @@ export default function LandingPage() {
               source on GitHub →
             </a>
             <span className="landing-foot-disclaimer">
-              All data shown is fictional · no PII · API keys are read-only
+              No PII · API keys are read-only
             </span>
           </div>
         </footer>

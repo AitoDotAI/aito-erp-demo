@@ -17,6 +17,11 @@ code, and a use-case guide. The demo runs in three industry profiles —
 (commerce), **Vire Consulting** (services) — each backed by its own
 Aito DB, swap profiles in the TopBar.
 
+> **All data is synthetic.** Real company names appear as suppliers and
+> customers for recognisability only: the invoices, orders, delivery
+> records, prices and projects are generated, and no real transaction,
+> rating or affiliation is implied.
+
 > Profile switching here is for *content variety*, not a multi-tenant
 > demo. For real SaaS multi-tenancy (one DB, hundreds of tenants),
 > see the [accounting demo](https://github.com/AitoDotAI/aito-accounting-demo)

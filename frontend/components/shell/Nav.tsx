@@ -226,8 +226,15 @@ export default function Nav() {
         </nav>
       </div>
 
-      {/* "Try Aito" CTA used to live here; moved to the right-rail
-          AitoPanel to match aito-demo's ContextPanel placement. */}
+      {/* On every view, not only the landing page: sales links drop a
+          reader straight into a view, and the data names real companies
+          next to late deliveries, anomalies and overcharges. */}
+      {!collapsed && (
+        <div className="NavBar__dataNote">
+          Synthetic data. Company names are illustrative; no real
+          transactions, ratings or affiliation are implied.
+        </div>
+      )}
     </aside>
     </>
   );
