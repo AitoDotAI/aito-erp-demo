@@ -690,8 +690,8 @@ def matching_batch(request: Request, size: int = 40, workers: int = 8,
     standing rate limits do the rest.
     """
     tenant, aito = client_from_request(request)
-    return match_batch(aito, tenant, size=min(max(size, 1), 60),
-                       workers=min(max(workers, 1), 12), offset=offset)
+    return query_log.attach(match_batch(aito, tenant, size=min(max(size, 1), 60),
+                                        workers=min(max(workers, 1), 12), offset=offset))
 
 
 @app.get("/api/pricing/estimate")
@@ -814,7 +814,7 @@ def utilization_forecast(body: dict, request: Request):
     if not person or not ptype:
         return {"error": "person and project_type are required"}
     forecast = forecast_utilization_assignment(aito, person, ptype)
-    return forecast.to_dict()
+    return query_log.attach(forecast.to_dict())
 
 
 # ── Operations / Projects ────────────────────────────────────────
@@ -843,7 +843,7 @@ def planner_estimate(body: dict, request: Request):
     _, aito = client_from_request(request)
     if not body.get("project_type"):
         return {"error": "project_type is required"}
-    return estimate_effort(
+    return query_log.attach(estimate_effort(
         aito,
         project_type=str(body["project_type"]),
         scope_clarity=str(body.get("scope_clarity", "")),
@@ -852,7 +852,7 @@ def planner_estimate(body: dict, request: Request):
         customer_size=str(body.get("customer_size", "")),
         technology=str(body.get("technology", "")),
         domain=str(body.get("domain", "")),
-    ).to_dict()
+    ).to_dict())
 
 
 @app.post("/api/planner/plan")
@@ -871,7 +871,8 @@ def planner_plan(body: dict, request: Request):
     missing = [f for f in required if body.get(f) in (None, "")]
     if missing:
         return {"error": f"missing required field(s): {', '.join(missing)}"}
-    return plan_engagement(
+    # Not cached, so the queries are stamped here rather than in cache.set.
+    return query_log.attach(plan_engagement(
         aito,
         customer=str(body["customer"]),
         scope=str(body.get("scope", "")),
@@ -895,7 +896,7 @@ def planner_plan(body: dict, request: Request):
         roles_override=body.get("roles") or None,
         competing_bid=bool(body.get("competing_bid", False)),
         existing_customer=bool(body.get("existing_customer", True)),
-    ).to_dict()
+    ).to_dict())
 
 
 @app.get("/api/planner/options")
@@ -934,7 +935,7 @@ def projects_forecast(body: dict, request: Request):
     project_id = body.get("project_id")
     if not project_id:
         return {"error": "project_id is required"}
-    return forecast_for_project(aito, project_id)
+    return query_log.attach(forecast_for_project(aito, project_id))
 
 
 # ── Project Plan (Metsä — generative + matchmaking) ─────────────
@@ -957,7 +958,7 @@ def project_plan_generate(body: dict, request: Request):
         season=season,
         estimated_budget_eur=float(budget) if budget else None,
     )
-    return plan.to_dict()
+    return query_log.attach(plan.to_dict())
 
 
 @app.post("/api/project-plan/stream")
@@ -1024,7 +1025,7 @@ def project_plan_rerank(body: dict, request: Request):
     if not phase or not project_type:
         return {"error": "phase and project_type are required"}
     candidates = rerank_assignees(aito, phase, project_type, region, season)
-    return {"candidates": [c.to_dict() for c in candidates]}
+    return query_log.attach({"candidates": [c.to_dict() for c in candidates]})
 
 
 # Step-by-step walker — three small endpoints, one per "next" question.
@@ -1042,7 +1043,7 @@ def project_plan_next_phase(body: dict, request: Request):
         season=body.get("season", "summer"),
         accepted_phases=body.get("accepted_phases") or [],
     )
-    return {"options": [o.to_dict() for o in options]}
+    return query_log.attach({"options": [o.to_dict() for o in options]})
 
 
 @app.post("/api/project-plan/next-tasks")
@@ -1061,7 +1062,7 @@ def project_plan_next_tasks(body: dict, request: Request):
         season=body.get("season", "summer"),
         accepted_task_names=body.get("accepted_task_names") or [],
     )
-    return {"options": [o.to_dict() for o in options]}
+    return query_log.attach({"options": [o.to_dict() for o in options]})
 
 
 @app.post("/api/project-plan/next-assignee")
@@ -1080,7 +1081,7 @@ def project_plan_next_assignee(body: dict, request: Request):
         region=body.get("region", "Helsinki"),
         season=body.get("season", "summer"),
     )
-    return {"options": [o.to_dict() for o in options]}
+    return query_log.attach({"options": [o.to_dict() for o in options]})
 
 
 @app.post("/api/project-plan/phase-purchases")
@@ -1095,7 +1096,7 @@ def project_plan_phase_purchases(body: dict, request: Request):
     if not phase or not project_type:
         return {"error": "phase and project_type are required"}
     suggestions = predict_purchases_for_phase(aito, project_type, phase)
-    return {"purchases": [s.to_dict() for s in suggestions]}
+    return query_log.attach({"purchases": [s.to_dict() for s in suggestions]})
 
 
 @app.post("/api/project-plan/swap-supplier")
@@ -1117,7 +1118,7 @@ def project_plan_swap_supplier(body: dict, request: Request):
     if not category:
         return {"error": "category is required"}
     options = suggest_suppliers_for_category(aito, category, description=description)
-    return {"options": [o.to_dict() for o in options]}
+    return query_log.attach({"options": [o.to_dict() for o in options]})
 
 
 @app.post("/api/project-plan/task-materials")
@@ -1135,7 +1136,7 @@ def project_plan_task_materials(body: dict, request: Request):
         return {"error": "phase is required"}
     task_name = body.get("task_name")
     materials = predict_materials_for_task(aito, phase, task_name=task_name)
-    return {"materials": [m.to_dict() for m in materials]}
+    return query_log.attach({"materials": [m.to_dict() for m in materials]})
 
 
 # ── Cold start ───────────────────────────────────────────────────

@@ -32,6 +32,7 @@ def test_non_query_calls_are_not_recorded():
     with query_log.recording() as queries:
         query_log.record("/schema", None)
         query_log.record("/data/purchases/batch", [{"a": 1}])
+        query_log.record("/data/_delete", {"from": "purchases", "where": {"a": 1}})
     assert queries == []
 
 
@@ -76,3 +77,30 @@ def test_a_cached_value_keeps_the_queries_that_produced_it():
     second = cache.get_or_compute(key, compute)
     assert first["_queries"] == second["_queries"] == [
         {"endpoint": "_relate", "body": {"from": "baskets", "relate": ["products"]}}]
+
+
+def test_the_caches_own_lookup_is_not_a_query_behind_the_view():
+    """The persistent cache reads `prediction_cache` with a `_search`; a
+    pane showing that would be showing the demo's plumbing."""
+    with query_log.recording() as queries:
+        with query_log.unrecorded():
+            query_log.record("_search", {"from": "prediction_cache", "where": {"cache_key": "k"}})
+        query_log.record("_predict", {"from": "purchases", "predict": "approver"})
+    assert [q["body"]["from"] for q in queries] == ["purchases"]
+
+
+def test_an_uncached_endpoint_attaches_what_it_sent():
+    with query_log.recording():
+        query_log.record("_predict", {"from": "projects", "predict": "success"})
+        plan = query_log.attach({"team": []})
+    assert plan["_queries"][0]["body"]["predict"] == "success"
+    assert query_log.attach({"team": []}) == {"team": []}, "outside a recording nothing is stamped"
+
+
+def test_the_cap_keeps_every_shape_before_repeating_any():
+    many = [{"endpoint": "_predict", "body": {"from": "t", "predict": "person", "where": {"i": i}}}
+            for i in range(query_log.MAX_PER_SHAPE + 5)]
+    rare = {"endpoint": "_predict", "body": {"from": "t", "predict": "loss_reason"}}
+    kept = query_log.capped(many + [rare])
+    assert rare in kept, "a shape sent last must survive the total cap"
+    assert sum(q["body"]["predict"] == "person" for q in kept) == query_log.MAX_PER_SHAPE

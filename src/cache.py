@@ -152,8 +152,14 @@ def tenant_key(tenant: str | None, key: str) -> str:
     return f"{tenant}:{key}"
 
 
+# Part of every persisted key. Bump it when every response changes shape
+# at once — values persisted before `_queries` existed would otherwise
+# come back from Aito and leave the query panes empty.
+PERSISTED_SHAPE = "2026-09-30-queries"
+
+
 def _key_hash(key: str) -> str:
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
+    return hashlib.sha256(f"{PERSISTED_SHAPE}:{key}".encode()).hexdigest()[:16]
 
 
 def get(key: str) -> Any | None:
@@ -170,11 +176,12 @@ def get(key: str) -> Any | None:
     client = _client_for_key(key)
     if client is not None:
         try:
-            result = client.search(
-                CACHE_TABLE,
-                {"cache_key": _key_hash(key)},
-                limit=1,
-            )
+            with query_log.unrecorded():
+                result = client.search(
+                    CACHE_TABLE,
+                    {"cache_key": _key_hash(key)},
+                    limit=1,
+                )
             hits = result.get("hits", [])
             if hits:
                 value = json.loads(hits[0]["response_json"])
@@ -193,9 +200,7 @@ def set(key: str, value: Any, ttl: int = DEFAULT_TTL) -> None:
     `_queries`, IN PLACE — the endpoint returns this same object, so the
     first response carries them as well as every cache hit after it.
     """
-    recorded = query_log.current()
-    if isinstance(value, dict) and "_queries" not in value and recorded:
-        value["_queries"] = query_log.capped(recorded)
+    query_log.attach(value)
     _cache[key] = (time.monotonic() + ttl, value)
 
     client = _client_for_key(key)

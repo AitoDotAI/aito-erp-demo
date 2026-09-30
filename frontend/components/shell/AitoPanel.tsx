@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AitoPanelConfig } from "@/lib/types";
 import { fetchApiVersion, type ApiVersion } from "@/lib/api";
+import { queryHtml } from "@/lib/query";
 
 /** CSS variable the topbar and content read to keep their right edge
  *  flush with the panel. 320px expanded, 0 collapsed — matches the
@@ -12,16 +13,6 @@ const PANEL_WIDTH_VAR = "--aito-panel-w";
 const PANEL_WIDTH_EXPANDED = "320px";
 const PANEL_WIDTH_COLLAPSED = "0px";
 
-/** Panels print the endpoint they describe, so the version in that
- *  path has to be the one the backend is actually on. Snippets write
- *  `{version}` and it is substituted here — one place, rather than a
- *  literal in nineteen files that drifts the next time we cut over.
- *  The placeholder is deliberately not a real version: a page file
- *  reading `/api/v1/` while the screen said v2 is how this was missed.
- */
-function renderQuery(html: string, version: ApiVersion): string {
-  return html.split("{version}").join(version);
-}
 
 interface AitoPanelProps {
   config: AitoPanelConfig;
@@ -83,12 +74,15 @@ export default function AitoPanel({ config }: AitoPanelProps) {
         </div>
       )}
 
-      {config.query && (
+      {/* Recorded by the backend, not written by the page (lib/query.ts).
+          The version in the path is the one the backend is on. */}
+      {config.queries.map((q, i) => (
         <div
+          key={i}
           className="aito-query-block"
-          dangerouslySetInnerHTML={{ __html: renderQuery(config.query, apiVersion) }}
+          dangerouslySetInnerHTML={{ __html: queryHtml(q, apiVersion) }}
         />
-      )}
+      ))}
 
       {config.description && (
         <>

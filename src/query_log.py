@@ -25,16 +25,24 @@ from typing import Any, Iterator
 
 _active: ContextVar[list[dict] | None] = ContextVar("aito_query_log", default=None)
 
-# A pane needs one representative query per shape, not all of them — a
-# 30-line matching batch would otherwise ship 30 near-identical bodies.
-MAX_PER_SHAPE = 4
-MAX_TOTAL = 40
+# A row's pane shows that row's own query, so a list keeps one per row
+# up to the longest list a view shows (a 60-line matching batch). The
+# total bounds a plan that fans out; measured overhead is in the PR.
+MAX_PER_SHAPE = 60
+MAX_TOTAL = 300
+
+
+# Named rather than "anything starting with _": `/data/_delete`,
+# `/data/_modify` and `/schema/_copy` also carry dict bodies, and they
+# are writes, not the query behind a view.
+QUERY_ENDPOINTS = frozenset({"_search", "_predict", "_relate", "_evaluate", "_estimate",
+                             "_recommend", "_match", "_similarity", "_query", "_aggregate"})
 
 
 def _endpoint(path: str) -> str | None:
     """`/api/v2/_predict` → `_predict`; anything that is not a query → None."""
     last = path.rstrip("/").rsplit("/", 1)[-1]
-    return last if last.startswith("_") else None
+    return last if last in QUERY_ENDPOINTS else None
 
 
 def record(path: str, body: Any) -> None:
@@ -65,6 +73,27 @@ def recording() -> Iterator[list[dict]]:
             outer.extend(mine)
 
 
+@contextmanager
+def unrecorded() -> Iterator[None]:
+    """Send without recording — for the demo's own plumbing (the
+    persistent cache's lookup), which is not a query behind any view."""
+    token = _active.set(None)
+    try:
+        yield
+    finally:
+        _active.reset(token)
+
+
+def attach(value: Any) -> Any:
+    """Stamp a dict response with the queries recorded so far, under
+    `_queries`, in place, and return it. Cached values get this in
+    `cache.set`; an uncached endpoint calls it on what it returns."""
+    recorded = current()
+    if isinstance(value, dict) and "_queries" not in value and recorded:
+        value["_queries"] = capped(recorded)
+    return value
+
+
 def _shape(query: dict) -> tuple:
     body = query["body"]
     frm = body.get("from")
@@ -74,14 +103,17 @@ def _shape(query: dict) -> tuple:
 
 
 def capped(queries: list[dict]) -> list[dict]:
-    """Keep the first few of each shape, in the order they were sent."""
-    seen: dict[tuple, int] = {}
-    out = []
-    for q in queries:
-        shape = _shape(q)
-        if seen.get(shape, 0) < MAX_PER_SHAPE:
-            seen[shape] = seen.get(shape, 0) + 1
-            out.append(q)
-        if len(out) >= MAX_TOTAL:
-            break
-    return out
+    """Up to MAX_PER_SHAPE of each shape, MAX_TOTAL in all, in send order.
+
+    Every shape gets its first query in before any shape gets a second,
+    so a response with many shapes (a staffing plan) never loses one
+    to the total cap."""
+    by_shape: dict[tuple, list[int]] = {}
+    for i, q in enumerate(queries):
+        by_shape.setdefault(_shape(q), []).append(i)
+    kept: list[int] = []
+    for rank in range(MAX_PER_SHAPE):
+        for positions in by_shape.values():
+            if rank < len(positions) and len(kept) < MAX_TOTAL:
+                kept.append(positions[rank])
+    return [queries[i] for i in sorted(kept)]

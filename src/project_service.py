@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.aito_client import AitoClient
+from src.concurrency import parallel_map
 from src.why_processor import process_factors
 
 
@@ -375,11 +376,8 @@ def get_portfolio(client: AitoClient) -> PortfolioOverview:
     rows = [_row_from_dict(d) for d in raw]
 
     # Forecast active projects in parallel for snappier startup.
-    from concurrent.futures import ThreadPoolExecutor
-
     active = [r for r in rows if r.status != "complete"]
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        list(pool.map(lambda r: _forecast_active(client, r), active))
+    parallel_map(lambda r: _forecast_active(client, r), active, workers=6)
 
     # Sort: at-risk active first, then other active, then completed by month desc.
     def sort_key(r: ProjectRow):

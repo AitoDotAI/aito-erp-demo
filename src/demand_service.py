@@ -21,10 +21,10 @@ computes its wording from the numbers rather than saying it does.
 from __future__ import annotations
 
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from src.aito_client import AitoClient
+from src.concurrency import parallel_map
 
 # The `where` of every forecast. Which product, when in the year, and
 # what that product sold in the same month last year (banded). `month`
@@ -146,8 +146,7 @@ def forecast_product(client: AitoClient, sku: str, history: list[dict],
             neighbours=len((res.get("why") or {}).get("components") or []),
             where=where)
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        horizon = list(pool.map(estimate, ahead))
+    horizon = parallel_map(estimate, ahead, workers=6)
 
     return ProductForecast(
         sku=sku, name=product["name"], category=own[-1]["category"],

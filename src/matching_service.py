@@ -34,10 +34,10 @@ version is the one that ships.
 import html as html_lib
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from src.aito_client import AitoClient, AitoError
+from src.concurrency import parallel_map
 from src.why_processor import process_factors
 
 # The evidence a matcher actually has when a line arrives. Deliberately
@@ -498,11 +498,10 @@ def run_batch(client: AitoClient, lines: list[dict], workers: int = 8,
     on this shape of work is throughput and not the latency of any one
     line — nobody is waiting at a screen for an overnight invoice run."""
     started = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        ranked = list(pool.map(
-            lambda line: rank_line(
-                client, line,
-                vendor=(vendors or {}).get(line["billing_supplier"])), lines))
+    ranked = parallel_map(
+        lambda line: rank_line(
+            client, line,
+            vendor=(vendors or {}).get(line["billing_supplier"])), lines, workers=workers)
     wall = time.perf_counter() - started
 
     matched = [

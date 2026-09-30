@@ -8,6 +8,7 @@ import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
 import { poQueuePanel } from "@/lib/panel-content";
+import { findQuery } from "@/lib/query";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import type { POQueueResponse, POPrediction, AitoPanelConfig, WhyExplanation, Alternative } from "@/lib/types";
 
@@ -18,14 +19,14 @@ export default function POQueuePage() {
   const [tab, setTab] = useState<"all" | "review" | "aito" | "rule">("all");
   const [selected, setSelected] = useState<string | null>(null);
   const { tenantId } = useTenant();
-  const defaultPanel = poQueuePanel(tenantId);
-  const [panel, setPanel] = useState<AitoPanelConfig>(defaultPanel);
+  const [panel, setPanel] = useState<AitoPanelConfig>(poQueuePanel(tenantId));
 
   // Re-tone the panel when the tenant changes (e.g. visitor swaps
-  // persona via the TopBar without leaving this page).
+  // persona via the TopBar without leaving this page), and show a real
+  // query once the queue has loaded.
   useEffect(() => {
-    setPanel(poQueuePanel(tenantId));
-  }, [tenantId]);
+    setPanel(poQueuePanel(tenantId, data?._queries));
+  }, [tenantId, data]);
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
@@ -70,6 +71,17 @@ export default function POQueuePage() {
 
   const handleRowClick = (order: POPrediction) => {
     setSelected(order.purchase_id);
+    // The query behind the field that decides this row's confidence —
+    // the one a reviewer would look at. A rule field sent no query.
+    const fields = (["cost_center", "account_code", "approver"] as const)
+      .filter((f) => !order.rule_fields?.[f]);
+    const weakest = fields.reduce<typeof fields[number] | null>((low, f) =>
+      low === null || order[`${f}_confidence`] < order[`${low}_confidence`] ? f : low, null);
+    const where: Record<string, unknown> = { supplier: order.supplier };
+    if (order.description) where.description = order.description;
+    const rowQuery = weakest
+      ? findQuery(data?._queries, { endpoint: "_predict", from: "purchases", target: weakest, where })
+      : null;
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
@@ -82,16 +94,7 @@ export default function POQueuePage() {
         `Prediction for <em>${order.purchase_id}</em> from <em>${order.supplier}</em>. ` +
         `The model predicts cost center <em>${order.cost_center}</em> with ${Math.round(order.cost_center_confidence * 100)}% confidence ` +
         `and account <em>${order.account_code}</em> with ${Math.round(order.account_code_confidence * 100)}% confidence.`,
-      query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchase_orders"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${order.supplier}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: <span class="q-v">"${order.description}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"amount"</span>: <span class="q-n">${order.amount}</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
-}`,
+      queries: rowQuery ? [rowQuery] : [],
       links: [
         { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/01-po-queue.md", kind: "doc" },
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },

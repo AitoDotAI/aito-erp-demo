@@ -18,6 +18,7 @@
 import { referenceLinks } from "./references";
 import type { TenantId } from "./tenants";
 import type { AitoPanelConfig } from "./types";
+import { findQuery, type RecordedQuery } from "./query";
 
 interface PersonaContext {
   /** Industry term used in description copy. */
@@ -75,8 +76,12 @@ const CONTEXT: Record<TenantId, PersonaContext> = {
 // ── Page-specific panel builders ────────────────────────────────────
 
 
-export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
+/** `queries`: what the backend recorded for the queue (`_queries`). The
+ *  default pane shows the first cost-centre prediction it sent. */
+export function poQueuePanel(tenant: TenantId, recorded?: RecordedQuery[]): AitoPanelConfig {
   const c = CONTEXT[tenant];
+  const first = findQuery(recorded, { endpoint: "_predict", from: "purchases", target: "cost_center" });
+  const queries = first ? [first] : [];
   return {
     operation: "_predict",
     endpoints: ["_predict"],
@@ -91,17 +96,7 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
       `route to <em>${c.costCenter}</em> / account <em>${c.account}</em>; ` +
       `${c.approver} signs the typical case. High-confidence predictions ` +
       `auto-code; low-confidence ones queue for review.`,
-    query: `<span class="q-k">POST</span> /api/{version}/_predict<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"purchases"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"supplier"</span>: <span class="q-v">"${c.supplier}"</span>,<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="q-k">"description"</span>: <span class="q-v">"${c.poDescription}"</span><br/>
-&nbsp;&nbsp;},<br/>
-&nbsp;&nbsp;<span class="q-k">"predict"</span>: <span class="q-p">"cost_center"</span><br/>
-}<br/>
-<br/>
-<span class="q-d">// → cost_center: "${c.costCenter}" (p ≈ 0.94)</span>`,
+    queries,
     links: [
       { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/01-po-queue.md", kind: "doc" },
       { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },

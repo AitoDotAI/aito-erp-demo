@@ -19,10 +19,10 @@ so it is depleted by real demand rather than typed in.
 from __future__ import annotations
 
 import math
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from src.aito_client import AitoClient
+from src.concurrency import parallel_map
 from src.demand_service import FEATURES, _whole_table
 
 # The busiest stocked items, by sales over the last twelve months. Every
@@ -177,8 +177,7 @@ def get_inventory_status(client: AitoClient, tenant: str) -> dict:
             neighbours=len((res.get("why") or {}).get("components") or []),
             where=where)
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        items = list(pool.map(check, chosen))
+    items = parallel_map(check, chosen, workers=8)
 
     order = {"critical": 0, "low": 1, "overstock": 2, "ok": 3}
     items.sort(key=lambda i: (order[i.status], i._cover(i.aito_daily)))
