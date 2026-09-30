@@ -45,9 +45,11 @@ const defaultPanel: AitoPanelConfig = {
   operation: "_predict",
   endpoints: ["_predict", "_estimate"],
   stats: [
-    { label: "Incomplete", value: "12" },
-    { label: "Predictable", value: "9" },
-    { label: "Avg missing", value: "2.3" },
+    // Filled from the loaded list (see the fetch below). These were
+    // "12 / 9 / 2.3" and stayed on screen after the real list arrived.
+    { label: "Incomplete", value: "—" },
+    { label: "Catalogue", value: "—" },
+    { label: "Avg missing", value: "—" },
   ],
   description:
     "Products with <em>missing attributes</em> block downstream workflows: quoting, customs export, warehouse picking. aito.._predict fills categorical gaps by learning from complete products in the same category, and aito.._estimate fills numbers such as price from comparable products &mdash; no rules needed.",
@@ -165,6 +167,15 @@ export default function CatalogPage() {
         if (data.total != null) {
           setTotalProducts(data.total);
         }
+        const missing = data.products.reduce((a, p) => a + p.missing_count, 0);
+        setPanel((current) => ({
+          ...current,
+          stats: [
+            { label: "Incomplete", value: String(data.products.length) },
+            { label: "Catalogue", value: String(data.total) },
+            { label: "Avg missing", value: data.products.length ? (missing / data.products.length).toFixed(1) : "—" },
+          ],
+        }));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

@@ -175,5 +175,8 @@ def get_rule_summary(candidates: list[RuleCandidate]) -> dict:
         "review": len(review),
         "weak": len(weak),
         "automation_potential": round(len(strong) / len(candidates), 3) if candidates else 0,
+        # The floor the mining actually applied, so the page quotes it
+        # rather than a number of its own (it said 10; the code uses 3).
+        "min_support": MIN_SUPPORT,
         "rules": [c.to_dict() for c in candidates],
     }

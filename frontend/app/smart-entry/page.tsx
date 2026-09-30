@@ -58,7 +58,6 @@ const defaultPanel: AitoPanelConfig = {
   endpoints: ["_predict"],
   stats: [
     { label: "Fields", value: "4" },
-    { label: "Avg latency", value: "18ms" },
     { label: "Pattern", value: "one-field" },
   ],
   description:

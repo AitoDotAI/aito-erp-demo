@@ -81,7 +81,6 @@ export function poQueuePanel(tenant: TenantId): AitoPanelConfig {
     operation: "_predict",
     endpoints: ["_predict"],
     stats: [
-      { label: "Avg latency", value: "12ms" },
       { label: "Predict fields", value: "3" },
       { label: "Features", value: "supplier × desc × amount" },
     ],

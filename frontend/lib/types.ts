@@ -141,6 +141,7 @@ export interface RulesResponse {
     strong: number;
     review: number;
     weak: number;
+    min_support: number;
   };
 }
 
@@ -341,6 +342,8 @@ export interface OverviewMetrics {
     baseline_accuracy?: number;
     accuracy_gain?: number;
   };
+  /** Which figures describe the demo data generator rather than Aito. */
+  provenance: { routed_by: string };
 }
 
 /* ─── Cold-start snapshot ─── */

@@ -142,7 +142,12 @@ export default function OverviewPage() {
                 <div className="savings-icon">{"\u23F1\uFE0F"}</div>
                 <div>
                   <div className="savings-val">{Math.round(summary.automation_rate)}%</div>
-                  <div className="savings-label">Automation rate</div>
+                  <div className="savings-label">
+                    Automation rate
+                    <span style={{ display: "block", fontSize: 10, color: "var(--mid)", marginTop: 2 }}>
+                      synthetic label — see the learning curve note
+                    </span>
+                  </div>
                 </div>
               </div>
               <div className="savings-card">
@@ -165,7 +170,12 @@ export default function OverviewPage() {
                 <div className="savings-icon">{"\uD83D\uDCC8"}</div>
                 <div>
                   <div className="savings-val">{summary.total_automated}</div>
-                  <div className="savings-label">POs automated</div>
+                  <div className="savings-label">
+                    POs automated
+                    <span style={{ display: "block", fontSize: 10, color: "var(--mid)", marginTop: 2 }}>
+                      synthetic label
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -356,7 +366,8 @@ export default function OverviewPage() {
                     );
                   })}
                   <div style={{ fontSize: 11, color: "var(--mid)", marginTop: 8, padding: "8px 0", borderTop: "1px solid #f0ede6", lineHeight: 1.5 }}>
-                    Each row is one month of <code>routed_by</code> data from the <code>purchases</code> table — computed live, not hardcoded.
+                    Each row is one month of <code>routed_by</code> from the <code>purchases</code> table.{" "}
+                    <strong>{metrics.provenance.routed_by}</strong>
                   </div>
                 </div>
               </div>
