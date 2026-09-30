@@ -7,74 +7,77 @@
 
 ## What it does
 
-For any anchor product in the catalogue, two complementary
-recommendation views update side by side:
+For any anchor product, two lists update side by side:
 
-- **Frequently bought together (cross-sell)** — products that appear
-  in the same months as the anchor. Returns lift relative to baseline,
-  number of co-occurring units, and the count of months overlap.
-  These are *complements* — increase basket size.
-- **Similar products** — products that share category, supplier, and
-  price band. These are *substitutes* — useful for stockout fallbacks
-  and "see also" panels.
+- **Frequently bought together** — products that turn up in baskets
+  containing the anchor, ranked by how many times more often than in
+  baskets at large (lift), with the basket counts beside each ratio.
+  These are *complements* — they grow the basket.
+- **Similar products** — same category, scored on supplier and price.
+  These are *substitutes* — stockout fallbacks, "see also".
 
-A trending ribbon at the top quick-picks anchors based on units sold
-across the last 6 months. Clicking any result row promotes that SKU
-to the new anchor — recursive browsing.
+The picker offers the most-bought products, since cross-sell for a
+product nobody buys is an empty list. Clicking a result makes it the
+new anchor.
 
 ## Aito queries
 
-### Cross-sell (basket co-occurrence)
+### Bought together: `_relate` over baskets
 
 ```json
-POST /api/v2/_search
+POST /api/v2/_relate
 {
-  "from": "orders",
-  "where": { "product_id": "SKU-1234" },
-  "limit": 300
+  "from": "baskets",
+  "where": { "products": { "$has": "SKU-1003" } },
+  "relate": "products",
+  "limit": 60
 }
 ```
 
-The service walks the months returned, fetches all other products
-ordered in those same months via more `_search` calls, and aggregates
-co-occurrence units client-side. Production data with a `basket_id`
-column on orders would slot in directly: a single `_recommend` call
-replaces the aggregation.
+`baskets.products` is a String[]: the condition is "the basket contains
+the anchor", and each other product comes back with its lift and the
+counts behind it (`fs.fOnCondition` of `fs.fCondition` baskets). A
+product needs at least 3 shared baskets to be listed. On an array field
+v2 returns `related` as a feature, `{"$has": "SKU-…"}`; `AitoClient`
+unwraps it.
 
-### Similar products (attribute overlap)
+Two earlier versions, and why they went:
+
+- **Goal `_recommend` over `impressions`** ranked products seen once or
+  twice anywhere above ones bought with the anchor hundreds of times
+  (aito-core#1525).
+- **Non-exclusive `_predict products.$feature`** — aito-demo's cart
+  pattern — answers "how likely is X in this basket", so the store's
+  best-sellers topped every anchor's list.
+
+### Similar products: `_search`, scored by a rule
 
 ```json
 POST /api/v2/_search
-{
-  "from": "products",
-  "where": { "category": "Beauty" },
-  "limit": 40
-}
+{ "from": "products", "where": { "category": "Beauty" }, "limit": 40 }
 ```
 
-Filtered by the anchor's category; scored client-side by supplier match
-+ price-band proximity. The same idea as `_match` but with explicit
-weighting of which signals matter — the demo prefers transparent
-scoring over black-box similarity here.
+Scored in the service: 0.5 same category, +0.3 same supplier, +0.2 ×
+price closeness. A hand-weighted rule, and the page labels it as one.
 
-## Schema
+## What it measures
 
-Uses `products` and `orders` (linked via `orders.product_id →
-products.sku`). No additional schema.
+`./do crosssell-eval` asks how many of each anchor's known companions
+(the generator gives every product three) reach the top 8:
+
+| anchors | the view | counting co-occurrences |
+|---|---|---|
+| well-bought (20+ baskets) | 55 / 90 | 57 / 90 |
+| rarely-bought (3–8 baskets) | 1 / 90 | 18 / 90 |
+
+Parity where history is thick. On rarely-bought products the support
+floor lists few rows rather than guessing, and plain counting finds
+more. The view claims nothing better than parity.
 
 ## Tradeoffs / honest notes
 
-- **Month-level co-occurrence ≠ basket co-occurrence**. Without a
-  basket id, two products "co-occur" if they were ordered in the same
-  calendar month — which is a loose proxy. Real basket data tightens
-  the lift signal substantially.
-- **Lift baseline is approximate**: we approximate baseline as
-  "average sales of any candidate product in the shared months".
-  Crude but explainable. Production-grade lift would compare to the
-  product's overall monthly sales rate.
-- **Aurora-only**: the view is hidden on Metsä and Studio because
-  their `orders` and `products` tables are sparse (Studio has 80
-  products, 240 orders — too thin for credible recommendations).
+- **Aurora-only**: only Aurora has `baskets`; the view is hidden on
+  Metsä and Studio.
 
 ## Why retail buyers care
 

@@ -540,13 +540,25 @@ SCHEMAS = {
             "order_date": {"type": "String", "nullable": False},
         },
     },
+    # What was bought together, one row per basket (Aurora only). A
+    # String[] so `products.$feature` scores each member on its own —
+    # the non-exclusive predict cross-sell uses.
+    "baskets": {
+        "type": "table",
+        "columns": {
+            "basket_id": {"type": "String", "nullable": False},
+            "customer_segment": {"type": "String", "nullable": False},
+            "month": {"type": "String", "nullable": False},
+            "products": {"type": "String[]", "nullable": False},
+        },
+    },
 }
 
 # Tables whose fixture file may be absent for some personas. The loader
 # silently skips these instead of erroring — the Aito table is created
 # either way, so queries against it from non-data tenants get a clean
 # empty result rather than a 500.
-OPTIONAL_TABLES = {"impressions", "tasks", "quotes", "absences",
+OPTIONAL_TABLES = {"impressions", "baskets", "tasks", "quotes", "absences",
                    "proposals", "deliveries", "invoice_lines", "vendors",
                    "invoice_lines_holdout"}
 

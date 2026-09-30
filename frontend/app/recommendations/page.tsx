@@ -16,37 +16,32 @@ import type {
 } from "@/lib/types";
 
 const DEFAULT_PANEL: AitoPanelConfig = {
-  operation: "_search + _match",
-  endpoints: ["_recommend", "_match"],
+  operation: "_relate",
+  endpoints: ["_relate", "_search"],
   stats: [
-    { label: "Tables", value: "products + orders" },
-    { label: "Pattern", value: "co-occurrence" },
-    { label: "Latency", value: "20-60ms" },
+    { label: "Tables", value: "baskets + products" },
+    { label: "Pattern", value: "lift" },
+    { label: "Support", value: "≥ 3 baskets" },
   ],
   description:
-    "Recommendations combine two Aito patterns. <em>aito.._search</em> over " +
-    "<em>orders</em> finds products that appear in the same months as the " +
-    "anchor item — the basket co-occurrence signal that drives cross-sell. " +
-    "<em>aito.._match</em> over <em>products</em> finds items with overlapping " +
-    "category, supplier, and price-band — the &ldquo;similar products&rdquo; " +
-    "ribbon. Both are queried per request; no offline batch jobs, no model " +
-    "retraining.",
-  query: `<span class="q-k">POST</span> /api/{version}/_search<br/>
+    "<em>Frequently bought together</em> is one <em>aito.._relate</em> over " +
+    "<em>baskets</em>: of the baskets that contain the anchor, which other products " +
+    "turn up in them, and how many times more often than in baskets at large (lift). " +
+    "A product needs at least 3 shared baskets to be listed, and the counts sit next " +
+    "to every ratio. Measured against plain co-occurrence counting it finds the " +
+    "products each anchor is really bought with as often &mdash; parity, not better. " +
+    "<em>Similar products</em> is a <em>_search</em> over the anchor's category, " +
+    "scored here on supplier and price &mdash; a hand-weighted rule, not a prediction.",
+  query: `<span class="q-k">POST</span> /api/{version}/_relate<br/>
 {<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"orders"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"product_id"</span>: <span class="q-v">"SKU-1234"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">300</span><br/>
-}<br/>
-<br/>
-<span class="q-k">POST</span> /api/{version}/_match<br/>
-{<br/>
-&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"products"</span>,<br/>
-&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"category"</span>: <span class="q-v">"Beauty"</span> },<br/>
-&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">10</span><br/>
+&nbsp;&nbsp;<span class="q-k">"from"</span>: <span class="q-v">"baskets"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"where"</span>: { <span class="q-k">"products"</span>: { <span class="q-k">"$has"</span>: <span class="q-v">"SKU-…"</span> } },<br/>
+&nbsp;&nbsp;<span class="q-k">"relate"</span>: <span class="q-p">"products"</span>,<br/>
+&nbsp;&nbsp;<span class="q-k">"limit"</span>: <span class="q-n">60</span><br/>
 }`,
   links: [
     { label: "Search API reference", url: "https://aito.ai/docs/api/search" },
-    { label: "Match API reference", url: "https://aito.ai/docs/api/match" },
+    { label: "Relate API reference", url: "https://aito.ai/docs/api/relate" },
     { label: "Use case overview", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/docs/use-cases/14-recommendations.md", kind: "doc" },
     { label: "Source code", url: "https://github.com/AitoDotAI/aito-erp-demo/blob/main/src/recommendation_service.py", kind: "github" },
   ],
@@ -120,8 +115,9 @@ export default function RecommendationsPage() {
       description:
         `Recommendations for <em>${anchorProduct.name}</em>. ` +
         (crossSell.length
-          ? `Top cross-sell: <em>${crossSell[0].name}</em> ` +
-            `&mdash; P(click | prev = anchor) = ${(crossSell[0].p_click * 100).toFixed(1)}%. `
+          ? `Top cross-sell: <em>${crossSell[0].name}</em> &mdash; in ` +
+            `${crossSell[0].together} of the ${crossSell[0].anchor_baskets} baskets with the anchor, ` +
+            `${crossSell[0].lift.toFixed(1)}&times; its usual rate. `
           : "") +
         (similar.length
           ? `Top similar item: <em>${similar[0].name}</em> ` +
@@ -167,7 +163,7 @@ export default function RecommendationsPage() {
                 <section className="card" style={{ marginBottom: 16 }}>
                   <div className="card-head">
                     <span className="card-title">Trending now</span>
-                    <span className="card-meta">last 6 months · top 15 by units</span>
+                    <span className="card-meta">last 6 months · top 15 by baskets</span>
                   </div>
                   <div className="recs-trend-row">
                     {overview.trending.map((t) => (
@@ -176,10 +172,10 @@ export default function RecommendationsPage() {
                         type="button"
                         className={`recs-trend-pill${anchorSku === t.sku ? " active" : ""}`}
                         onClick={() => setAnchorSku(t.sku)}
-                        title={`${t.units_sold} units across ${t.months} months`}
+                        title={`in ${t.baskets} baskets across ${t.months} months`}
                       >
                         <span className="recs-trend-name">{t.name}</span>
-                        <span className="recs-trend-units">{t.units_sold}</span>
+                        <span className="recs-trend-units">{t.baskets}</span>
                       </button>
                     ))}
                   </div>
@@ -244,18 +240,18 @@ export default function RecommendationsPage() {
                     <div className="card">
                       <div className="card-head">
                         <span className="card-title">Frequently bought together</span>
-                        <span className="card-meta">aito.._recommend · goal: clicked</span>
+                        <span className="card-meta">aito.._relate · baskets · lift</span>
                       </div>
                       <div style={{ padding: "8px 14px 10px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
-                        Ranked by P(click | prev = anchor) from the impressions table — the same
-                        operator that drives help-article CTR ranking. One <code>_recommend</code>
-                        call returns the product columns it names in <code>select</code>.
+                        Of the baskets that contain this product, which others turn up in them —
+                        ranked by how many times more often than usual (lift), with the basket
+                        counts behind each ratio. At least 3 shared baskets to be listed.
                       </div>
                       {recsLoading ? (
                         <div style={{ padding: 14, fontSize: 11, color: "var(--mid)" }}>Loading…</div>
                       ) : crossSell.length === 0 ? (
                         <div style={{ padding: 14, fontSize: 11, color: "var(--mid)", fontStyle: "italic" }}>
-                          No impressions paired with this anchor — try a more popular SKU.
+                          Too few baskets share this product for a pairing to mean anything.
                         </div>
                       ) : (
                         <table className="tbl">
@@ -263,7 +259,8 @@ export default function RecommendationsPage() {
                             <tr>
                               <th>Product</th>
                               <th style={{ textAlign: "right" }}>Category</th>
-                              <th style={{ textAlign: "right" }}>P(click)</th>
+                              <th style={{ textAlign: "right" }} title="Baskets with both / baskets with the anchor">Bought together</th>
+                              <th style={{ textAlign: "right" }}>Lift</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -278,11 +275,11 @@ export default function RecommendationsPage() {
                                 <td style={{ textAlign: "right" }} className="mono">
                                   {c.category ?? "—"}
                                 </td>
-                                <td
-                                  className="mono"
-                                  style={{ textAlign: "right", color: c.p_click > 0.5 ? "var(--green)" : "var(--ink)" }}
-                                >
-                                  {Math.round(c.p_click * 100)}%
+                                <td style={{ textAlign: "right" }} className="mono">
+                                  {c.together} / {c.anchor_baskets}
+                                </td>
+                                <td className="mono" style={{ textAlign: "right", fontWeight: 600 }}>
+                                  {c.lift.toFixed(1)}&times;
                                 </td>
                               </tr>
                             ))}
@@ -295,7 +292,7 @@ export default function RecommendationsPage() {
                     <div className="card">
                       <div className="card-head">
                         <span className="card-title">Similar products</span>
-                        <span className="card-meta">aito.._match · attribute overlap</span>
+                        <span className="card-meta">_search · scored here on supplier + price</span>
                       </div>
                       <div style={{ padding: "8px 14px 10px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
                         Products with overlapping category, supplier, and price band.
@@ -314,7 +311,7 @@ export default function RecommendationsPage() {
                               <th>Product</th>
                               <th>Supplier</th>
                               <th style={{ textAlign: "right" }}>Price</th>
-                              <th style={{ textAlign: "right" }}>Match score</th>
+                              <th style={{ textAlign: "right" }} title="0.5 same category + 0.3 same supplier + 0.2 × price closeness, computed here">Rule score</th>
                             </tr>
                           </thead>
                           <tbody>

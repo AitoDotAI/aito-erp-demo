@@ -22,6 +22,13 @@ Its own RNG, seeded per tenant. `generate_personas.py` still draws the
 old walk and discards it, because the tables generated after it read
 the same random stream and must not move.
 
+It also writes `baskets`: what was BOUGHT together, one row per basket
+with `products` as a String[]. Cross-sell reads that with a
+non-exclusive `_predict products.$feature`, the way aito-demo's cart
+autofill does — co-purchase evidence rather than click-through, and not
+routed through goal `_recommend` (aito-core#1525). Same companions, same
+category affinities, same popularity, so both tables tell one story.
+
 Run after generate_personas: `python data/generate_impressions.py`.
 """
 
@@ -129,11 +136,63 @@ def generate(tenant: str, products: list[dict]) -> list[dict]:
     return rows
 
 
+N_BASKETS = 8000
+
+
+def generate_baskets(tenant: str, products: list[dict]) -> list[dict]:
+    """Baskets built item by item: a popular first product, then each next
+    item a companion of something already in the basket (40%), a popular
+    product of the same category (30%), of a related category (15%), or
+    anything popular (15%)."""
+    rng = random.Random(zlib.crc32(f"{tenant}:baskets".encode()))
+    eligible = sorted((p for p in products if p.get("category")), key=lambda p: p["sku"])
+    category = {p["sku"]: p["category"] for p in eligible}
+    by_cat: dict[str, list[str]] = {}
+    for p in eligible:
+        by_cat.setdefault(p["category"], []).append(p["sku"])
+    skus = [p["sku"] for p in eligible]
+    order = skus[:]
+    rng.shuffle(order)
+    popularity = {sku: 1.0 / (rank + 1) ** 1.1 for rank, sku in enumerate(order)}
+    companion = {s: companions(s, category[s], by_cat) for s in skus}
+
+    def popular(pool: list[str]) -> str:
+        return rng.choices(pool, weights=[popularity[s] for s in pool], k=1)[0]
+
+    rows = []
+    for n in range(N_BASKETS):
+        basket = [popular(skus)]
+        for _ in range(rng.randint(1, 5)):
+            anchor = rng.choice(basket)
+            roll = rng.random()
+            if roll < 0.40:
+                item = rng.choice(companion[anchor])
+            elif roll < 0.70:
+                item = popular(by_cat[category[anchor]])
+            elif roll < 0.85 and related_categories(category[anchor]):
+                item = popular(by_cat[rng.choice(related_categories(category[anchor]))])
+            else:
+                item = popular(skus)
+            if item not in basket:
+                basket.append(item)
+        rows.append({
+            "basket_id": f"B-{n + 1:05d}",
+            "customer_segment": rng.choice(sorted(SEGMENT_BIAS)),
+            "month": rng.choice(MONTHS),
+            "products": basket,
+        })
+    return rows
+
+
 def main() -> None:
     folder = DATA / "aurora"
     products = json.loads((folder / "products.json").read_text())
     rows = generate("aurora", products)
     (folder / "impressions.json").write_text(json.dumps(rows, indent=2, ensure_ascii=False))
+    baskets = generate_baskets("aurora", products)
+    (folder / "baskets.json").write_text(json.dumps(baskets, indent=2, ensure_ascii=False))
+    sizes = [len(b["products"]) for b in baskets]
+    print(f"aurora: baskets {len(baskets)}, mean size {sum(sizes) / len(sizes):.1f}")
     ctr = sum(r["clicked"] for r in rows) / len(rows)
     pairs = {(r["prev_product_id"], r["product_id"]) for r in rows if r["prev_product_id"]}
     print(f"aurora: impressions {len(rows)}, click-through {ctr:.1%}, distinct pairs {len(pairs)}")

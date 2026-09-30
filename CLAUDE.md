@@ -245,9 +245,9 @@ Browser → Next.js page → fetch("/api/...") → FastAPI → AitoClient → Ai
     it needs a catalogue with metadata worth matching against. See
     "Invoice matching" below — the case has more constraints on it than
     the others, and they are the interesting part.
-12. **Recommendations** — cross-sell (`_search` co-occurrence) + similar
-    products (`_match` over attributes). Aurora-only; Aito's flagship
-    retail capability.
+12. **Recommendations** — "bought together" (`_relate` lift over
+    `baskets`) + similar products (a `_search`, scored by a labelled
+    rule). Aurora-only. See "Cross-sell is `_relate` over baskets".
 
 ### Operations
 13. **Project Portfolio** — predicted success for each active project
@@ -789,27 +789,34 @@ Add the tables to a live database with `python -m src.data_loader
 if one exists, and never drops anything — unlike the full load, which
 drops every table and so refuses a master env.
 
-### Cross-sell, and what the impressions can and cannot show
+### Cross-sell is `_relate` over baskets, and it is parity with counting
 
-The first `impressions` clicked at 50% and spread 6790 rows over 5282
-distinct anchor -> product pairs, each seen at most twice, so the view
-had no evidence about any one anchor and ranked by popularity (33.8% of
-the list in a related category against 28.3% at random).
-`data/generate_impressions.py` now builds shop-shaped traffic: ~12%
-click-through, Zipf popularity, and three COMPANIONS per product that
-shoppers move to and click far more often. `./do crosssell-eval`
-measures whether the list finds them.
+"Frequently bought together" asks how much MORE often a product is in
+baskets that contain the anchor — lift — so it is one `_relate` over
+`baskets` (a String[] per basket, `data/generate_impressions.py`), with
+a support floor of 3 shared baskets and the counts beside every ratio.
+Two earlier versions answered other questions and are why:
 
-**It mostly does not, and the cause is in the engine.** On 30 anchors
-with 20+ impressions, goal `_recommend` puts 11 of 90 companions in its
-top 8. It ranks candidates seen once or twice in the whole table at
-$p 0.62-0.83 above companions with ~300 observations at a true ~30%
-(aito-core#1525; not #890's collapse — rankings do differ per anchor).
-Filtering candidates to products co-viewed 5+ times and ranking them
-with `_predict clicked` finds 42 of 90 — but so does ranking them by
-plain counts, so on thick history the ranking adds nothing measurable.
-Where Aito should earn its place is anchors with thin history; that is
-not yet measured, and the view claims nothing about it.
+- goal `_recommend` over `impressions` ranked products seen once or
+  twice anywhere above ones bought with the anchor hundreds of times —
+  under-shrunk small samples, aito-core#1525 (not #890's collapse);
+- a non-exclusive `_predict products.$feature` (aito-demo's cart
+  pattern) answers "how likely is X in this basket", so every list
+  filled with the store's best-sellers.
+
+`./do crosssell-eval` scores the view against counting co-occurrences:
+55/90 vs 57/90 of each anchor's true companions on well-bought anchors
+(parity), 1/90 vs 18/90 on rarely-bought ones, where the view lists few
+rows rather than guess. It claims nothing better than parity. The
+picker offers the most-bought products, since cross-sell for a product
+nobody buys is an empty list.
+
+On an array field v2 answers `related` as a feature, `{"$has": sku}`;
+`AitoClient` unwraps it so callers read one shape.
+
+"Similar products" is a `_search` over the anchor's category scored in
+the service (0.5 category, 0.3 supplier, 0.2 price) — a hand-weighted
+rule, labelled as one. Making it an Aito query is a separate change.
 
 `generate_personas.py` still draws its old impressions walk and throws
 it away: every table generated after it reads the same random stream.
