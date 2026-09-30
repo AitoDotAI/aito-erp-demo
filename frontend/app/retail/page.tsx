@@ -7,7 +7,7 @@ export const metadata = {
   title: "Predictive ERP for Multi-Channel Retail — Aito",
   description:
     "Forecast SKU demand, optimize inventory, run cross-sell live. " +
-    "Demo runs on 3.2K SKUs, 18K orders, 6.7K browsing impressions.",
+    "Demo runs on 3.2K SKUs, 8K shopping baskets and 22K months of product sales.",
 };
 
 const config: VerticalEntryConfig = {
@@ -19,34 +19,33 @@ const config: VerticalEntryConfig = {
   framing:
     "Retail buyers care about three things in parallel: what's selling, what's about " +
     "to stock out, and what to recommend at the checkout. Aurora's profile loads " +
-    "3.2K SKUs across Beauty / Fashion / Electronics / Groceries, 18K historical " +
-    "orders, and 6.7K browsing impressions — enough density to make every prediction " +
-    "credible without faking the volume.",
+    "3.2K SKUs across Beauty / Fashion / Electronics / Groceries, 8K shopping " +
+    "baskets and 22K months of product sales — and every view reports how it " +
+    "measured against the plain rule a buyer already has.",
   audienceHint: "For Oscar Software / ERPly / Lightspeed-style buyers",
   hero: [
     {
       label: "Demand Forecast",
       href: "/demand",
       pitch:
-        "Per-SKU month-ahead forecast via _predict + _search aggregation. " +
-        "Picks up seasonality without a model file.",
-      stat: "549 SKUs forecast",
+        "_estimate forecasts six held-out months, shown next to what actually " +
+        "sold, last year and the trailing reorder rule.",
+      stat: "22% less error than the reorder rule",
     },
     {
       label: "Inventory Intelligence",
       href: "/inventory",
       pitch:
-        "Days-of-supply + reorder recommendations driven by the demand forecast. " +
-        "Stockout flags surface before they bite.",
-      stat: "2 critical now",
+        "Will stock plus deliveries cover the lead time? Asked with Aito's " +
+        "forecast and with the reorder rule, each checked against what sold.",
     },
     {
       label: "Recommendations",
       href: "/recommendations",
       pitch:
-        "Cross-sell via _recommend with goal:{clicked:true} on the impressions " +
-        "table. One call, full product row, sub-second.",
-      stat: "P(click) calibrated",
+        "Bought together: one _relate over baskets, ranked by lift, with the " +
+        "basket counts behind every ratio.",
+      stat: "at parity with counting",
     },
   ],
   supporting: [

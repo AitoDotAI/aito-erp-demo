@@ -7,7 +7,7 @@ export const metadata = {
   title: "Predictive ERP for Industrial Maintenance — Aito",
   description:
     "Auto-route POs, forecast project success, catch coding anomalies. " +
-    "Live demo with 3.2k purchase orders and 285 maintenance / construction projects.",
+    "Live demo with 3.3K purchase orders and 238 maintenance / construction projects.",
 };
 
 const config: VerticalEntryConfig = {
@@ -19,7 +19,7 @@ const config: VerticalEntryConfig = {
   framing:
     "Industrial buyers spend their day routing POs from a long tail of suppliers " +
     "(Wärtsilä, ABB, Caverion, NCC) and worrying about projects that slip. " +
-    "The demo runs on 3.2K POs and 285 projects so you can see Aito's predictions " +
+    "The demo runs on 3.3K POs and 238 projects so you can see Aito's predictions " +
     "compose across the buying-and-building lifecycle, not just isolated cards.",
   audienceHint: "For Lemonsoft / IFS / Epicor-style buyers",
   hero: [
@@ -27,17 +27,15 @@ const config: VerticalEntryConfig = {
       label: "PO Queue",
       href: "/po-queue",
       pitch:
-        "47 POs received today; Aito auto-codes account, cost-centre, and approver. " +
-        "71% land without anyone touching them.",
-      stat: "82% auto-coded MTD",
+        "Aito codes account, cost centre and approver on every PO; the weakest " +
+        "of the three decides whether a person reviews it.",
     },
     {
       label: "Anomaly Detection",
       href: "/anomalies",
       pitch:
-        "_evaluate scores combinations against history. Mis-coded POs surface " +
-        "before they hit the close.",
-      stat: "3 flagged this week",
+        "Inverse _predict: a coding the history finds unlikely surfaces " +
+        "before it hits the close.",
     },
     {
       label: "Project Portfolio",
@@ -45,14 +43,14 @@ const config: VerticalEntryConfig = {
       pitch:
         "Predicted success per active maintenance & construction project, with " +
         "the factors that move outcomes mined from completed-project history.",
-      stat: "65 active projects",
+      stat: "18 in flight · 220 completed",
     },
   ],
   supporting: [
     {
       label: "Smart Entry",
       href: "/smart-entry",
-      pitch: "One supplier pick fills 5 fields in one round-trip.",
+      pitch: "One supplier pick fills 4 fields, each with its own confidence.",
     },
     {
       label: "Approval Routing",
