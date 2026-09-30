@@ -7,7 +7,7 @@ export const metadata = {
   title: "Predictive ERP for Professional Services — Aito",
   description:
     "Forecast project success, plan utilization, code SaaS invoices automatically. " +
-    "Demo runs on 435 client engagements and 2.1K consultant assignments.",
+    "Demo runs on 354 client engagements and 1.2K consultant assignments.",
 };
 
 const config: VerticalEntryConfig = {
@@ -19,7 +19,7 @@ const config: VerticalEntryConfig = {
   framing:
     "Services firms run on people: who's billable, which engagements are at risk, " +
     "and whether the bench has room for the next project. Studio's profile loads " +
-    "435 engagements and 2.1K assignments so the project-success forecast and " +
+    "354 engagements and 1.2K assignments so the project-success forecast and " +
     "utilization view sit on real density — not stubbed numbers.",
   audienceHint: "For Severa / Workday / Visma Severa-style buyers",
   hero: [
@@ -29,7 +29,7 @@ const config: VerticalEntryConfig = {
       pitch:
         "Predicted success for every active engagement, plus people-as-staffing-" +
         "factors mined from completed-project history via _relate.",
-      stat: "55 active engagements",
+      stat: "14 in flight · 340 completed",
     },
     {
       label: "Utilization & Capacity",
@@ -45,7 +45,7 @@ const config: VerticalEntryConfig = {
       pitch:
         "Vendor invoices (Adobe, AWS, Figma) auto-coded — one supplier pick fills " +
         "cost-centre, account, project, approver in one round-trip.",
-      stat: "5 fields per pick",
+      stat: "4 fields per pick",
     },
   ],
   supporting: [
