@@ -99,7 +99,8 @@ export default function SupplierPage() {
       endpoints: ["_relate"],
       stats: [
         { label: "Supplier", value: item.supplier },
-        { label: "Lift", value: `${item.lift.toFixed(1)}x` },
+        { label: "Raw ratio", value: `${item.raw_lift.toFixed(1)}x` },
+        { label: "Aito lift", value: `${item.lift.toFixed(1)}x` },
         { label: "Risk", value: item.risk_level },
       ],
       description:
@@ -107,7 +108,8 @@ export default function SupplierPage() {
         `Late rate: <em>${(item.late_rate * 100).toFixed(1)}%</em> ` +
         `(${item.late_orders} of ${item.total_orders} deliveries), against ` +
         `${(item.base_late_rate * 100).toFixed(1)}% across all suppliers. ` +
-        `Aito's lift is <em>${item.lift.toFixed(1)}x</em>. It is shrunk toward 1 when a supplier ` +
+        `That is <em>${item.raw_lift.toFixed(1)}x</em> the overall rate; Aito's lift is ` +
+        `<em>${item.lift.toFixed(1)}x</em>. It is shrunk toward 1 when a supplier ` +
         `has few deliveries, so it can read lower than the raw ratio; that caution is ` +
         `what lets the risk level trust it. This row is one hit of the single ` +
         `<em>_relate</em> below, which ranks every supplier at once.`,
@@ -178,7 +180,12 @@ export default function SupplierPage() {
                         <th>Supplier</th>
                         <th>Risk Level</th>
                         <th>Late Rate</th>
-                        <th>Lift</th>
+                        <th title="This supplier's late rate over the rate across all suppliers, from the counts">
+                          Raw ratio
+                        </th>
+                        <th title="Aito's lift: the same ratio shrunk toward 1 when a supplier has few deliveries. The risk level is read from this one.">
+                          Aito lift
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -194,7 +201,11 @@ export default function SupplierPage() {
                               {r.risk_level}
                             </span>
                           </td>
-                          <td className="mono">{(r.late_rate * 100).toFixed(1)}%</td>
+                          <td className="mono">
+                            {(r.late_rate * 100).toFixed(1)}%{" "}
+                            <span className="pl-unknown">({r.late_orders} of {r.total_orders})</span>
+                          </td>
+                          <td className="mono">{r.raw_lift.toFixed(1)}x</td>
                           <td className="mono">{r.lift.toFixed(1)}x</td>
                         </tr>
                       ))}
