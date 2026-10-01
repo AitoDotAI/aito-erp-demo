@@ -119,6 +119,15 @@ function Candidate({ c, rank, truth }: {
   );
 }
 
+// A failed line gets its own badge: shown as "open" it read as a line
+// Aito had no opinion on, which is exactly what it was not.
+const DECISION_BADGE: Record<MatchedLine["decision"], string> = {
+  prefilled: "b-green", open: "b-gray", error: "b-red",
+};
+const DECISION_LABEL: Record<MatchedLine["decision"], string> = {
+  prefilled: "pre-filled", open: "open", error: "query failed",
+};
+
 export default function MatchingPage() {
   const { tenantId } = useTenant();
   const [data, setData] = useState<MatchBatchResponse | null>(null);
@@ -292,6 +301,7 @@ export default function MatchingPage() {
                     {b && (
                       <span className="mt-rate">
                         {b.prefilled} pre-filled · {b.open} left open
+                        {b.errors > 0 && ` · ${b.errors} failed, not scored`}
                         {b.prefill_precision != null &&
                           ` · ${pct(b.prefill_precision)} of the pre-filled ones right`}
                       </span>
@@ -347,11 +357,16 @@ export default function MatchingPage() {
                               )}
                             </td>
                             <td className="mono mt-desc">{line.description}</td>
-                            <td>{top ? top.name || top.sku : <span className="pl-unknown">no candidate</span>}</td>
+                            <td>
+                              {line.error
+                                ? <span className="pl-unknown" title={line.error}>query failed</span>
+                                : top ? top.name || top.sku : <span className="pl-unknown">no candidate</span>}
+                            </td>
                             <td style={{ textAlign: "right" }}>{top ? pct(top.p, 1) : "—"}</td>
                             <td>
-                              <span className={`badge ${line.decision === "prefilled" ? "b-green" : "b-gray"}`}>
-                                {line.decision === "prefilled" ? "pre-filled" : "open"}
+                              <span className={`badge ${DECISION_BADGE[line.decision]}`}
+                                    title={line.error ?? undefined}>
+                                {DECISION_LABEL[line.decision]}
                               </span>
                             </td>
                             <td className={outcomeClass(line)} title={outcomeTitle(line)}>
@@ -362,11 +377,17 @@ export default function MatchingPage() {
                             <tr key={`${line.line_id}-open`} className="mt-open-row">
                               <td colSpan={6}>
                                 <div className="mt-shortlist">
+                                  {line.error && (
+                                    <div className="mt-miss">
+                                      The query for this line failed, so nothing was
+                                      ranked: {line.error}
+                                    </div>
+                                  )}
                                   {line.candidates.map((c, i) => (
                                     <Candidate key={c.sku} c={c} rank={i + 1}
                                                truth={line.truth} />
                                   ))}
-                                  {line.truth &&
+                                  {line.truth && !line.error &&
                                    !line.candidates.some((c) => c.sku === line.truth) && (
                                     <div className="mt-miss">
                                       The right answer ({line.truth}) is not in the

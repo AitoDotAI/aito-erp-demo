@@ -927,9 +927,12 @@ export interface MatchedLine {
   unit_price_eur: number | null;
   line_amount_eur: number | null;
   candidates: MatchCandidate[];
-  decision: "prefilled" | "open";
+  /** "error": the query for this line failed; nothing was ranked. */
+  decision: "prefilled" | "open" | "error";
   ms: number;
   cold: boolean;
+  /** Why the query failed. A failure is never shown as "no candidate". */
+  error: string | null;
   /** Held-out label. Present because these lines were never loaded —
    *  a production queue has no truth column and a demo that hides it
    *  is asking to be trusted. */
@@ -951,6 +954,8 @@ export interface MatchBatchStats {
   server_ms_median: number;
   prefilled: number;
   open: number;
+  /** Lines whose query failed. Not scored: a failure is not a miss. */
+  errors: number;
   threshold: number;
   top1: number | null;
   top5: number | null;
