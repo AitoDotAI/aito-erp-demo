@@ -152,10 +152,10 @@ def tenant_key(tenant: str | None, key: str) -> str:
     return f"{tenant}:{key}"
 
 
-# Part of every persisted key. Bump it when every response changes shape
-# at once — values persisted before `_queries` existed would otherwise
-# come back from Aito and leave the query panes empty.
-PERSISTED_SHAPE = "2026-09-30-queries"
+# Part of every persisted key. Bump it when many responses change at once
+# (a new `_queries` field, whole-table reads replacing truncated pages) —
+# values persisted before would otherwise come back from Aito unchanged.
+PERSISTED_SHAPE = "2026-10-01-whole-reads"
 
 
 def _key_hash(key: str) -> str:

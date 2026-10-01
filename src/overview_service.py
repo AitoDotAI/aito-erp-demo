@@ -11,6 +11,7 @@ column showing how automation improves with data.
 from dataclasses import dataclass, field
 
 from src.aito_client import AitoClient
+from src.demand_service import _whole_table
 
 
 @dataclass
@@ -144,11 +145,10 @@ def get_automation_breakdown(client: AitoClient) -> AutomationBreakdown:
     - "aito_reviewed": Aito prediction that required human review.
     - "manual": No prediction available, fully manual.
     """
-    result = client.search("purchases", {}, limit=5000)
-    hits = result.get("hits", [])
-
-    # Aito returns "total" — the true count regardless of limit
-    total = result.get("total", len(hits))
+    # Every purchase, so the shares below are counted over the same rows
+    # as the total (Aurora has more than 5000).
+    hits = _whole_table(client, "purchases")
+    total = len(hits)
     counts: dict[str, int] = {}
     for row in hits:
         routed = row.get("routed_by", "manual")
@@ -283,8 +283,7 @@ def get_learning_curve(client: AitoClient) -> list[dict]:
     Groups purchases by order_month and counts each routed_by category
     to show how automation has improved as more data accumulates.
     """
-    result = client.search("purchases", {}, limit=5000)
-    hits = result.get("hits", [])
+    hits = _whole_table(client, "purchases")
 
     # Group by month → routed_by counts
     by_month: dict[str, dict[str, int]] = {}

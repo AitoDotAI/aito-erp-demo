@@ -9,6 +9,7 @@ Combines Aito's _search and _relate endpoints to build two views:
 from dataclasses import dataclass, field
 
 from src.aito_client import AitoClient
+from src.demand_service import _whole_table
 
 
 @dataclass
@@ -102,15 +103,12 @@ def _classify_risk(lift: float, late: int) -> str:
 def get_spend_overview(client: AitoClient) -> list[SupplierSpend]:
     """Search purchases and group by supplier to build spend overview.
 
-    Fetches a large sample of purchases and aggregates client-side.
-    In production this would use Aito's aggregation or a data warehouse.
+    Reads every purchase and aggregates client-side. In production this
+    would use Aito's aggregation or a data warehouse.
     """
-    result = client.search("purchases", {}, limit=5000)
-    hits = result["hits"]
-    # Totals over a truncated read would look like smaller spend, not an error.
-    if result["total"] > len(hits):
-        raise RuntimeError(f"spend overview read {len(hits)} of {result['total']} purchases; "
-                           "raise the limit or page the read")
+    # The whole table, count asserted: Aurora has more than 5000 purchases,
+    # and a fixed page summed as "total spend" under-counts without a word.
+    hits = _whole_table(client, "purchases")
 
     # Group by supplier
     by_supplier: dict[str, list[dict]] = {}

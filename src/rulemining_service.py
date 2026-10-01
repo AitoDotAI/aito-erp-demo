@@ -11,6 +11,7 @@ Same pattern as the accounting demo's rule mining.
 from dataclasses import dataclass
 
 from src.aito_client import AitoClient
+from src.demand_service import _whole_table
 
 
 MIN_SUPPORT = 3  # Minimum number of observations to consider a rule
@@ -57,9 +58,9 @@ def _classify_strength(confidence: float) -> str:
 
 
 def _get_distinct_values(client: AitoClient, field_name: str) -> list[str]:
-    """Get distinct values for a field by searching purchases."""
-    result = client.search("purchases", {}, limit=2000)
-    hits = result.get("hits", [])
+    """Distinct values of a field over EVERY purchase. A 2000-row page
+    left values that only occur later unmined, on every tenant."""
+    hits = _whole_table(client, "purchases")
     values = {row.get(field_name, "") for row in hits if row.get(field_name)}
     return sorted(values)
 

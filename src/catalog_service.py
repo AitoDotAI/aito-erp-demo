@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.aito_client import AitoClient
+from src.demand_service import _whole_table
 
 
 # All product fields used for completeness calculation
@@ -182,9 +183,10 @@ def get_incomplete(client: AitoClient) -> tuple[list["IncompleteProduct"], int]:
 
     Returns (incomplete_list, total_products_in_catalog).
     """
-    result = client.search("products", {}, limit=2000)
-    hits = result.get("hits", [])
-    total = result.get("total", len(hits))
+    # Every product: Aurora's catalogue is 3200 rows, and a 2000-row page
+    # left 1200 of them never checked for missing attributes.
+    hits = _whole_table(client, "products")
+    total = len(hits)
 
     incomplete = []
     for product in hits:
