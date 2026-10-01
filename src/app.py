@@ -22,6 +22,7 @@ every API request. This module:
 Serves the Next.js static export from frontend/out/ when available.
 """
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -273,11 +274,22 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
     warm_overview()
 
 
-_warm_cache()
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # The warm-up runs when a SERVER starts, not when this module is
+    # imported. It used to be a module-level call, so every eval script
+    # that imported `src.app` for `_build_clients` computed every view for
+    # every tenant and wrote them to `prediction_cache` on shared Aito.
+    # `_warm_cache` starts a daemon thread and returns, so startup is not
+    # held up by it.
+    _warm_cache()
+    yield
+
 
 app = FastAPI(
     title="Predictive ERP — Aito Demo API",
     version="0.1.0",
+    lifespan=_lifespan,
 )
 
 # CORS: in PUBLIC_DEMO mode we lock to specific origins (set via
