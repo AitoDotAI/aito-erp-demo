@@ -116,6 +116,7 @@ export interface DeliveryRisk {
   late_rate: number;
   base_late_rate: number;   // across every supplier — what lift compares to
   lift: number;             // Aito's, shrunk toward 1 on few deliveries
+  raw_lift: number;         // late_rate / base_late_rate, from the counts
   total_orders: number;
   late_orders: number;
   risk_level: string;

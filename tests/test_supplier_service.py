@@ -85,3 +85,13 @@ def test_a_supplier_with_no_deliveries_is_an_error():
 def test_v2_returns_the_supplier_as_a_bare_string():
     hit = {**_NCC, "related": {"supplier": "NCC Suomi"}}
     assert _by_name([hit])["NCC Suomi"].late_rate == round(9 / 89, 3)
+
+
+def test_the_raw_ratio_ships_next_to_aitos_shrunk_lift():
+    """On its own, Aito's lift read as the supplier's actual rate. NCC
+    Suomi's deliveries are late 2.07x as often as everyone's (9 of 89
+    against 160 of 3273); Aito's lift says 1.52x because 89 deliveries
+    is thin evidence. Both are shown, so the shrinkage is visible."""
+    ncc = get_delivery_risk(_Relate([_NCC]))[0]
+    assert ncc.raw_lift == 2.07
+    assert ncc.lift == 1.52

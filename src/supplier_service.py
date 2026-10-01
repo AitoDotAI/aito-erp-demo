@@ -36,6 +36,7 @@ class DeliveryRisk:
     late_rate: float  # this supplier's late deliveries / its deliveries
     base_late_rate: float  # late deliveries / all deliveries, every supplier
     lift: float  # Aito's lift: late_rate over base, shrunk toward 1 on thin data
+    raw_lift: float  # late_rate / base_late_rate, straight from the counts
     total_orders: int
     late_orders: int
     risk_level: str  # "high" | "medium" | "low"
@@ -46,6 +47,7 @@ class DeliveryRisk:
             "late_rate": self.late_rate,
             "base_late_rate": self.base_late_rate,
             "lift": self.lift,
+            "raw_lift": self.raw_lift,
             "total_orders": self.total_orders,
             "late_orders": self.late_orders,
             "risk_level": self.risk_level,
@@ -187,6 +189,10 @@ def get_delivery_risk(client: AitoClient) -> list[DeliveryRisk]:
             late_rate=round(late_rate, 3),
             base_late_rate=round(base_late_rate, 3),
             lift=round(lift, 2),
+            # Shown NEXT TO Aito's lift. On its own the shrunk figure read as
+            # the supplier's actual rate: NCC Suomi showed 1.5x where its
+            # deliveries are 2.1x as often late as everyone's.
+            raw_lift=round(late_rate / base_late_rate, 2),
             total_orders=total_orders,
             late_orders=late_orders,
             risk_level=_classify_risk(lift=lift, late=late_orders),
