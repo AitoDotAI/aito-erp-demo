@@ -134,3 +134,69 @@ shaped the cells:
      the `why`'s own top-level `weightedAverage` value is 57.57. This is
      recorded here because it was seen before the scored run. The rule
      was not changed after seeing it.
+
+## Baseline results (2026-10-01 10:07, shared 2.11.2, rev 59fc6420)
+
+Shared moved from 2.11.0 to 2.11.2 between registration and the run;
+the run is the 2.11.2 baseline. Every answer and every body sent is in
+`docs/notes/dragon-hunt/baseline-2.11.2.json`.
+
+**509/519 checks pass.** By property:
+
+| property | pass |
+|---|---|
+| C1 oracle counts | 13/13 |
+| P1 bounds and order | 31/31 |
+| P2 sum of `$p` | 24/24 |
+| P3 limit independence | 36/36 |
+| P4 determinism | 38/38 |
+| P5 key order | 22/28 |
+| P6 / P7 / P8 | 24/24, 18/18, 18/18 |
+| R1 / R2 / R3 exact `fs` counts | 30/30, 54/54, 180/180 |
+| M0 / M1 / M2 matching | 3/3, 3/3, 3/3 |
+| L1 / L2 planner | 4/4, 4/4 |
+| E1 / E2 demand estimate | 4/4, 0/4 |
+
+### Engine dragon: `_estimate` (aito-core#1558)
+
+- **P5, demand:** 4 of 4 cells fail. The estimate depends on the
+  `where` key order: 55.41 vs 57.60 on metsa, and 12.52 vs 13.28 on
+  aurora, for otherwise identical bodies.
+- **E2:** 0 of 4 cells pass. In every response, `why.value` is exactly
+  the mean of its components, but it is not the `estimate` the same
+  response returns: 57.57 vs 55.41, and 8.57 vs 12.52.
+- **What this means for the demo:**
+  - The Demand and Inventory views show neighbours that explain a number
+    different from the one on screen.
+  - The forecast depends on the order of `FEATURES`.
+  - Filed with exact repro bodies, after ruling out the demo's code and
+    data (C1 13/13; the bodies were recorded at the send).
+
+### Fails by rule, not a dragon
+
+- **P5, approver:** 2 cells fail (metsa and aurora, `PO-1001`). They
+  have the same values in the same order; one `$p` differs by 1.4e-17,
+  which is float rounding.
+- The rule said "identical", and the failure is reported as registered.
+  The rule is not loosened after seeing the data.
+
+### Recorded, not scored: relate lifts
+
+- The reported lifts are pulled toward 1 against the exact empirical
+  lift. For example, NCC Suomi late deliveries: lift 1.52 vs exact
+  2.07; Siemens Finland: 0.63 vs 0.26.
+- This smoothing is by design. Supplier Intel reports the smoothed
+  figure as the supplier's risk; that is worth saying on screen, but it
+  is not a wrong answer.
+- All 264 relate counts behind those lifts are exact.
+
+### Demo-code dragons (found while registering and running)
+
+1. Five truncated whole-table reads. Fixed in #58.
+2. & 3. Matching swallowed `AitoError` into an empty shortlist and
+   silently dropped hits with no `$value`. Fixed on
+   `fix/matching-errors-visible`, awaiting review.
+4. **New:** importing `src.app` runs the cache warm-up for every tenant
+   and writes to `prediction_cache` (amendment 1). Every CLI script that
+   imports it pays a full warm-up and writes to shared Aito. Not fixed
+   yet.
