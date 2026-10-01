@@ -175,9 +175,12 @@ class MatchedLine:
     truth: str | None = None          # held-out label, when there is one
     truth_name: str | None = None     # and what the catalogue calls it
     cold: bool = False                # supplier absent from the history
+    error: str | None = None          # the query failed; nothing was ranked
 
     @property
     def decision(self) -> str:
+        if self.error is not None:
+            return "error"
         top = self.candidates[0].p if self.candidates else 0.0
         return "prefilled" if top >= PRESELECT_THRESHOLD else "open"
 
@@ -193,14 +196,16 @@ class MatchedLine:
             "candidates": [c.to_dict() for c in self.candidates],
             "decision": self.decision, "ms": round(self.ms),
             "cold": self.cold,
+            "error": self.error,
             # The label is shown because these lines are held out and it
             # is the only way a viewer can tell a confident match from a
             # confidently wrong one. A production queue has no truth
             # column; a demo that hides it is asking to be trusted.
             "truth": self.truth,
             "truth_name": self.truth_name,
-            "correct": None if self.truth is None or top is None
-                       else top.sku == self.truth,
+            # A failed line is not a miss: nothing was asked successfully.
+            "correct": None if self.truth is None or self.error is not None
+                       else top is not None and top.sku == self.truth,
             # Half the catalogue shares a name with another row. A pick
             # whose name is identical to the right answer's is not a
             # miss the ranker could have avoided — nothing in the data
@@ -414,22 +419,25 @@ def rank_line(client: AitoClient, line: dict, limit: int = 5,
     for field in VENDOR_FEATURES:
         if vendor and vendor.get(field) is not None:
             where[f"billing_supplier.{field}"] = vendor[field]
+    # No except. This used to answer any AitoError with an empty
+    # shortlist, so an engine 500 rendered as "no candidates" and scored
+    # as a miss. A failure belongs to the caller: `run_batch` shows it on
+    # the line, and the eval stops.
     started = time.perf_counter()
-    try:
-        response = client.predict("invoice_lines", where, "sku", limit=limit,
-                                  select_extra=CATALOGUE_FIELDS,
-                                  ai=INFERENCE_PRESET,
-                                  based_on=(BASED_ON
-                                            if client.api_version == "v2"
-                                            else None))
-    except AitoError:
-        return [], (time.perf_counter() - started) * 1000
+    response = client.predict("invoice_lines", where, "sku", limit=limit,
+                              select_extra=CATALOGUE_FIELDS,
+                              ai=INFERENCE_PRESET,
+                              based_on=(BASED_ON
+                                        if client.api_version == "v2"
+                                        else None))
     elapsed = (time.perf_counter() - started) * 1000
 
     candidates = []
-    for hit in response.get("hits") or []:
+    for hit in response["hits"]:
+        # A hit with no SKU used to be skipped, shrinking the shortlist
+        # without a word. It is an answer we cannot use, so it says so.
         if hit.get("$value") is None:
-            continue
+            raise MalformedAnswer(f"Aito returned a hit without a sku: {hit}")
         candidates.append(Candidate(
             sku=str(hit["$value"]),
             name=hit.get("name") or "",
@@ -442,6 +450,10 @@ def rank_line(client: AitoClient, line: dict, limit: int = 5,
             why_raw=hit.get("$why"),
         ))
     return candidates, elapsed
+
+
+class MalformedAnswer(ValueError):
+    """Aito answered, but not in a shape a shortlist can be built from."""
 
 
 @dataclass
@@ -457,7 +469,11 @@ class BatchResult:
         rate = n / self.wall_s if self.wall_s else 0.0
         prefilled = sum(1 for line in self.lines
                         if line.decision == "prefilled")
-        labelled = [line for line in self.lines if line.truth is not None]
+        # Scored over the lines that were answered; failures are counted
+        # on their own rather than as misses.
+        errors = sum(1 for line in self.lines if line.error is not None)
+        labelled = [line for line in self.lines
+                    if line.truth is not None and line.error is None]
         prefilled_labelled = [line for line in labelled
                               if line.decision == "prefilled"]
         top1 = sum(1 for line in labelled
@@ -476,7 +492,8 @@ class BatchResult:
                 "rows_per_week": round(rate * 3600 * 24 * 7),
                 "server_ms_median": round(self.server_ms_median),
                 "prefilled": prefilled,
-                "open": n - prefilled,
+                "open": n - prefilled - errors,
+                "errors": errors,
                 "threshold": PRESELECT_THRESHOLD,
                 # Scored on this batch only — a few hundred rows, so it
                 # moves run to run. The stable figures are in
@@ -497,11 +514,21 @@ def run_batch(client: AitoClient, lines: list[dict], workers: int = 8,
     """Run the queue. Concurrency is the lever, because the constraint
     on this shape of work is throughput and not the latency of any one
     line — nobody is waiting at a screen for an overnight invoice run."""
+    def rank_or_fail(line: dict) -> tuple[list[Candidate], float, str | None]:
+        # Caught per LINE, and only the two failures that are about the
+        # answer: one bad line must not sink an overnight batch, and it
+        # must not pass for a line Aito had no opinion on either. Any
+        # other exception is a bug here and propagates.
+        started = time.perf_counter()
+        try:
+            candidates, ms = rank_line(client, line,
+                                       vendor=(vendors or {}).get(line["billing_supplier"]))
+            return candidates, ms, None
+        except (AitoError, MalformedAnswer) as exc:
+            return [], (time.perf_counter() - started) * 1000, str(exc)
+
     started = time.perf_counter()
-    ranked = parallel_map(
-        lambda line: rank_line(
-            client, line,
-            vendor=(vendors or {}).get(line["billing_supplier"])), lines, workers=workers)
+    ranked = parallel_map(rank_or_fail, lines, workers=workers)
     wall = time.perf_counter() - started
 
     matched = [
@@ -515,8 +542,9 @@ def run_batch(client: AitoClient, lines: list[dict], workers: int = 8,
             candidates=candidates, ms=ms, truth=line.get("sku"),
             truth_name=(names or {}).get(line.get("sku", "")),
             cold=line["billing_supplier"] in cold_suppliers,
+            error=error,
         )
-        for (candidates, ms), line in zip(ranked, lines)
+        for (candidates, ms, error), line in zip(ranked, lines)
     ]
     times = sorted(line.ms for line in matched) or [0.0]
     return BatchResult(lines=matched, wall_s=wall, workers=workers,
