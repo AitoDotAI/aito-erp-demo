@@ -294,10 +294,13 @@ def demand_cells(c, tenant: str) -> None:
         check("E1", name, lo <= est <= hi, f"estimate {est:.3f} vs observed [{lo}, {hi}]")
         comps = components_of(r.get("why") or {})
         # Field names confirmed on the first response before scoring (pre-registration).
-        if comps and all("weight" in x and "value" in x for x in comps):
-            mean = sum(x["weight"] * x["value"] for x in comps) / sum(x["weight"] for x in comps)
+        # Amendment 1: a component is {weight, value: {type: neighborContext, value: n}}.
+        if comps and all("weight" in x and isinstance(x.get("value"), dict) for x in comps):
+            mean = sum(x["weight"] * x["value"]["value"] for x in comps) / sum(x["weight"] for x in comps)
+            stated = (r.get("why") or {}).get("value")
             check("E2", name, abs(mean - est) <= 1e-6 * max(1.0, abs(est)),
-                  f"weighted mean {mean:.6f} vs estimate {est:.6f} over {len(comps)} components")
+                  f"weighted mean {mean:.6f} vs estimate {est:.6f} over {len(comps)} components "
+                  f"(why's own weightedAverage value: {stated})")
         else:
             unscored.append(f"E2 {name}: component keys {sorted(comps[0]) if comps else 'none'}")
         check("P4", name, float(c.estimate("monthly_demand", where, "units_sold")["estimate"]) == est, "repeat")
@@ -314,8 +317,14 @@ def main() -> int:
     now = datetime.now(ZoneInfo("Europe/Helsinki"))
     if 8 <= now.hour < 10:
         raise SystemExit("08:00-10:00 Helsinki is the shared batch window; run after 10:00.")
-    import src.app as app
-    clients = app._build_clients()
+    # Not via src.app: importing it runs the cache warm-up for every
+    # tenant, which computes views and WRITES to prediction_cache. The
+    # first baseline attempt did exactly that (pre-registration, amendment 1).
+    from src.aito_client import AitoClient
+    from src.config import load_config
+    cfg = load_config()
+    clients = {t: AitoClient.from_creds(cfg.creds_for(t).api_url, cfg.creds_for(t).api_key,
+                                        api_version=cfg.api_version) for t in TENANTS}
     engine = {t: clients[t]._v2.request("GET", "/_version") for t in TENANTS}
     tables = {"metsa": ["purchases", "assignments", "people", "monthly_demand"],
               "aurora": ["purchases", "baskets", "products", "vendors", "invoice_lines_holdout",

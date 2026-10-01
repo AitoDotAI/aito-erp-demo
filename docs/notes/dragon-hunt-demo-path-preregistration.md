@@ -109,3 +109,28 @@ shaped the cells:
   candidate. Any changed answer (a top-1 value, or `$p` differing by more
   than 1e-6) is reported with its explanation, or as a dragon if there
   is none.
+
+## Amendment 1 (2026-10-01 10:05, the first baseline attempts)
+
+1. **The 10:05 scheduled run did not run.** The working tree was on
+   another branch at the time, so no query was sent.
+
+2. **The second attempt was not read-only.** It built its clients by
+   importing `src.app`, and that import runs the cache warm-up at module
+   level (`src/app.py`, `_warm_cache()`). So it computed views for metsa
+   and aurora and wrote their results to each tenant's
+   `prediction_cache` table. No demo data table was touched; these are
+   the same writes a local backend makes on startup. The script now
+   builds its clients from config directly.
+   - The import side effect is itself a demo-code finding. Every CLI
+     script that imports `src.app` does the same, including
+     `crosssell_eval` and `match_eval`.
+
+3. **E2 field names.** The attempt crashed at E2: a `why` component's
+   `value` is an object, `{type: "neighborContext", value: n, ...}`, not
+   a number. Confirmed on one metsa estimate, MD holdout row 0.
+   - E2 now reads `value.value`. The pass rule is unchanged.
+   - That probe already showed a mismatch: the estimate is 55.41, while
+     the `why`'s own top-level `weightedAverage` value is 57.57. This is
+     recorded here because it was seen before the scored run. The rule
+     was not changed after seeing it.
