@@ -107,7 +107,23 @@ INFERENCE_PRESET = "and"
 # The cost is throughput: 3.4 -> 2.5 rows/s at 8 workers, ~35% slower
 # per line. Named here rather than switched on everywhere for that
 # reason.
-BASED_ON = ["name"]
+#
+# `["name", "supplier"]` since 2026-10. The core benchmark measured the
+# shipped shape (config.ai=and, limit 5) on 2000 pre-registered lines,
+# same rows both arms: 85.8% -> 88.5% top-1, 94.4% -> 96.8% top-5, MRR
+# 0.892 -> 0.918, on an engine with aito-core #1562 (05abae101: a
+# declared basedOn field is no longer evicted by another field's
+# relations). This demo's own split on shared 2.11.2, WITHOUT #1562:
+#
+#     basedOn                overall  warm   cold    top-5
+#     ["name"]               88.2%    87.0%  90.7%   95.9%
+#     ["name","supplier"]    89.2%    88.4%  90.9%   97.1%
+#     ["name","unit_of_m."]  89.1%    88.2%  90.9%   97.0%   (unit_of_measure holds nulls; r2d)
+#
+# The gain is SHAPE-specific: at another query shape (no config.ai,
+# limit 10) the same arm measured -0.3 points. Re-measure at this
+# shape, with `./do match-eval --based-on=…`, never at a neighbour's.
+BASED_ON = ["name", "supplier"]
 
 # The vendor's own attributes, reached through the link on
 # `billing_supplier`. They matter most exactly where the vendor name is
@@ -705,38 +721,36 @@ MEASURED_BY_ENGINE: dict[str, dict] = {
     },
     "v2": {
         "engine": "rep2 (v2)",
-        "measured_on": "2026-09-27",
-        # Re-measured on 2.10.3 against env.master: accuracy identical to
-        # 2.10.0 to the decimal — overall, per regime and every point of
-        # the curve — and throughput 2.6 rows/s against 2.5, within
-        # run-to-run noise. Core #1464 is therefore NOT fixed by 2.10.3.
-        # Re-run on every engine bump anyway; 2.8.4 -> 2.10.0 moved these
-        # by six points without a line of this repo changing.
-        # The engine AND the query the numbers below describe. Two of them
-        # moved between builds this month, and `config.ai` / `basedOn` each
-        # move them further than a build did — so a figure here without all
-        # three attached is a figure nobody can check.
+        "measured_on": "2026-10-02",
+        # basedOn=["name","supplier"] on shared 2.11.2, the build the demo
+        # talks to. 2.11.2 does NOT contain aito-core #1562 (the basedOn
+        # eviction fix); on an engine that does, the core benchmark saw a
+        # larger gain over ["name"] (+2.7 top-1 against +1.0 here). Re-run
+        # `./do match-eval` when shared moves and update this block whole.
+        # ["name"] on the same build and split: 88.2 / 87.0 / 90.7, top-5
+        # 95.9. Measured at 4 workers, so the throughput is not comparable
+        # with the 8-worker figure this block quoted before.
         "engine_build":
-            '2.10.3 (88786b4dc970), config.ai=and, basedOn=["name"] on rep2, '
+            '2.11.2 (59fc64206339), config.ai=and, basedOn=["name","supplier"] on rep2, '
             'corpus rev 3 (clean attributes, place origins, 50% Finnish, '
             '120k lines, warm twins for every cold vendor)',
-        "overall_top1": 0.882, "overall_top5": 0.959, "overall_top1_name": 0.882,
-        "warm_top1": 0.870, "warm_top5": 0.951, "warm_top1_name": 0.870,
-        "cold_top1": 0.907, "cold_top5": 0.973, "cold_top1_name": 0.907,
-        "throughput_rows_per_s": 2.6, "throughput_workers": 8,
+        "overall_top1": 0.892, "overall_top5": 0.971, "overall_top1_name": 0.892,
+        "warm_top1": 0.884, "warm_top5": 0.968, "warm_top1_name": 0.884,
+        "cold_top1": 0.909, "cold_top5": 0.978, "cold_top1_name": 0.909,
+        "throughput_rows_per_s": 3.0, "throughput_workers": 4,
         "curve": [
-            {"bar": 0.05, "coverage": 0.999, "precision": 0.884},
-            {"bar": 0.10, "coverage": 0.995, "precision": 0.887},
-            {"bar": 0.20, "coverage": 0.982, "precision": 0.897},
-            {"bar": 0.35, "coverage": 0.953, "precision": 0.915},
-            {"bar": 0.50, "coverage": 0.917, "precision": 0.930},
+            {"bar": 0.05, "coverage": 0.999, "precision": 0.893},
+            {"bar": 0.10, "coverage": 0.999, "precision": 0.893},
+            {"bar": 0.20, "coverage": 0.996, "precision": 0.896},
+            {"bar": 0.35, "coverage": 0.978, "precision": 0.906},
+            {"bar": 0.50, "coverage": 0.938, "precision": 0.924},
         ],
         "regimes": [
             {"overlap": "0%", "share": 0.038, "aito": 0.880, "tfidf": 0.0},
             {"overlap": "1-33%", "share": 0.009, "aito": 0.789, "tfidf": 0.0},
-            {"overlap": "34-66%", "share": 0.256, "aito": 0.910, "tfidf": 0.286},
-            {"overlap": "67-99%", "share": 0.386, "aito": 0.896, "tfidf": 0.566},
-            {"overlap": "100%", "share": 0.311, "aito": 0.846, "tfidf": 0.934},
+            {"overlap": "34-66%", "share": 0.256, "aito": 0.912, "tfidf": 0.286},
+            {"overlap": "67-99%", "share": 0.386, "aito": 0.899, "tfidf": 0.566},
+            {"overlap": "100%", "share": 0.311, "aito": 0.873, "tfidf": 0.934},
         ],
     },
 }

@@ -291,3 +291,19 @@ def test_an_absent_queue_is_still_a_quiet_empty(fresh_queue):
         def search(self, table, where, limit=10):
             return {"hits": []}
     assert fresh_queue.queue_for(_Empty("x", 0), "metsa")[0] == []
+
+
+def test_the_shipped_query_bases_on_name_and_supplier():
+    """Measured, not assumed: on the demo's split ["name","supplier"]
+    beats ["name"] by a point top-1 on 2.11.2, and the core benchmark
+    measured +2.7 at this exact shape on an engine with #1562. A literal
+    here, so the arm cannot drift without this test saying so."""
+    assert _rank_with("v2")["based_on"] == ["name", "supplier"]
+
+
+def test_the_numbers_on_screen_describe_the_query_that_is_sent():
+    """The view quotes MEASURED_BY_ENGINE; its provenance has to name the
+    basedOn actually shipped, or the screen describes another query."""
+    import json
+    from src.matching_service import BASED_ON, MEASURED_BY_ENGINE
+    assert f"basedOn={json.dumps(BASED_ON, separators=(',', ':'))}" in MEASURED_BY_ENGINE["v2"]["engine_build"]
