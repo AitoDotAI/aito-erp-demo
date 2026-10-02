@@ -6,6 +6,7 @@ import TopBar from "@/components/shell/TopBar";
 import AitoPanel from "@/components/shell/AitoPanel";
 import ErrorState from "@/components/shell/ErrorState";
 import { apiFetch, fmtAmount, confClass } from "@/lib/api";
+import { readParam, writeParam } from "@/lib/url-state";
 import { useTenant } from "@/lib/tenant-context";
 import { supplierPanel } from "@/lib/panel-content";
 import { findQuery } from "@/lib/query";
@@ -59,9 +60,24 @@ export default function SupplierPage() {
     });
   }, [data, tenantId]);
 
+  // A shared link opens with the same row selected: `?spend=` or `?risk=`
+  // names the supplier, in whichever table the sender clicked it.
+  useEffect(() => {
+    if (!data) return;
+    const spend = readParam("spend");
+    const risk = readParam("risk");
+    const spendRow = spend ? data.spend_overview?.find((s) => s.supplier === spend) : undefined;
+    const riskRow = risk ? data.delivery_risks.find((r) => r.supplier === risk) : undefined;
+    if (riskRow) handleRiskClick(riskRow);
+    else if (spendRow) handleSpendClick(spendRow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   const handleSpendClick = (item: SupplierSpend) => {
     setSelectedSpend(item.supplier);
     setSelectedRisk(null);
+    writeParam("spend", item.supplier);
+    writeParam("risk", null);
     // Spend is not an Aito inference: one `_search` reads the purchase
     // history and the totals are summed in src/supplier_service.py.
     const read = findQuery(data?._queries, { endpoint: "_search", from: "purchases" });
@@ -90,6 +106,8 @@ export default function SupplierPage() {
   const handleRiskClick = (item: DeliveryRisk) => {
     setSelectedRisk(item.supplier);
     setSelectedSpend(null);
+    writeParam("risk", item.supplier);
+    writeParam("spend", null);
     // One `_relate` ranks every supplier; this row is one hit of it.
     const relate = findQuery(data?._queries, {
       endpoint: "_relate", from: "purchases", target: "supplier", where: { delivery_late: true },

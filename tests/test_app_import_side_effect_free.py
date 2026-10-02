@@ -44,3 +44,13 @@ def test_starting_the_server_runs_the_warm_up(monkeypatch):
     with TestClient(app_module.app):
         pass
     assert calls == ["warm"]
+
+
+def test_warm_cache_0_starts_a_server_without_the_burst(monkeypatch):
+    app_module = _reload_app(monkeypatch)
+    monkeypatch.setenv("WARM_CACHE", "0")
+    calls = []
+    monkeypatch.setattr(app_module, "_warm_cache", lambda: calls.append("warm"))
+    with TestClient(app_module.app):
+        pass
+    assert calls == []

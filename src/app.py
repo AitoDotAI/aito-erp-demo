@@ -282,7 +282,11 @@ async def _lifespan(_app: FastAPI):
     # every tenant and wrote them to `prediction_cache` on shared Aito.
     # `_warm_cache` starts a daemon thread and returns, so startup is not
     # held up by it.
-    _warm_cache()
+    # WARM_CACHE=0 skips it: a developer checking a few views against
+    # shared Aito should send only those views' queries, not a full burst
+    # for every tenant (the suspected cause of the 2026-10-01 slowdown).
+    if _os.environ.get("WARM_CACHE", "1") != "0":
+        _warm_cache()
     yield
 
 
