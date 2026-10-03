@@ -32,6 +32,7 @@ import random
 import zlib
 from collections import Counter
 
+from src.shared_window import refuse_in_batch_window
 from src.demand_service import _whole_table
 from src.recommendation_service import get_cross_sell
 
@@ -78,6 +79,7 @@ def evaluate(client) -> list[dict]:
 
 
 def main() -> None:
+    refuse_in_batch_window("crosssell-eval")   # before any query: src/shared_window.py
     import src.app as app
     for r in evaluate(app._build_clients()["aurora"]):
         print(f"aurora {r['band']:28} companions in top {TOP}: view {r['view']}/{r['possible']}"

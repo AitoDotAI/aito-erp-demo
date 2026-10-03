@@ -24,6 +24,7 @@ import json
 import sys
 from pathlib import Path
 
+from src.shared_window import refuse_in_batch_window
 from src.aito_client import AitoClient, AitoError
 from src.config import ApiVersion, DEFAULT_TENANT, TENANT_IDS, TenantId, load_config
 
@@ -804,7 +805,8 @@ def _parse_api_version_arg(argv: list[str]) -> str | None:
     return None
 
 
-if __name__ == "__main__":
+def main() -> None:
+    refuse_in_batch_window("load-data")   # before any query: src/shared_window.py
     reset = "--reset" in sys.argv
     tenants = _parse_tenants_arg(sys.argv)
     # `--add=t1,t2`: create and fill only these tables, never dropping
@@ -819,3 +821,7 @@ if __name__ == "__main__":
     else:
         run(reset=reset, tenants=tenants,
             api_version=_parse_api_version_arg(sys.argv))
+
+
+if __name__ == "__main__":
+    main()

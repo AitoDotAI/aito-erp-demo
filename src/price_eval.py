@@ -22,6 +22,7 @@ import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
+from src.shared_window import refuse_in_batch_window
 from src.config import TENANT_IDS
 from src.demand_service import _whole_table
 from src.pricing_service import FLAG_MARGIN, OVERCHARGE_OVER_LIST, score_quote
@@ -69,6 +70,7 @@ def evaluate(client, tenant: str) -> dict:
 
 
 def main() -> None:
+    refuse_in_batch_window("price-eval")   # before any query: src/shared_window.py
     import src.app as app
     clients = app._build_clients()
     tenants = [a.split("=", 1)[1] for a in sys.argv if a.startswith("--tenant=")]
