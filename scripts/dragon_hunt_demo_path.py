@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.shared_window import refuse_in_batch_window  # noqa: E402
 from src import query_log  # noqa: E402
 from src.demand_service import FEATURES as DEMAND_FEATURES  # noqa: E402
 from src.matching_service import (BASED_ON, CATALOGUE_FIELDS, INFERENCE_PRESET,  # noqa: E402
@@ -310,13 +311,12 @@ def demand_cells(c, tenant: str) -> None:
 
 
 def main() -> int:
+    refuse_in_batch_window("dragon-hunt")   # before any query: src/shared_window.py
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--out", required=True)
     parser.add_argument("--compare", help="an earlier run's JSON to diff answers against")
     args = parser.parse_args()
     now = datetime.now(ZoneInfo("Europe/Helsinki"))
-    if 8 <= now.hour < 10:
-        raise SystemExit("08:00-10:00 Helsinki is the shared batch window; run after 10:00.")
     # Not via src.app: importing it runs the cache warm-up for every
     # tenant, which computes views and WRITES to prediction_cache. The
     # first baseline attempt did exactly that (pre-registration, amendment 1).

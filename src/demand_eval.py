@@ -23,6 +23,7 @@ import zlib
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
+from src.shared_window import refuse_in_batch_window
 from src.aito_client import AitoClient
 from src.config import TENANT_IDS
 from src.demand_service import FEATURES   # the view's `where`; one definition
@@ -88,6 +89,7 @@ def evaluate(client: AitoClient, tenant: str) -> dict:
 
 
 def main() -> None:
+    refuse_in_batch_window("demand-eval")   # before any query: src/shared_window.py
     import src.app as app   # builds one client per tenant from the environment
     clients = app._build_clients()
     tenants = [a.split("=", 1)[1] for a in sys.argv if a.startswith("--tenant=")]

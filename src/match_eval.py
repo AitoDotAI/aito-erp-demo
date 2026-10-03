@@ -47,6 +47,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from src.shared_window import refuse_in_batch_window
 from src.aito_client import AitoClient
 from src.config import TenantId, load_config
 from src.match_baseline import REGIMES, TfIdfCatalogue, ceiling, regime
@@ -286,6 +287,7 @@ def run(tenant: TenantId = "aurora", limit: int | None = None,
 
 
 def main() -> None:
+    refuse_in_batch_window("match-eval")   # before any query: src/shared_window.py
     limit = None
     workers = 8
     tenant: TenantId = "aurora"

@@ -37,6 +37,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from src.shared_window import refuse_in_batch_window
 from src.aito_client import AitoClient
 from src.config import API_VERSIONS, ApiVersion, TENANT_IDS, TenantId, load_config
 
@@ -211,6 +212,7 @@ def check_tenant(tenant: TenantId, api_version: ApiVersion, verbose: bool) -> li
 
 
 def main(argv: list[str]) -> int:
+    refuse_in_batch_window("v2-check")   # before any query: src/shared_window.py
     api_version: ApiVersion = "v2"
     tenants: list[TenantId] = list(TENANT_IDS)
     verbose = "--verbose" in argv

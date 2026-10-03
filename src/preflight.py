@@ -31,6 +31,7 @@ Exit code is non-zero when anything is BROKEN, so it can gate a deploy.
 import os
 import sys
 
+from src.shared_window import refuse_in_batch_window
 from src.aito_client import AitoClient, AitoError
 from src.config import _TENANT_ENV_PREFIX, TENANT_IDS, TenantId, load_config
 from src.data_loader import SCHEMAS, load_fixture
@@ -146,6 +147,7 @@ def check_tenant(tenant: TenantId, api_version: str | None) -> list[str]:
 
 
 def main() -> None:
+    refuse_in_batch_window("preflight")   # before any query: src/shared_window.py
     # No default. `load_config(api_version=None)` follows AITO_API_VERSION
     # the way the app does — and a gate that checks a different
     # environment than the app will run against is worse than no gate.

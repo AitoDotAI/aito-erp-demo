@@ -24,6 +24,7 @@ is never touched. Findings are recorded in docs/v2-migration.md.
 
 import sys
 
+from src.shared_window import refuse_in_batch_window
 from src.aito_client import AitoClient
 from src.config import load_config
 from src.data_loader import (SCHEMAS, create_schema, delete_table,
@@ -75,6 +76,7 @@ def build_control(client: AitoClient, key: str) -> None:
 
 
 def main() -> None:
+    refuse_in_batch_window("v2-optimize-ab")   # before any query: src/shared_window.py
     key = load_config(api_version="v2").creds_for("metsa").api_key
     control = AitoClient.from_creds(f"{DB}/env/{CONTROL_ENV}", key,
                                     api_version="v2")

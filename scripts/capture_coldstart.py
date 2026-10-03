@@ -34,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from src.shared_window import refuse_in_batch_window  # noqa: E402
 from src.aito_client import AitoClient  # noqa: E402
 from src.data_loader import SCHEMAS  # noqa: E402
 
@@ -103,6 +104,7 @@ SNAPSHOT_LABELS = {
 
 
 def main() -> None:
+    refuse_in_batch_window("capture-coldstart")   # before any query: src/shared_window.py
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--aito-url", required=True,
                         help="Sandbox Aito DB URL with WRITE access.")
