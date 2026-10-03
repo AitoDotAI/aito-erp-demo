@@ -9,6 +9,7 @@ import { apiFetch, fmtAmount, confClass } from "@/lib/api";
 import { useTenant } from "@/lib/tenant-context";
 import { poQueuePanel } from "@/lib/panel-content";
 import { findQuery } from "@/lib/query";
+import { readParam, writeParam } from "@/lib/url-state";
 import WhyPopover from "@/components/prediction/WhyPopover";
 import type { POQueueResponse, POPrediction, AitoPanelConfig, WhyExplanation, Alternative } from "@/lib/types";
 
@@ -69,8 +70,18 @@ export default function POQueuePage() {
     setTimeout(() => setBulkMessage(null), 6000);
   };
 
+  // A shared link (`?po=PO-1234`) opens with that PO selected, once the
+  // queue has loaded. A PO no longer in the queue is simply not selected.
+  useEffect(() => {
+    const wanted = readParam("po");
+    const order = wanted ? data?.pos.find((o) => o.purchase_id === wanted) : undefined;
+    if (order && selected !== order.purchase_id) handleRowClick(order);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   const handleRowClick = (order: POPrediction) => {
     setSelected(order.purchase_id);
+    writeParam("po", order.purchase_id);
     // The query behind the field that decides this row's confidence —
     // the one a reviewer would look at. A rule field sent no query.
     const fields = (["cost_center", "account_code", "approver"] as const)

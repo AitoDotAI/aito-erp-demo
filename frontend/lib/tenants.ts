@@ -107,3 +107,21 @@ export function resolveInitialTenant(
   if (!hidesRoute(getTenant(chosen), pathname)) return chosen;
   return TENANTS.find((t) => !hidesRoute(t, pathname))?.id ?? chosen;
 }
+
+/** `search` with `key` set to `value` (or removed when null), every other
+ *  param kept in place. Used for the tenant and for a view's selection,
+ *  so a copied address bar reopens the same thing for someone else. */
+export function searchWithParam(search: string, key: string, value: string | null): string {
+  const params = new URLSearchParams(search);
+  if (value === null) params.delete(key);
+  else params.set(key, value);
+  const out = params.toString();
+  return out ? `?${out}` : "";
+}
+
+/** `search` carrying `?tenant=<id>`. The tenant lives in the URL, not only
+ *  in localStorage: a link without it opened under the RECIPIENT's stored
+ *  tenant, which is how "send this view" sent the wrong company. */
+export function searchWithTenant(search: string, id: TenantId): string {
+  return searchWithParam(search, "tenant", id);
+}

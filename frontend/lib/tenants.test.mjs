@@ -40,3 +40,34 @@ test("route matching is by path segment, not prefix", () => {
   assert.ok(hidesRoute(aurora, "/projects/"));
   assert.ok(!hidesRoute(aurora, "/projectsx"));
 });
+
+// "I can send a view, but not for a specific tenant": the address bar
+// never carried the tenant, so a copied link opened under the
+// recipient's own stored choice. The URL is now kept in step with it.
+import { searchWithTenant, searchWithParam } from "./tenants.ts";
+
+test("the tenant is written into the query, keeping everything else", () => {
+  assert.equal(searchWithTenant("", "aurora"), "?tenant=aurora");
+  assert.equal(searchWithTenant("?po=PO-1001", "studio"), "?po=PO-1001&tenant=studio");
+  assert.equal(searchWithTenant("?tenant=metsa&po=PO-1", "aurora"), "?tenant=aurora&po=PO-1");
+});
+
+test("a link built for every view round-trips to the same tenant, cold", () => {
+  // A fresh browser has nothing stored; the stored value below is the
+  // recipient's OWN choice, which the link must win over.
+  for (const t of ["metsa", "aurora", "studio"]) {
+    for (const route of ["/po-queue/", "/supplier/", "/anomalies/", "/inventory/", "/overview/"]) {
+      if (hidesRoute(getTenant(t), route)) continue;
+      const link = route + searchWithTenant("", t);
+      const [path, search] = link.split("?");
+      for (const stored of [null, "metsa", "aurora", "studio"]) {
+        assert.equal(resolveInitialTenant(path, "?" + search, stored), t, `${link} with ${stored} stored`);
+      }
+    }
+  }
+});
+
+test("a view's selection is a param of its own, and clearing it removes it", () => {
+  assert.equal(searchWithParam("?tenant=aurora", "supplier", "Valio Oy"), "?tenant=aurora&supplier=Valio+Oy");
+  assert.equal(searchWithParam("?tenant=aurora&po=PO-1", "po", null), "?tenant=aurora");
+});

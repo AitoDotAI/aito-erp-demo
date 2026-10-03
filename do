@@ -43,6 +43,7 @@ Commands:
   backend-dev     Start backend only (port ${PORT_BACKEND})
   frontend-dev    Start frontend only (port ${PORT_FRONTEND}, proxies API to ${PORT_BACKEND})
   frontend-build  Build Next.js static export to frontend/out/
+  e2e-links       Deep links in a real browser: cold per tenant, by click, back/forward
   stop            Stop all running dev servers
   restart         Stop then start dev servers
   demo            Open the demo in browser
@@ -136,8 +137,46 @@ cmd_frontend_dev() {
 cmd_frontend_build() {
   echo "Building Next.js static export..."
   cd "$SCRIPT_DIR/frontend"
-  npx next build
+  # Forced, not inherited. next.config only switches `output: "export"` on
+  # when NODE_ENV is not "development", and the nix-shell exports
+  # NODE_ENV=development — so a build from that shell produced no export
+  # and died prerendering /_not-found with "reading 'useState'", which
+  # reads like a React bug rather than an environment one.
+  NODE_ENV=production npx next build
   echo "Built to frontend/out/ — ./do backend-dev will serve it."
+}
+
+cmd_e2e_links() {
+  # A pasted link opens the same tenant, view and row for someone else;
+  # clicks write the URL; back/forward restore it. Against the BUILT export
+  # served by the backend (the production shape — dev routing differs).
+  # The backend runs memory-only (PUBLIC_DEMO=1: no prediction_cache writes)
+  # with no startup warm-up (WARM_CACHE=0), so only the views opened query
+  # Aito — and never in the shared batch window.
+  local hour
+  hour=$(TZ=Europe/Helsinki date +%H)
+  if [[ "$hour" == "08" || "$hour" == "09" ]]; then
+    echo "08:00-10:00 Helsinki is the shared Aito batch window; run after 10:00." >&2
+    exit 1
+  fi
+  local chrome
+  chrome=$(_find_chrome)
+  [[ -n "$chrome" ]] || { echo "Error: chromium not found (see _find_chrome)." >&2; exit 1; }
+  cmd_frontend_build >/dev/null
+  local port=8402
+  (cd "$SCRIPT_DIR" && PUBLIC_DEMO=1 WARM_CACHE=0 uv run uvicorn src.app:app \
+      --host 127.0.0.1 --port "$port" > /tmp/erp-e2e-links-backend.log 2>&1) &
+  local pid=$!
+  for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$port/health" >/dev/null && break; sleep 1; done
+  local rc=0
+  (cd "$SCRIPT_DIR/frontend" && BASE_URL="http://127.0.0.1:$port" CHROME_PATH="$chrome" \
+      node scripts/e2e-deeplinks.cjs) || rc=$?
+  # By PID of whatever listens on the port: `uv run` puts uvicorn one
+  # process below the subshell, so killing $pid alone leaves it serving.
+  kill $(ss -ltnp "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u) \
+    "$pid" 2>/dev/null
+  for _ in $(seq 1 15); do ss -ltn | grep -q ":$port " || break; sleep 1; done
+  return $rc
 }
 
 cmd_demo() {
@@ -753,6 +792,7 @@ case "${1:-help}" in
   backend-dev)     cmd_backend_dev ;;
   frontend-dev)    cmd_frontend_dev ;;
   frontend-build)  cmd_frontend_build ;;
+  e2e-links)       cmd_e2e_links ;;
   stop)            cmd_stop ;;
   restart)         cmd_restart ;;
   demo)            cmd_demo ;;
