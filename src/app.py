@@ -216,7 +216,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("overview_metrics_v2", lambda: get_overview(aito).to_dict())
 
     def warm_projects():
-        warm_or_load("projects_portfolio", lambda: get_portfolio(aito).to_dict())
+        warm_or_load("projects_portfolio_v2", lambda: get_portfolio(aito).to_dict())
 
     def warm_recommendations():
         # Aurora-only feature; skip for other personas (the API also
@@ -834,7 +834,7 @@ def utilization_forecast(body: dict, request: Request):
 @app.get("/api/projects/portfolio")
 def projects_portfolio(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "projects_portfolio")
+    cache_key = _tk(tenant, "projects_portfolio_v2")
     cached = cache.get(cache_key)
     if cached:
         return cached

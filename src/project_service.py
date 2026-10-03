@@ -11,12 +11,10 @@ across the portfolio actually move outcomes?
      project_type, team_size, budget × duration). $why returns the
      factor decomposition.
   3. _relate where={success: true} across several fields → which
-     factors correlate with success across the portfolio. People
-     come from `assignments.person` (String — one row per assignment,
-     one factor per person, no text tokenisation), and project-level
-     categoricals (manager, project_type, priority) come from
-     `projects` directly. The result is one mixed factor list, not a
-     people-only sidebar.
+     properties of the WORK correlate with success across the
+     portfolio: project type, priority and the five outcome drivers
+     (contract type, scope clarity, novelty, customer size, team
+     seniority). No person appears in it — see `_success_factors`.
 """
 
 from dataclasses import dataclass, field
@@ -103,16 +101,16 @@ class ProjectRow:
 class SuccessFactor:
     """One signal that correlates with project success.
 
-    Mixed kinds in a single list: a person from assignments, a manager
-    from projects, a project_type, a priority bucket. The frontend
+    Mixed kinds in a single list: a project_type, a priority bucket, an
+    outcome driver such as scope_clarity. The frontend
     renders all of them in the same "Success factors" panel, so the
     `kind` discriminator drives styling and the `label` carries the
     human-readable category name.
     """
-    kind: str                  # "person" | "manager" | "project_type" | "priority"
-    label: str                 # "Person" | "Manager" | …
-    field: str                 # source — "assignments.person", "projects.manager", …
-    value: str                 # concrete value — "A. Lindgren", "design", "high"
+    kind: str                  # the projects column — "project_type", "scope_clarity", …
+    label: str                 # "Project type" | "Scope clarity" | …
+    field: str                 # source — "projects.project_type", …
+    value: str                 # concrete value — "design", "unclear", "high"
     role_in_pattern: str       # "boost" | "drag" — direction of effect
     lift: float
     coverage: int              # rows matching condition AND this value
@@ -214,9 +212,7 @@ def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
 
     `team_members` is deliberately absent from the where clause: it is
     a String column for display, not an Aito feature, so passing it
-    here would only contribute one-of-a-kind values. The team-as-signal
-    surfaces in the Success factors panel via `assignments.person`
-    instead.
+    here would only contribute one-of-a-kind values.
     """
     where = {
         "project_type": row.project_type,
@@ -240,10 +236,19 @@ def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
 
 # Project-level categorical fields we mine for success factors. People
 # are mined separately off the assignments table — see _success_factors.
+# Properties of the work, never of a person. A list of "people who
+# correlate with success" ranks colleagues by name on a shared screen,
+# and a manager's name is a person too. The five drivers are the ones
+# the fixture builds outcomes from (CLAUDE.md, "The outcome drivers"),
+# so they are what the panel should be able to find.
 _PROJECT_FACTOR_FIELDS: list[tuple[str, str]] = [
-    ("manager",      "Manager"),
-    ("project_type", "Project type"),
-    ("priority",     "Priority"),
+    ("project_type",   "Project type"),
+    ("priority",       "Priority"),
+    ("contract_type",  "Contract"),
+    ("scope_clarity",  "Scope clarity"),
+    ("novelty",        "Novelty"),
+    ("customer_size",  "Customer size"),
+    ("team_seniority", "Team seniority"),
 ]
 
 
@@ -285,57 +290,30 @@ def _factors_from_hits(
 
 
 def _success_factors(client: AitoClient) -> list[SuccessFactor]:
-    """Discover what correlates with project success — broadly.
+    """Discover which properties of the work correlate with success.
 
-    Two `_relate` shapes feed one mixed list:
+    One `_relate` per field — `from: projects, where: {success: true},
+    relate: <field>` — over project type, priority and the five outcome
+    drivers, combined into one list sorted by strength of lift.
 
-      - `from: assignments, where: {project_success: true}, relate: person`
-        — surfaces individual people. `person` is a String column on
-        assignments, so each name is one distinct value, not a
-        bag-of-tokens. (That avoids the "feature 'r' from R. Keinonen"
-        problem that comes from mining `_relate` over a Text field.)
-
-      - `from: projects, where: {success: true}, relate: <field>` for
-        each of `manager`, `project_type`, `priority` — surfaces
-        project-level patterns: which managers carry success, which
-        project types are over-represented in wins, etc.
-
-    The combined list is sorted by magnitude of lift and capped, so
-    the panel shows the strongest signal first regardless of kind.
+    People are deliberately absent. This panel used to relate
+    `assignments.person` and `projects.manager`, which put named
+    colleagues in a ranked list of what goes with success — a league
+    table of people, presented as a finding. Who staffs well is the
+    Engagement Planner's question, asked about one candidate at a time.
     """
     factors: list[SuccessFactor] = []
-
-    # People — assignments.person.
-    try:
-        people_response = client.relate(
-            "assignments", {"project_success": True}, "person",
-        )
-        factors.extend(_factors_from_hits(
-            people_response.get("hits") or [],
-            kind="person",
-            label="Person",
-            field="assignments.person",
-            min_coverage=4,
-        ))
-    except Exception:
-        pass
-
-    # Project-level categoricals — projects.<field>.
+    # No try/except: a failed relate used to be skipped, so the panel
+    # silently lost a whole kind of factor and still looked complete.
     for field_name, label in _PROJECT_FACTOR_FIELDS:
-        try:
-            response = client.relate(
-                "projects", {"success": True}, field_name,
-            )
-        except Exception:
-            continue
+        response = client.relate("projects", {"success": True}, field_name)
         factors.extend(_factors_from_hits(
-            response.get("hits") or [],
+            response["hits"],
             kind=field_name,
             label=label,
             field=f"projects.{field_name}",
-            # Project-level fields have far fewer distinct values than
-            # people; require more coverage so a single fluke doesn't
-            # outrank a real signal.
+            # Few distinct values per field; require coverage so a single
+            # fluke does not outrank a real signal.
             min_coverage=6,
         ))
 
