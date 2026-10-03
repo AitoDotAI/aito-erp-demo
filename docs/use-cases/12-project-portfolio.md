@@ -13,9 +13,17 @@ completed projects. Click a row to open the `$why` decomposition: which
 factors lifted or dragged the prediction — manager × project_type fit,
 team-size band, individual people on the team, budget × duration risk.
 
-A second column lists **staffing factors** — individuals whose presence
-on a team has a statistically significant effect on outcomes. Discovered
-via `_relate`, not configured.
+A second column lists **success factors**: properties of the work that
+move the success rate across completed projects. These are project type,
+priority and the five outcome drivers: contract type, scope clarity,
+novelty, customer size and team seniority. They are discovered via
+`_relate`, not configured.
+
+The list never names people. It used to relate `assignments.person` and
+`projects.manager`, which put named colleagues in a ranked list of what
+goes with success. That is a league table of people presented as a
+finding, and it isn't one to put on a screen. Who staffs a job well is
+the Engagement Planner's question, asked about one candidate at a time.
 
 ## Aito query — success forecast
 
@@ -42,27 +50,24 @@ the full factor tree. The frontend extracts `P(success=true)` and runs
 it through `why_processor.py` to produce the highlighted multiplicative
 chain.
 
-## Aito query — staffing factors
+## Aito query — success factors
+
+One `_relate` per field, each over completed projects:
 
 ```json
 POST /api/v2/_relate
 {
   "from": "projects",
   "where": { "success": true },
-  "relate": "team_members"
+  "relate": ["scope_clarity"]
 }
 ```
 
-`team_members` is a `Text` column storing space-separated names — Aito
-tokenises, so `_relate` surfaces the *individual people* whose presence
-on a successful project's team is over-represented. Returns hits with
-`lift` and support stats; lift > 1 = boost, lift < 1 = drag.
-
-(An equivalent shape uses the `assignments` table: `from: assignments,
-where: {project_success: true}, relate: person`. `project_success` is
-denormalised onto each assignment row at fixture-load time. Both
-queries answer the same question; we use the `projects.team_members`
-form because it's the more natural single-table answer.)
+The fields are `project_type`, `priority`, `contract_type`,
+`scope_clarity`, `novelty`, `customer_size` and `team_seniority`. The
+hits are merged into one list, sorted by distance from neutral lift. A
+lift above 1 boosts success; below 1 drags it. The side panel shows the
+exact body sent for whichever factor is selected.
 
 ## Schema
 

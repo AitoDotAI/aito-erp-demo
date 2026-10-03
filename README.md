@@ -229,9 +229,10 @@ PO Queue and Approval.
 ```
 Two patterns combined: `_predict success=true` per active project (with
 `$why` factor decomposition showing manager fit, team mix, budget×duration
-risk), and `_relate` over `assignments.person` to surface individuals
-whose presence boosts or drags outcomes. Staffing simulator: swap a
-team member, see P(success) move.
+risk), and `_relate` over `projects` to surface the properties of the
+work that boost or drag outcomes — project type, priority, contract,
+scope clarity, novelty, customer size, team seniority. Never people: a
+ranked list of colleagues by name is not a finding to put on a screen.
 [→ Implementation](src/project_service.py) | [Use case guide](docs/use-cases/12-project-portfolio.md)
 
 ### 12. 👥 Utilization & Capacity *(Studio-only)* — Per-consultant load + role forecast

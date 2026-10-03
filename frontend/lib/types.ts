@@ -512,7 +512,9 @@ export interface ProjectRow {
 export interface SuccessFactor {
   /** Discriminator: "person" comes from assignments.person; the rest
    *  come from projects.<field>. */
-  kind: "person" | "manager" | "project_type" | "priority";
+  /** The projects column — never a person (see _success_factors). */
+  kind: "project_type" | "priority" | "contract_type" | "scope_clarity"
+    | "novelty" | "customer_size" | "team_seniority";
   label: string;             // human-readable group label, e.g. "Manager"
   field: string;             // source — "assignments.person", "projects.manager", …
   value: string;             // concrete value

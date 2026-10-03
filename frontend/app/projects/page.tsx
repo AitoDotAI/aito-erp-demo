@@ -21,18 +21,19 @@ const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_predict + _relate",
   endpoints: ["_predict", "_relate"],
   stats: [
-    { label: "Tables", value: "projects, assignments" },
+    { label: "Table", value: "projects" },
     { label: "Target", value: "success" },
-    { label: "Factors", value: "people · manager · type · priority" },
+    { label: "Factors", value: "type · priority · drivers" },
   ],
   description:
     "Project portfolio combines two Aito patterns. <em>aito.._predict</em> on " +
     "<em>success</em> forecasts the probability each active project will succeed " +
     "given its manager, project type, team size, budget and duration. " +
     "<em>aito.._relate</em> mines completed-project history for the signals that " +
-    "actually move outcomes — people from <em>assignments</em>, plus " +
-    "<em>manager</em>, <em>project_type</em> and <em>priority</em> from " +
-    "<em>projects</em>.",
+    "actually move outcomes: <em>project_type</em>, <em>priority</em> and the " +
+    "outcome drivers (contract, scope clarity, novelty, customer size, team " +
+    "seniority) from <em>projects</em>. Properties of the work, not people: " +
+    "a ranked list of colleagues by name is not a finding to put on a screen.",
   // Filled once the portfolio loads: the first success prediction sent.
   queries: [],
   links: [
@@ -128,13 +129,10 @@ export default function ProjectsPage() {
   };
 
   const handleFactorClick = (f: SuccessFactor) => {
-    const isPerson = f.kind === "person";
-    const sourceTable = isPerson ? "assignments" : "projects";
-    const successKey = isPerson ? "project_success" : "success";
     const fieldOnly = f.field.split(".").pop() ?? f.field;
     // One _relate per factor field; this row is one of its answers.
     const factorQuery = findQuery(data?._queries, {
-      endpoint: "_relate", from: sourceTable, target: fieldOnly, where: { [successKey]: true },
+      endpoint: "_relate", from: "projects", target: fieldOnly, where: { success: true },
     });
     setPanel({
       operation: "_relate",
@@ -146,7 +144,7 @@ export default function ProjectsPage() {
       ],
       description:
         `${f.label}: <em>${f.value}</em>. Among completed projects ` +
-        `${isPerson ? "with this person on the team" : `with this ${f.label.toLowerCase()}`}, ` +
+        `with this ${f.label.toLowerCase()}, ` +
         `<em>${pct(f.success_rate_with)}</em> succeeded — versus ` +
         `<em>${pct(f.success_rate_without)}</em> across the rest of the ` +
         `portfolio. Lift <em>× ${f.lift.toFixed(2)}</em>. Treat as ` +
@@ -288,12 +286,11 @@ export default function ProjectsPage() {
                       <span className="card-meta">aito.._relate</span>
                     </div>
                     <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
-                      Signals that move the success rate across completed
-                      projects — people from <code>assignments</code> and
-                      project-level fields (<code>manager</code>,{" "}
-                      <code>project_type</code>, <code>priority</code>) from{" "}
-                      <code>projects</code>. One <code>_relate</code> call
-                      per source.
+                      Properties of the work that move the success rate
+                      across completed projects: <code>project_type</code>,{" "}
+                      <code>priority</code> and the outcome drivers, from{" "}
+                      <code>projects</code>. One <code>_relate</code> per
+                      field. No people: this is not a ranking of colleagues.
                     </div>
                     <div className="factors-list">
                       {data.success_factors.length === 0 ? (
@@ -308,7 +305,8 @@ export default function ProjectsPage() {
                             className={`factors-row factors-${f.role_in_pattern}`}
                             onClick={() => handleFactorClick(f)}
                           >
-                            <span className={`factors-kind factors-kind-${f.kind}`}>
+                            <span className={`factors-kind factors-kind-${
+                              f.kind === "project_type" || f.kind === "priority" ? f.kind : "driver"}`}>
                               {f.label}
                             </span>
                             <span className="factors-value">{f.value}</span>

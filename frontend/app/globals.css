@@ -2188,8 +2188,7 @@ body {
   color: var(--gold-dark);
   white-space: nowrap;
 }
-.factors-kind-person       { background: #e9f1fb; color: #1d4e89; }
-.factors-kind-manager      { background: #f3eafc; color: #5b2d96; }
+.factors-kind-driver       { background: #e9f1fb; color: #1d4e89; }
 .factors-kind-project_type { background: #e5f6f4; color: #0f7066; }
 .factors-kind-priority     { background: var(--gold-light); color: var(--gold-dark); }
 
