@@ -250,6 +250,11 @@ SCHEMAS = {
             "actual_cost_eur": {"type": "Decimal", "nullable": True},
             "actual_duration_days": {"type": "Int", "nullable": True},
             "success": {"type": "Boolean", "nullable": True},
+            # How many of the core three landed, "0" … "3". A discrete
+            # step so one `_predict` returns the distribution over it
+            # and `_relate` can condition on a step ("all three"); the
+            # arithmetic mean of three probabilities can do neither.
+            "outcome_score": {"type": "String", "nullable": True},
         },
     },
     # What finished work actually cost and actually took. Its own table

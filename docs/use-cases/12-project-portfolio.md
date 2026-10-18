@@ -1,20 +1,33 @@
 # Use case 12 — Project Portfolio
 
-> Predicted success per active project, with a staffing simulator that
-> shows P(success) move when you swap a team member.
+> Active projects forecast on one KPI at a time: a combined reading of
+> the core three, or any of the six outcomes behind it.
 
 ![Project Portfolio](../../screenshots/11-projects.png)
 
 ## What it does
 
-For every active project the page shows the probability it will end
-successfully (`success = true`), based on the entire history of
-completed projects. Click a row to open the `$why` decomposition: which
-factors lifted or dragged the prediction — manager × project_type fit,
-team-size band, individual people on the team, budget × duration risk.
+A selector above the table picks the KPI the whole view examines:
+**Combined** (default) or one of six outcomes: makes money, team stays
+happy, customer stays happy (was it worth doing), lands when we said, the
+thing works, opens a door (did it hold up). The history rate, the
+predicted mean over active projects, the at-risk count, the table's
+probability column, its `$why` popover and the success factors all follow
+the selection (and it lives in the URL as `?kpi=`).
+
+**Combined** is the expected number of the core three that land, over
+three. It is read from ONE `_predict` on `outcome_score`, a discrete
+column holding how many of money, team and customer landed ("0".."3").
+That is the average of the three KPIs, except it comes from a single
+prediction that carries the correlation between them, plus the whole
+distribution over the four steps. A product of three probabilities was
+rejected: it gives a negative view and a very high bar. Selecting a row
+also shows every KPI for that project, each its own `_predict` with its
+own `$why`; their drivers differ, so a project can be likely to make
+money and unlikely to keep the team happy.
 
 A second column lists **success factors**: properties of the work that
-move the success rate across completed projects. These are project type,
+move the selected KPI's rate across completed projects (for Combined, the rate of landing all three, `outcome_score = "3"`). These are project type,
 priority and the five outcome drivers: contract type, scope clarity,
 novelty, customer size and team seniority. They are discovered via
 `_relate`, not configured.
@@ -35,15 +48,23 @@ POST /api/v2/_predict
     "project_type": "implementation",
     "manager": "J. Lehtinen",
     "team_size": 5,
-    "team_members": "A. Lindgren K. Saari M. Salo P. Korhonen L. Aho",
     "budget_eur": 120000,
     "duration_days": 90,
-    "priority": "medium"
+    "priority": "medium",
+    "contract_type": "fixed_price",
+    "scope_clarity": "unclear",
+    "novelty": "new_stack",
+    "customer_size": "mid",
+    "team_seniority": "mixed"
   },
   "predict": "success",
   "select": ["$p", "feature", { "$why": {} }]
 }
 ```
+
+The same `where` is sent six more times with `predict` set to
+`financial_ok`, `team_happy`, `customer_happy`, `on_time`, `outcome_ok`
+and `doors_opened`.
 
 Returns the top hits for `success=true | false` with probabilities and
 the full factor tree. The frontend extracts `P(success=true)` and runs
@@ -58,7 +79,7 @@ One `_relate` per field, each over completed projects:
 POST /api/v2/_relate
 {
   "from": "projects",
-  "where": { "success": true },
+  "where": { "outcome_score": "3" },
   "relate": ["scope_clarity"]
 }
 ```
@@ -66,7 +87,9 @@ POST /api/v2/_relate
 The fields are `project_type`, `priority`, `contract_type`,
 `scope_clarity`, `novelty`, `customer_size` and `team_seniority`. The
 hits are merged into one list, sorted by distance from neutral lift. A
-lift above 1 boosts success; below 1 drags it. The side panel shows the
+lift above 1 boosts the KPI; below 1 drags it. The where is
+`{ "<kpi>": true }` for a single outcome. Endpoint:
+`GET /api/projects/success-factors?kpi=`. The side panel shows the
 exact body sent for whichever factor is selected.
 
 ## Schema

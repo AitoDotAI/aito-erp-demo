@@ -418,16 +418,16 @@ def test_aito_active_predictions_have_meaningful_spread(client):
 
     overview = get_portfolio(client)
     active = [p for p in overview.projects if p.status != "complete"]
-    ps = [p.success_p for p in active if p.success_p is not None]
+    ps = [p.combined["p"] for p in active]
     assert len(ps) >= 10, "not enough active projects to evaluate spread"
 
     spread = max(ps) - min(ps)
     assert spread >= 0.20, (
-        f"P(success) spread too narrow ({spread:.0%}) — "
+        f"Combined P spread too narrow ({spread:.0%}) — "
         f"Aito probably can't distinguish projects."
     )
 
     mean_p = sum(ps) / len(ps)
     assert 0.30 <= mean_p <= 0.85, (
-        f"mean P(success) {mean_p:.0%} suggests miscalibration"
+        f"mean combined P {mean_p:.0%} suggests miscalibration"
     )
