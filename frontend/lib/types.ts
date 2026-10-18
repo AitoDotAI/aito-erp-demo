@@ -507,6 +507,23 @@ export interface ProjectRow {
   success_p: number | null;
   success_alternatives: Alternative[];
   success_why: WhyExplanation | Record<string, never>;
+  contract_type: string;
+  scope_clarity: string;
+  novelty: string;
+  customer_size: string;
+  team_seniority: string;
+  /** The six outcomes behind `success`; empty for completed projects. */
+  outcomes: ProjectOutcome[];
+}
+
+export interface ProjectOutcome {
+  field: string;
+  label: string;
+  /** "core" = was it worth doing; "qualifying" = did it hold up. */
+  group: "core" | "qualifying";
+  p: number | null;
+  why: WhyExplanation | Record<string, never>;
+  alternatives: Alternative[];
 }
 
 export interface SuccessFactor {

@@ -12,6 +12,7 @@ import { findQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
   PortfolioResponse,
+  ProjectOutcome,
   ProjectRow,
   SuccessFactor,
   WhyExplanation,
@@ -49,6 +50,13 @@ function pct(p: number | null | undefined): string {
   return `${Math.round(p * 100)}%`;
 }
 
+function riskClass(p: number | null): string {
+  if (p == null) return "fc-p fc-p-none";
+  if (p >= 0.75) return "fc-p fc-p-high";
+  if (p >= 0.5) return "fc-p fc-p-mid";
+  return "fc-p fc-p-low";
+}
+
 function statusClass(s: string): string {
   if (s === "complete") return "proj-status proj-status-ok";
   if (s === "active") return "proj-status proj-status-info";
@@ -76,6 +84,10 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     if (!data) return;
+    // The riskiest active project is listed first; open it so the six
+    // outcomes are on screen without a click.
+    const riskiest = data.projects.find((p) => p.status !== "complete");
+    if (riskiest) setSelected(riskiest.project_id);
     const first = findQuery(data._queries, { endpoint: "_predict", from: "projects", target: "success" });
     setPanel({
       ...DEFAULT_PANEL,
@@ -97,17 +109,23 @@ export default function ProjectsPage() {
     [data],
   );
 
-  const handleProjectClick = (p: ProjectRow) => {
-    setSelected(p.project_id);
-    // The prediction sent for this project, found by its own shape. A
-    // completed project was never predicted, so it shows no query.
-    const rowQuery = findQuery(data?._queries, {
-      endpoint: "_predict", from: "projects", target: "success",
+  // The prediction the backend sent for one outcome of one project, found
+  // by the project's own shape. A completed project was never predicted.
+  const projectQuery = (p: ProjectRow, target: string) =>
+    findQuery(data?._queries, {
+      endpoint: "_predict", from: "projects", target,
       where: {
         project_type: p.project_type, manager: p.manager, team_size: p.team_size,
         budget_eur: p.budget_eur, duration_days: p.duration_days, priority: p.priority,
+        contract_type: p.contract_type, scope_clarity: p.scope_clarity,
+        novelty: p.novelty, customer_size: p.customer_size,
+        team_seniority: p.team_seniority,
       },
     });
+
+  const handleProjectClick = (p: ProjectRow) => {
+    setSelected(p.project_id);
+    const rowQuery = projectQuery(p, "success");
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
@@ -119,9 +137,34 @@ export default function ProjectsPage() {
       description:
         `Forecast for <em>${p.name}</em>. Manager: <em>${p.manager}</em>. ` +
         `Lead: <em>${p.team_lead}</em>. Type: <em>${p.project_type}</em>. ` +
-        `Open the <em>?</em> on the row for the factor decomposition — which ` +
-        `parts of the project context move the prediction up or down.`,
+        `<em>success</em> is one composite of money, team and customer. ` +
+        `Below the table the same context is asked about each of the six ` +
+        `outcomes separately — click one for its query and open the ` +
+        `<em>?</em> for what moved it.`,
       queries: rowQuery ? [rowQuery] : [],
+      links: [
+        { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
+      ],
+    });
+  };
+
+  const handleOutcomeClick = (p: ProjectRow, o: ProjectOutcome) => {
+    const query = projectQuery(p, o.field);
+    setPanel({
+      operation: "_predict",
+      endpoints: ["_predict"],
+      stats: [
+        { label: o.label, value: pct(o.p) },
+        { label: "Target", value: o.field },
+        { label: "Project", value: p.project_id },
+      ],
+      description:
+        `<em>${o.label}</em> for <em>${p.name}</em>: <em>${pct(o.p)}</em>. ` +
+        `The same project context as the success forecast, asking about ` +
+        `<em>${o.field}</em> alone — each outcome has its own drivers, ` +
+        `which is why they disagree. Open the <em>?</em> to see which ` +
+        `fields moved it.`,
+      queries: query ? [query] : [],
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
@@ -279,7 +322,65 @@ export default function ProjectsPage() {
                     </table>
                   </section>
 
-                  {/* Success factors discovered by _relate */}
+                  {/* Right column: the selected project's six outcomes, then the portfolio-wide factors */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  <section className="card">
+                    {(() => {
+                      const sel = active.find((p) => p.project_id === selected);
+                      if (!sel || sel.outcomes.length === 0) {
+                        return (
+                          <p className="pl-note">
+                            Click a project to see its six outcomes, each
+                            predicted on its own.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div>
+                          <div className="card-head" style={{ marginTop: 8 }}>
+                            <span className="card-title">
+                              Six outcomes — {sel.name}
+                            </span>
+                            <span className="card-meta">projects._predict ×6</span>
+                          </div>
+                          {([
+                            ["core", "Was it worth doing"],
+                            ["qualifying", "And did it hold up"],
+                          ] as const).map(([group, head]) => (
+                            <div key={group}>
+                              <div className="pl-group">{head}</div>
+                              <table className="tbl">
+                                <tbody>
+                                  {sel.outcomes.filter((o) => o.group === group).map((o) => (
+                                    <tr
+                                      key={o.field}
+                                      className="clickable"
+                                      onClick={() => handleOutcomeClick(sel, o)}
+                                    >
+                                      <td>{o.label}</td>
+                                      <td style={{ textAlign: "right", width: "22%" }}>
+                                        <span className={riskClass(o.p)}>{pct(o.p)}</span>
+                                      </td>
+                                      <td style={{ width: 30 }} onClick={(e) => e.stopPropagation()}>
+                                        {(o.why as WhyExplanation)?.lifts && o.p != null && (
+                                          <WhyPopover
+                                            value={o.label}
+                                            confidence={o.p}
+                                            why={o.why as WhyExplanation}
+                                            alternatives={o.alternatives}
+                                          />
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </section>
                   <aside className="card">
                     <div className="card-head">
                       <span className="card-title">Success factors</span>
@@ -324,6 +425,7 @@ export default function ProjectsPage() {
                       )}
                     </div>
                   </aside>
+                  </div>
                 </div>
 
                 {/* Completed history (compact) */}

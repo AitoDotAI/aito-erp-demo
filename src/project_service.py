@@ -6,10 +6,12 @@ across the portfolio actually move outcomes?
 
   1. _search → list projects + compute KPIs (success / on-time /
      on-budget rates) over completed history.
-  2. _predict success=true → for each active project, predict the
-     probability it will succeed given its context (manager,
-     project_type, team_size, budget × duration). $why returns the
-     factor decomposition.
+  2. _predict → for each active project, the probability it will
+     succeed given its context (manager, project_type, team_size,
+     budget × duration and the five outcome drivers), and the same
+     question for each of the six outcomes behind `success`. Each has
+     its own $why, because a schedule risk and a morale risk have
+     different drivers.
   3. _relate where={success: true} across several fields → which
      properties of the WORK correlate with success across the
      portfolio: project type, priority and the five outcome drivers
@@ -22,6 +24,7 @@ from typing import Any
 
 from src.aito_client import AitoClient
 from src.concurrency import parallel_map
+from src.planner_service import CORE_OUTCOMES, QUALIFYING_OUTCOMES
 from src.why_processor import process_factors
 
 
@@ -68,10 +71,18 @@ class ProjectRow:
     on_time: bool | None
     on_budget: bool | None
     success: bool | None
+    contract_type: str
+    scope_clarity: str
+    novelty: str
+    customer_size: str
+    team_seniority: str
     # Prediction (only for active projects)
     success_p: float | None = None
     success_alternatives: list[dict] = field(default_factory=list)
     success_why: dict = field(default_factory=dict)
+    # The six outcomes behind `success`, each its own _predict and $why:
+    # {field, label, group, p, why, alternatives}. Empty for completed projects.
+    outcomes: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -94,6 +105,12 @@ class ProjectRow:
             "success_p": self.success_p,
             "success_alternatives": self.success_alternatives,
             "success_why": self.success_why,
+            "outcomes": self.outcomes,
+            "contract_type": self.contract_type,
+            "scope_clarity": self.scope_clarity,
+            "novelty": self.novelty,
+            "customer_size": self.customer_size,
+            "team_seniority": self.team_seniority,
         }
 
 
@@ -208,11 +225,23 @@ def _compute_kpis(rows: list[ProjectRow]) -> ProjectKPIs:
 
 
 def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
-    """Run _predict success=true for an active project's context.
+    """Forecast an active project: `success`, then each outcome behind it.
 
-    `team_members` is deliberately absent from the where clause: it is
-    a String column for display, not an Aito feature, so passing it
+    `success` is a composite of three outcomes (money, team, customer),
+    and a single composite averages away the thing worth seeing — a new
+    stack costs money and cheers the team up, a senior crew moves all
+    six. So the same context is asked six more questions, one `_predict`
+    per outcome, which is the planner's delivery-risk read applied to
+    projects already in flight.
+
+    The five outcome drivers are part of the context: without them every
+    outcome would be answered from type, size and manager alone and they
+    would barely differ. `team_members` stays out of the where clause: it
+    is a String column for display, not an Aito feature, so passing it
     here would only contribute one-of-a-kind values.
+
+    A failing predict is an error, not a project quietly shown without a
+    forecast.
     """
     where = {
         "project_type": row.project_type,
@@ -222,15 +251,23 @@ def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
         "priority": row.priority,
         # budget_eur is decimal — included as is
         "budget_eur": row.budget_eur,
+        "contract_type": row.contract_type,
+        "scope_clarity": row.scope_clarity,
+        "novelty": row.novelty,
+        "customer_size": row.customer_size,
+        "team_seniority": row.team_seniority,
     }
-    try:
-        response = client.predict("projects", where, "success", limit=2)
-    except Exception:
-        return row
-    p_true, why, alts = _success_p_from_response(response)
-    row.success_p = p_true
-    row.success_why = why
-    row.success_alternatives = alts
+    response = client.predict("projects", where, "success", limit=2)
+    row.success_p, row.success_why, row.success_alternatives = _success_p_from_response(response)
+
+    for group, spec in (("core", CORE_OUTCOMES), ("qualifying", QUALIFYING_OUTCOMES)):
+        for field_name, label in spec:
+            response = client.predict("projects", where, field_name, limit=2)
+            p, why, alts = _success_p_from_response(response)
+            row.outcomes.append({
+                "field": field_name, "label": label, "group": group,
+                "p": p, "why": why, "alternatives": alts,
+            })
     return row
 
 
@@ -345,6 +382,11 @@ def _row_from_dict(d: dict) -> ProjectRow:
         on_time=d.get("on_time"),
         on_budget=d.get("on_budget"),
         success=d.get("success"),
+        contract_type=d["contract_type"],
+        scope_clarity=d["scope_clarity"],
+        novelty=d["novelty"],
+        customer_size=d["customer_size"],
+        team_seniority=d["team_seniority"],
     )
 
 
@@ -391,4 +433,5 @@ def forecast_for_project(client: AitoClient, project_id: str) -> dict:
         "base_p": base.success_p,
         "base_why": base.success_why,
         "alternatives": base.success_alternatives,
+        "outcomes": base.outcomes,
     }

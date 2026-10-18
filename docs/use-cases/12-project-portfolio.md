@@ -13,6 +13,14 @@ completed projects. Click a row to open the `$why` decomposition: which
 factors lifted or dragged the prediction — manager × project_type fit,
 team-size band, individual people on the team, budget × duration risk.
 
+Selecting a row also shows **six outcomes** for that project, each its
+own `_predict` with its own `$why`: makes money, team stays happy,
+customer stays happy (was it worth doing), lands when we said, the thing
+works, opens a door (did it hold up). Their drivers differ, so a project
+can be likely to make money and unlikely to keep the team happy; one
+success score averages that away. Clicking an outcome shows its recorded
+query in the side panel.
+
 A second column lists **success factors**: properties of the work that
 move the success rate across completed projects. These are project type,
 priority and the five outcome drivers: contract type, scope clarity,
@@ -35,15 +43,23 @@ POST /api/v2/_predict
     "project_type": "implementation",
     "manager": "J. Lehtinen",
     "team_size": 5,
-    "team_members": "A. Lindgren K. Saari M. Salo P. Korhonen L. Aho",
     "budget_eur": 120000,
     "duration_days": 90,
-    "priority": "medium"
+    "priority": "medium",
+    "contract_type": "fixed_price",
+    "scope_clarity": "unclear",
+    "novelty": "new_stack",
+    "customer_size": "mid",
+    "team_seniority": "mixed"
   },
   "predict": "success",
   "select": ["$p", "feature", { "$why": {} }]
 }
 ```
+
+The same `where` is sent six more times with `predict` set to
+`financial_ok`, `team_happy`, `customer_happy`, `on_time`, `outcome_ok`
+and `doors_opened`.
 
 Returns the top hits for `success=true | false` with probabilities and
 the full factor tree. The frontend extracts `P(success=true)` and runs
