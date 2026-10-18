@@ -11,31 +11,52 @@ import { useTenant } from "@/lib/tenant-context";
 import { findQuery } from "@/lib/query";
 import type {
   AitoPanelConfig,
+  CombinedForecast,
   PortfolioResponse,
   ProjectOutcome,
   ProjectRow,
   SuccessFactor,
+  SuccessFactorsResponse,
   WhyExplanation,
 } from "@/lib/types";
+import { readParam, writeParam } from "@/lib/url-state";
+
+const REVIEW_THRESHOLD = 0.55;
+
+// The KPI the whole view is examined by. "combined" is the expected
+// number of the core three that land, over three, from one `_predict`
+// on `outcome_score`; the rest are the six outcomes behind it.
+const COMBINED = "combined";
+const KPIS: { key: string; label: string; what: string }[] = [
+  { key: COMBINED, label: "Combined", what: "expected share of the core three that land" },
+  { key: "financial_ok", label: "Makes money", what: "the engagement made money" },
+  { key: "team_happy", label: "Team stays happy", what: "the team stayed happy" },
+  { key: "customer_happy", label: "Customer stays happy", what: "the customer stayed happy" },
+  { key: "on_time", label: "Lands when we said", what: "it landed when we said" },
+  { key: "outcome_ok", label: "The thing works", what: "the thing worked" },
+  { key: "doors_opened", label: "Opens a door", what: "it opened a door" },
+];
 
 const DEFAULT_PANEL: AitoPanelConfig = {
   operation: "_predict + _relate",
   endpoints: ["_predict", "_relate"],
   stats: [
     { label: "Table", value: "projects" },
-    { label: "Target", value: "success" },
+    { label: "Target", value: "outcome_score" },
     { label: "Factors", value: "type · priority · drivers" },
   ],
   description:
-    "Project portfolio combines two Aito patterns. <em>aito.._predict</em> on " +
-    "<em>success</em> forecasts the probability each active project will succeed " +
-    "given its manager, project type, team size, budget and duration. " +
+    "Project portfolio combines two Aito patterns. <em>aito.._predict</em> " +
+    "forecasts each active project on one KPI at a time, chosen above: the six " +
+    "outcomes, or <em>outcome_score</em> (how many of the core three land) for " +
+    "the combined reading, given its manager, project type, team size, budget, " +
+    "duration and outcome drivers. " +
     "<em>aito.._relate</em> mines completed-project history for the signals that " +
     "actually move outcomes: <em>project_type</em>, <em>priority</em> and the " +
     "outcome drivers (contract, scope clarity, novelty, customer size, team " +
     "seniority) from <em>projects</em>. Properties of the work, not people: " +
     "a ranked list of colleagues by name is not a finding to put on a screen.",
-  // Filled once the portfolio loads: the first success prediction sent.
+  // Filled once the portfolio loads: the first combined prediction sent.
   queries: [],
   links: [
     { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
@@ -48,6 +69,11 @@ const DEFAULT_PANEL: AitoPanelConfig = {
 function pct(p: number | null | undefined): string {
   if (p == null) return "—";
   return `${Math.round(p * 100)}%`;
+}
+
+function forecastOf(p: ProjectRow, kpi: string): number | null {
+  if (kpi === COMBINED) return (p.combined as CombinedForecast).p ?? null;
+  return p.outcomes.find((o) => o.field === kpi)?.p ?? null;
 }
 
 function riskClass(p: number | null): string {
@@ -72,6 +98,21 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [panel, setPanel] = useState<AitoPanelConfig>(DEFAULT_PANEL);
   const [selected, setSelected] = useState<string | null>(null);
+  const [kpi, setKpi] = useState<string>(COMBINED);
+  const [factors, setFactors] = useState<SuccessFactorsResponse | null>(null);
+
+  useEffect(() => {
+    const wanted = readParam("kpi");
+    if (wanted && KPIS.some((k) => k.key === wanted)) setKpi(wanted);
+  }, []);
+
+  useEffect(() => {
+    writeParam("kpi", kpi === COMBINED ? null : kpi);
+    setFactors(null);
+    apiFetch<SuccessFactorsResponse>(`/api/projects/success-factors?kpi=${kpi}`)
+      .then(setFactors)
+      .catch((e) => setError(e.message));
+  }, [kpi, tenantId]);
 
   useEffect(() => {
     setLoading(true);
@@ -88,22 +129,28 @@ export default function ProjectsPage() {
     // outcomes are on screen without a click.
     const riskiest = data.projects.find((p) => p.status !== "complete");
     if (riskiest) setSelected(riskiest.project_id);
-    const first = findQuery(data._queries, { endpoint: "_predict", from: "projects", target: "success" });
+    const first = findQuery(data._queries, { endpoint: "_predict", from: "projects", target: "outcome_score" });
     setPanel({
       ...DEFAULT_PANEL,
       queries: first ? [first] : [],
       stats: [
         { label: "Projects", value: String(data.kpis.total) },
         { label: "Active", value: String(data.kpis.active) },
-        { label: "At risk", value: String(data.kpis.at_risk_count) },
       ],
     });
   }, [data]);
 
+  // Riskiest first for the KPI being examined, not for the combined one.
   const active = useMemo(
-    () => (data?.projects ?? []).filter((p) => p.status !== "complete"),
-    [data],
+    () => (data?.projects ?? [])
+      .filter((p) => p.status !== "complete")
+      .sort((a, b) => (forecastOf(a, kpi) ?? 1) - (forecastOf(b, kpi) ?? 1)),
+    [data, kpi],
   );
+  const kpiMeta = KPIS.find((k) => k.key === kpi) ?? KPIS[0];
+  const forecasts = active.map((p) => forecastOf(p, kpi)).filter((v): v is number => v != null);
+  const atRisk = forecasts.filter((v) => v < REVIEW_THRESHOLD).length;
+  const meanForecast = forecasts.length ? forecasts.reduce((a, b) => a + b, 0) / forecasts.length : null;
   const completed = useMemo(
     () => (data?.projects ?? []).filter((p) => p.status === "complete").slice(0, 30),
     [data],
@@ -125,23 +172,51 @@ export default function ProjectsPage() {
 
   const handleProjectClick = (p: ProjectRow) => {
     setSelected(p.project_id);
-    const rowQuery = projectQuery(p, "success");
+    const rowQuery = projectQuery(p, kpi === COMBINED ? "outcome_score" : kpi);
     setPanel({
       operation: "_predict",
       endpoints: ["_predict"],
       stats: [
-        { label: "P(success)", value: pct(p.success_p) },
+        { label: kpiMeta.label, value: pct(forecastOf(p, kpi)) },
         { label: "Team", value: String(p.team_size) },
         { label: "Budget", value: fmtAmount(p.budget_eur) },
       ],
       description:
         `Forecast for <em>${p.name}</em>. Manager: <em>${p.manager}</em>. ` +
         `Lead: <em>${p.team_lead}</em>. Type: <em>${p.project_type}</em>. ` +
-        `<em>success</em> is one composite of money, team and customer. ` +
-        `Below the table the same context is asked about each of the six ` +
-        `outcomes separately — click one for its query and open the ` +
-        `<em>?</em> for what moved it.`,
+        (kpi === COMBINED
+          ? `<em>Combined</em> is one <em>_predict outcome_score</em>: the ` +
+            `distribution over how many of money, team and customer land, ` +
+            `shown as its expectation over three. `
+          : `<em>${kpiMeta.label}</em> is asked on its own, with its own drivers. `) +
+        `The card beside the table lists every KPI for this project — click ` +
+        `one for its query and open the <em>?</em> for what moved it.`,
       queries: rowQuery ? [rowQuery] : [],
+      links: [
+        { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
+      ],
+    });
+  };
+
+  const handleCombinedClick = (p: ProjectRow) => {
+    const c = p.combined as CombinedForecast;
+    const query = projectQuery(p, "outcome_score");
+    setPanel({
+      operation: "_predict",
+      endpoints: ["_predict"],
+      stats: [
+        { label: "Combined", value: pct(c.p) },
+        { label: "Expected", value: `${c.expected_score.toFixed(1)} of 3` },
+        { label: "Project", value: p.project_id },
+      ],
+      description:
+        `<em>${p.name}</em>: on average <em>${c.expected_score.toFixed(1)}</em> of ` +
+        `the core three (money, team, customer) land. One <em>_predict</em> on ` +
+        `<em>outcome_score</em> returns the whole distribution, so the ` +
+        `correlation between the three is in the answer rather than averaged ` +
+        `in afterwards. The <em>?</em> explains the most likely step ` +
+        `(<em>${c.top_value}</em>).`,
+      queries: query ? [query] : [],
       links: [
         { label: "Predict API reference", url: "https://aito.ai/docs/api/predict" },
       ],
@@ -174,8 +249,9 @@ export default function ProjectsPage() {
   const handleFactorClick = (f: SuccessFactor) => {
     const fieldOnly = f.field.split(".").pop() ?? f.field;
     // One _relate per factor field; this row is one of its answers.
-    const factorQuery = findQuery(data?._queries, {
-      endpoint: "_relate", from: "projects", target: fieldOnly, where: { success: true },
+    const factorQuery = findQuery(factors?._queries, {
+      endpoint: "_relate", from: "projects", target: fieldOnly,
+      where: kpi === COMBINED ? { outcome_score: "3" } : { [kpi]: true },
     });
     setPanel({
       operation: "_relate",
@@ -188,7 +264,7 @@ export default function ProjectsPage() {
       description:
         `${f.label}: <em>${f.value}</em>. Among completed projects ` +
         `with this ${f.label.toLowerCase()}, ` +
-        `<em>${pct(f.success_rate_with)}</em> succeeded — versus ` +
+        `<em>${pct(f.success_rate_with)}</em> ${kpi === COMBINED ? "landed all three" : `had “${kpiMeta.what}”`} — versus ` +
         `<em>${pct(f.success_rate_without)}</em> across the rest of the ` +
         `portfolio. Lift <em>× ${f.lift.toFixed(2)}</em>. Treat as ` +
         `correlation, not cause: factors confound with project type, ` +
@@ -218,25 +294,39 @@ export default function ProjectsPage() {
             )}
             {!error && data && (
               <>
-                {/* KPI strip */}
+                {/* One KPI at a time: the strip, the table and the factors all follow it */}
+                <div className="pill-tabs" role="tablist" aria-label="KPI"
+                     style={{ flexWrap: "wrap", marginBottom: 6 }}>
+                  {KPIS.map((k) => (
+                    <button key={k.key} type="button" role="tab"
+                            aria-selected={kpi === k.key}
+                            className={`pill-tab${kpi === k.key ? " active" : ""}`}
+                            onClick={() => setKpi(k.key)}>
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="pl-note" style={{ margin: "0 0 14px" }}>
+                  Examining: {kpiMeta.what}.
+                  {kpi === COMBINED &&
+                    " The mean over the core three (money, team, customer), read from one prediction of how many of them land."}
+                </p>
+
                 <div className="kpi-row">
                   <div className="kpi">
-                    <div className="kpi-label">Portfolio success rate</div>
-                    <div className="kpi-val">{pct(data.kpis.success_rate)}</div>
+                    <div className="kpi-label">{kpiMeta.label} · history</div>
+                    <div className="kpi-val">{pct(data.kpis.rates[kpi])}</div>
                     <div className="kpi-sub">{data.kpis.completed} completed</div>
                   </div>
                   <div className="kpi">
-                    <div className="kpi-label">On-time rate</div>
-                    <div className="kpi-val">{pct(data.kpis.on_time_rate)}</div>
-                  </div>
-                  <div className="kpi">
-                    <div className="kpi-label">On-budget rate</div>
-                    <div className="kpi-val">{pct(data.kpis.on_budget_rate)}</div>
+                    <div className="kpi-label">Predicted · active</div>
+                    <div className="kpi-val">{pct(meanForecast)}</div>
+                    <div className="kpi-sub">mean over {forecasts.length} projects</div>
                   </div>
                   <div className="kpi">
                     <div className="kpi-label">At risk</div>
                     <div className="kpi-val" style={{ color: "var(--red)" }}>
-                      {data.kpis.at_risk_count}
+                      {atRisk}
                     </div>
                     <div className="kpi-sub">
                       of {data.kpis.active} active &lt; 55%
@@ -249,7 +339,7 @@ export default function ProjectsPage() {
                   <section className="card">
                     <div className="card-head">
                       <span className="card-title">
-                        Active projects — predicted success
+                        Active projects — {kpiMeta.label.toLowerCase()}
                       </span>
                       <span className="card-meta">{active.length} active</span>
                     </div>
@@ -262,13 +352,16 @@ export default function ProjectsPage() {
                           <th style={{ textAlign: "right" }}>Budget</th>
                           <th style={{ textAlign: "right" }}>Days</th>
                           <th>Status</th>
-                          <th style={{ textAlign: "right" }}>P(success)</th>
+                          <th style={{ textAlign: "right" }}>P</th>
                           <th></th>
                         </tr>
                       </thead>
                       <tbody>
                         {active.map((p) => {
-                          const why = (p.success_why ?? {}) as WhyExplanation;
+                          const combined = p.combined as CombinedForecast;
+                          const outcome = p.outcomes.find((o) => o.field === kpi);
+                          const pk = forecastOf(p, kpi);
+                          const why = ((kpi === COMBINED ? combined.why : outcome?.why) ?? {}) as WhyExplanation;
                           const hasWhy = !!why.lifts;
                           return (
                             <tr
@@ -294,24 +387,24 @@ export default function ProjectsPage() {
                                 </span>
                               </td>
                               <td style={{ textAlign: "right" }}>
-                                <div className={`conf-track ${confClass(p.success_p ?? 0)}`}
+                                <div className={`conf-track ${confClass(pk ?? 0)}`}
                                      style={{ display: "inline-block", verticalAlign: "middle" }}>
                                   <div
                                     className="conf-fill"
-                                    style={{ width: `${Math.round((p.success_p ?? 0) * 100)}%` }}
+                                    style={{ width: `${Math.round((pk ?? 0) * 100)}%` }}
                                   />
                                 </div>{" "}
                                 <span className="mono" style={{ fontSize: 11 }}>
-                                  {pct(p.success_p)}
+                                  {pct(pk)}
                                 </span>
                               </td>
                               <td onClick={(e) => e.stopPropagation()}>
-                                {hasWhy && p.success_p != null && (
+                                {hasWhy && pk != null && (
                                   <WhyPopover
-                                    value="success = true"
-                                    confidence={p.success_p}
+                                    value={kpi === COMBINED ? `score = ${combined.top_value}` : kpiMeta.label}
+                                    confidence={kpi === COMBINED ? combined.alternatives[0].confidence : pk}
                                     why={why}
-                                    alternatives={p.success_alternatives}
+                                    alternatives={kpi === COMBINED ? combined.alternatives : outcome?.alternatives ?? []}
                                   />
                                 )}
                               </td>
@@ -343,6 +436,27 @@ export default function ProjectsPage() {
                             </span>
                             <span className="card-meta">projects._predict ×6</span>
                           </div>
+                          <table className="tbl">
+                            <tbody>
+                              <tr
+                                className={`clickable${kpi === COMBINED ? " selected" : ""}`}
+                                onClick={() => handleCombinedClick(sel)}
+                              >
+                                <td>
+                                  <strong>Combined</strong>
+                                  <div className="proj-sub">
+                                    {(sel.combined as CombinedForecast).expected_score.toFixed(1)} of the core three, expected
+                                  </div>
+                                </td>
+                                <td style={{ textAlign: "right", width: "22%" }}>
+                                  <span className={riskClass((sel.combined as CombinedForecast).p)}>
+                                    {pct((sel.combined as CombinedForecast).p)}
+                                  </span>
+                                </td>
+                                <td style={{ width: 30 }} />
+                              </tr>
+                            </tbody>
+                          </table>
                           {([
                             ["core", "Was it worth doing"],
                             ["qualifying", "And did it hold up"],
@@ -354,7 +468,7 @@ export default function ProjectsPage() {
                                   {sel.outcomes.filter((o) => o.group === group).map((o) => (
                                     <tr
                                       key={o.field}
-                                      className="clickable"
+                                      className={`clickable${kpi === o.field ? " selected" : ""}`}
                                       onClick={() => handleOutcomeClick(sel, o)}
                                     >
                                       <td>{o.label}</td>
@@ -387,19 +501,22 @@ export default function ProjectsPage() {
                       <span className="card-meta">aito.._relate</span>
                     </div>
                     <div style={{ padding: "10px 14px", fontSize: 11, color: "var(--mid)", lineHeight: 1.5 }}>
-                      Properties of the work that move the success rate
+                      Properties of the work that move the rate of{" "}
+                      <strong>{kpiMeta.label.toLowerCase()}</strong>{" "}
                       across completed projects: <code>project_type</code>,{" "}
                       <code>priority</code> and the outcome drivers, from{" "}
                       <code>projects</code>. One <code>_relate</code> per
                       field. No people: this is not a ranking of colleagues.
                     </div>
                     <div className="factors-list">
-                      {data.success_factors.length === 0 ? (
+                      {factors === null ? (
+                        <div className="factors-empty">Loading…</div>
+                      ) : factors.success_factors.length === 0 ? (
                         <div className="factors-empty">
                           Not enough completed-project history yet.
                         </div>
                       ) : (
-                        data.success_factors.map((f) => (
+                        factors.success_factors.map((f) => (
                           <button
                             key={`${f.kind}:${f.value}`}
                             type="button"
@@ -464,7 +581,7 @@ export default function ProjectsPage() {
                           <td>{p.on_budget ? "✓" : "✗"}</td>
                           <td>
                             <span className={`proj-status ${p.success ? "proj-status-ok" : "proj-status-bad"}`}>
-                              {p.success ? "success" : "failure"}
+                              {p.outcome_score} of 3
                             </span>
                           </td>
                         </tr>

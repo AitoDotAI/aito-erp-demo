@@ -1080,6 +1080,16 @@ def generate_price_history(persona: PersonaSpec, products: list[dict]) -> list[d
     return rows
 
 
+def core_outcome_score(financial_ok: bool, team_happy: bool, customer_happy: bool) -> str:
+    """How many of the core three landed, as a label: "0" … "3".
+
+    A String and not an Int so `_relate` can take one step as its
+    condition ("all three") and `_predict` returns the whole
+    distribution over steps. `success` is "two or more" of this.
+    """
+    return str(sum([financial_ok, team_happy, customer_happy]))
+
+
 def _project_success_p(
     persona: PersonaSpec,
     ptype: str,
@@ -1300,10 +1310,11 @@ def generate_projects_and_assignments(
             doors_opened = (customer_happy and outcome_ok
                             and random.random() < {"small": 0.3, "mid": 0.55,
                                                    "enterprise": 0.7}[customer_size])
-            success = sum([financial_ok, team_happy, customer_happy]) >= 2
+            outcome_score = core_outcome_score(financial_ok, team_happy, customer_happy)
+            success = int(outcome_score) >= 2
             status = "complete"
         else:
-            success = on_time = on_budget = None
+            success = on_time = on_budget = outcome_score = None
             financial_ok = team_happy = customer_happy = None
             outcome_ok = doors_opened = None
             actual_cost_eur = actual_duration_days = None
@@ -1374,6 +1385,7 @@ def generate_projects_and_assignments(
             "outcome_ok": outcome_ok,
             "doors_opened": doors_opened,
             "success": success,
+            "outcome_score": outcome_score,
         })
         roles = [persona.lead_discipline] + member_roles
         for i, person in enumerate(all_people):

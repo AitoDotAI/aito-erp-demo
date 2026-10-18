@@ -481,10 +481,9 @@ export interface ProjectKPIs {
   total: number;
   completed: number;
   active: number;
-  success_rate: number;
-  on_time_rate: number;
-  on_budget_rate: number;
-  at_risk_count: number;
+  /** Share of completed projects that landed, per KPI: the six outcome
+   *  fields plus "combined" (mean core score over three). */
+  rates: Record<string, number>;
 }
 
 export interface ProjectRow {
@@ -504,9 +503,10 @@ export interface ProjectRow {
   on_time: boolean | null;
   on_budget: boolean | null;
   success: boolean | null;
-  success_p: number | null;
-  success_alternatives: Alternative[];
-  success_why: WhyExplanation | Record<string, never>;
+  /** "0" … "3": how many of the core three landed. Null while active. */
+  outcome_score: string | null;
+  /** The combined reading; empty for completed projects. */
+  combined: CombinedForecast | Record<string, never>;
   contract_type: string;
   scope_clarity: string;
   novelty: string;
@@ -514,6 +514,16 @@ export interface ProjectRow {
   team_seniority: string;
   /** The six outcomes behind `success`; empty for completed projects. */
   outcomes: ProjectOutcome[];
+}
+
+export interface CombinedForecast {
+  /** Expected score over three: one `_predict outcome_score`, not an average. */
+  p: number;
+  expected_score: number;
+  distribution: { value: string; p: number }[];
+  top_value: string;
+  why: WhyExplanation | Record<string, never>;
+  alternatives: Alternative[];
 }
 
 export interface ProjectOutcome {
@@ -545,6 +555,10 @@ export interface SuccessFactor {
 export interface PortfolioResponse extends WithQueries {
   kpis: ProjectKPIs;
   projects: ProjectRow[];
+}
+
+export interface SuccessFactorsResponse extends WithQueries {
+  kpi: string;
   success_factors: SuccessFactor[];
 }
 

@@ -230,8 +230,9 @@ PO Queue and Approval.
 Two patterns combined: `_predict success=true` per active project (with
 `$why` factor decomposition showing manager fit, team mix, budget×duration
 risk) plus six more `_predict` calls per project, one for each of the
-six outcomes (money, team, customer, schedule, works, opens a door) so a
-project can be examined on each; and `_relate` over `projects` to surface the properties of the
+six outcomes (money, team, customer, schedule, works, opens a door), and a
+KPI selector that drives the whole view (Combined, backed by a discrete
+`outcome_score` of how many of the core three landed, or any one outcome); and `_relate` over `projects` to surface the properties of the
 work that boost or drag outcomes — project type, priority, contract,
 scope clarity, novelty, customer size, team seniority. Never people: a
 ranked list of colleagues by name is not a finding to put on a screen.

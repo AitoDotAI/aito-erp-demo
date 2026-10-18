@@ -6,17 +6,19 @@ across the portfolio actually move outcomes?
 
   1. _search → list projects + compute KPIs (success / on-time /
      on-budget rates) over completed history.
-  2. _predict → for each active project, the probability it will
-     succeed given its context (manager, project_type, team_size,
-     budget × duration and the five outcome drivers), and the same
-     question for each of the six outcomes behind `success`. Each has
-     its own $why, because a schedule risk and a morale risk have
-     different drivers.
-  3. _relate where={success: true} across several fields → which
-     properties of the WORK correlate with success across the
+  2. _predict → for each active project, the same context (manager,
+     project_type, team_size, budget × duration and the five outcome
+     drivers) asked about each of the six outcomes, and about
+     `outcome_score` (how many of the core three land, "0" … "3"),
+     whose distribution is the "Combined" reading. Each has its own
+     $why, because a schedule risk and a morale risk have different
+     drivers.
+  3. _relate where={<kpi>: true} across several fields → which
+     properties of the WORK correlate with that KPI across the
      portfolio: project type, priority and the five outcome drivers
      (contract type, scope clarity, novelty, customer size, team
-     seniority). No person appears in it — see `_success_factors`.
+     seniority). Asked per KPI, on demand. No person appears in it —
+     see `success_factors`.
 """
 
 from dataclasses import dataclass, field
@@ -31,25 +33,31 @@ from src.why_processor import process_factors
 REVIEW_THRESHOLD = 0.55
 
 
+# The KPIs the portfolio can be examined by. "combined" is the expected
+# number of core outcomes that land, over three: a `_predict` on
+# `outcome_score`, not an average computed here.
+COMBINED = "combined"
+KPI_FIELDS: list[str] = [f for f, _ in (*CORE_OUTCOMES, *QUALIFYING_OUTCOMES)]
+# `_relate` needs a condition; for the combined KPI that is the clean
+# sweep, "all three core outcomes landed".
+COMBINED_RELATE_WHERE = {"outcome_score": "3"}
+
+
 @dataclass
 class ProjectKPIs:
     total: int
     completed: int
     active: int
-    success_rate: float       # success / completed
-    on_time_rate: float
-    on_budget_rate: float
-    at_risk_count: int        # active projects predicted < threshold
+    # Share of completed projects that landed, per KPI (the six outcome
+    # fields plus "combined": mean core score over three).
+    rates: dict[str, float]
 
     def to_dict(self) -> dict:
         return {
             "total": self.total,
             "completed": self.completed,
             "active": self.active,
-            "success_rate": self.success_rate,
-            "on_time_rate": self.on_time_rate,
-            "on_budget_rate": self.on_budget_rate,
-            "at_risk_count": self.at_risk_count,
+            "rates": self.rates,
         }
 
 
@@ -71,17 +79,23 @@ class ProjectRow:
     on_time: bool | None
     on_budget: bool | None
     success: bool | None
+    outcome_score: str | None
     contract_type: str
     scope_clarity: str
     novelty: str
     customer_size: str
     team_seniority: str
-    # Prediction (only for active projects)
-    success_p: float | None = None
-    success_alternatives: list[dict] = field(default_factory=list)
-    success_why: dict = field(default_factory=dict)
-    # The six outcomes behind `success`, each its own _predict and $why:
-    # {field, label, group, p, why, alternatives}. Empty for completed projects.
+    # What a completed project recorded for each outcome (None while active).
+    financial_ok: bool | None = None
+    team_happy: bool | None = None
+    customer_happy: bool | None = None
+    outcome_ok: bool | None = None
+    doors_opened: bool | None = None
+    # Predictions (only for active projects).
+    # The combined reading: {p, expected_score, distribution, why, alternatives}.
+    combined: dict = field(default_factory=dict)
+    # The six outcomes, each its own _predict and $why:
+    # {field, label, group, p, why, alternatives}.
     outcomes: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -102,9 +116,8 @@ class ProjectRow:
             "on_time": self.on_time,
             "on_budget": self.on_budget,
             "success": self.success,
-            "success_p": self.success_p,
-            "success_alternatives": self.success_alternatives,
-            "success_why": self.success_why,
+            "outcome_score": self.outcome_score,
+            "combined": self.combined,
             "outcomes": self.outcomes,
             "contract_type": self.contract_type,
             "scope_clarity": self.scope_clarity,
@@ -152,13 +165,11 @@ class SuccessFactor:
 class PortfolioOverview:
     kpis: ProjectKPIs
     projects: list[ProjectRow]
-    success_factors: list[SuccessFactor]
 
     def to_dict(self) -> dict:
         return {
             "kpis": self.kpis.to_dict(),
             "projects": [p.to_dict() for p in self.projects],
-            "success_factors": [f.to_dict() for f in self.success_factors],
         }
 
 
@@ -172,8 +183,8 @@ def _extract_alternatives(hits: list[dict]) -> list[dict]:
     return out
 
 
-def _success_p_from_response(response: dict) -> tuple[float, dict, list[dict]]:
-    """Pull P(success=true) and its $why out of an Aito _predict response."""
+def _p_true_from_response(response: dict) -> tuple[float, dict, list[dict]]:
+    """Pull P(true) and its $why out of a Boolean _predict response."""
     hits = response.get("hits") or []
     p_true = 0.0
     why_true: dict = {}
@@ -206,33 +217,54 @@ def _list_projects(client: AitoClient) -> list[dict]:
 
 def _compute_kpis(rows: list[ProjectRow]) -> ProjectKPIs:
     completed = [r for r in rows if r.status == "complete"]
-    successful = [r for r in completed if r.success is True]
-    on_time = [r for r in completed if r.on_time is True]
-    on_budget = [r for r in completed if r.on_budget is True]
     active = [r for r in rows if r.status != "complete"]
-    at_risk = [r for r in active if r.success_p is not None and r.success_p < REVIEW_THRESHOLD]
+    n = max(len(completed), 1)
+    # A completed project with no recorded outcome is a data fault, not
+    # a failure to count: reading `None` as False would quietly pull
+    # every rate down.
+    unrecorded = [r.project_id for r in completed
+                  if r.outcome_score is None or any(getattr(r, f) is None for f in KPI_FIELDS)]
+    assert not unrecorded, f"completed projects without recorded outcomes: {unrecorded[:5]}"
+    rates = {f: sum(1 for r in completed if getattr(r, f)) / n for f in KPI_FIELDS}
+    rates[COMBINED] = sum(int(r.outcome_score) for r in completed) / (3 * n)
+    return ProjectKPIs(total=len(rows), completed=len(completed),
+                       active=len(active), rates=rates)
 
-    n_completed = max(len(completed), 1)
-    return ProjectKPIs(
-        total=len(rows),
-        completed=len(completed),
-        active=len(active),
-        success_rate=len(successful) / n_completed,
-        on_time_rate=len(on_time) / n_completed,
-        on_budget_rate=len(on_budget) / n_completed,
-        at_risk_count=len(at_risk),
-    )
+
+def _combined_from_response(response: dict) -> dict:
+    """Read the distribution over `outcome_score` out of a `_predict`.
+
+    The headline is the expected score over three. It is what "the
+    average of the three KPIs" means, but taken from ONE prediction that
+    carries the correlation between them, and the distribution comes
+    with it. The `$why` is the top step's: an expectation has no single
+    explanation, so the popover says which step it explains.
+    """
+    hits = response.get("hits") or []
+    dist = {str(h["$value"]): float(h["$p"]) for h in hits}
+    assert dist and set(dist) <= {"0", "1", "2", "3"}, f"unexpected outcome_score values: {list(dist)}"
+    expected = sum(int(v) * p for v, p in dist.items())
+    top = hits[0]
+    top_p = float(top["$p"])
+    return {
+        "p": expected / 3,
+        "expected_score": expected,
+        "distribution": [{"value": v, "p": dist[v]} for v in sorted(dist)],
+        "top_value": str(top["$value"]),
+        "why": process_factors(top.get("$why") or {}, top_p),
+        "alternatives": _extract_alternatives(hits),
+    }
 
 
 def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
-    """Forecast an active project: `success`, then each outcome behind it.
+    """Forecast an active project: `outcome_score`, then each outcome.
 
-    `success` is a composite of three outcomes (money, team, customer),
-    and a single composite averages away the thing worth seeing — a new
+    A single composite averages away the thing worth seeing — a new
     stack costs money and cheers the team up, a senior crew moves all
-    six. So the same context is asked six more questions, one `_predict`
+    six. So the same context is asked six questions, one `_predict`
     per outcome, which is the planner's delivery-risk read applied to
-    projects already in flight.
+    projects already in flight, plus one over `outcome_score` for the
+    combined reading.
 
     The five outcome drivers are part of the context: without them every
     outcome would be answered from type, size and manager alone and they
@@ -257,13 +289,13 @@ def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
         "customer_size": row.customer_size,
         "team_seniority": row.team_seniority,
     }
-    response = client.predict("projects", where, "success", limit=2)
-    row.success_p, row.success_why, row.success_alternatives = _success_p_from_response(response)
+    response = client.predict("projects", where, "outcome_score", limit=4)
+    row.combined = _combined_from_response(response)
 
     for group, spec in (("core", CORE_OUTCOMES), ("qualifying", QUALIFYING_OUTCOMES)):
         for field_name, label in spec:
             response = client.predict("projects", where, field_name, limit=2)
-            p, why, alts = _success_p_from_response(response)
+            p, why, alts = _p_true_from_response(response)
             row.outcomes.append({
                 "field": field_name, "label": label, "group": group,
                 "p": p, "why": why, "alternatives": alts,
@@ -272,7 +304,7 @@ def _forecast_active(client: AitoClient, row: ProjectRow) -> ProjectRow:
 
 
 # Project-level categorical fields we mine for success factors. People
-# are mined separately off the assignments table — see _success_factors.
+# are mined separately off the assignments table — see success_factors.
 # Properties of the work, never of a person. A list of "people who
 # correlate with success" ranks colleagues by name on a shared screen,
 # and a manager's name is a person too. The five drivers are the ones
@@ -326,12 +358,13 @@ def _factors_from_hits(
     return out
 
 
-def _success_factors(client: AitoClient) -> list[SuccessFactor]:
-    """Discover which properties of the work correlate with success.
+def success_factors(client: AitoClient, kpi: str) -> list[SuccessFactor]:
+    """Discover which properties of the work correlate with one KPI.
 
-    One `_relate` per field — `from: projects, where: {success: true},
+    One `_relate` per field — `from: projects, where: {<kpi>: true},
     relate: <field>` — over project type, priority and the five outcome
-    drivers, combined into one list sorted by strength of lift.
+    drivers, combined into one list sorted by strength of lift. For the
+    combined KPI the condition is `outcome_score = "3"`, the clean sweep.
 
     People are deliberately absent. This panel used to relate
     `assignments.person` and `projects.manager`, which put named
@@ -339,11 +372,17 @@ def _success_factors(client: AitoClient) -> list[SuccessFactor]:
     table of people, presented as a finding. Who staffs well is the
     Engagement Planner's question, asked about one candidate at a time.
     """
+    if kpi == COMBINED:
+        condition = COMBINED_RELATE_WHERE
+    elif kpi in KPI_FIELDS:
+        condition = {kpi: True}
+    else:
+        raise ValueError(f"unknown KPI {kpi!r}; expected one of {[COMBINED, *KPI_FIELDS]}")
     factors: list[SuccessFactor] = []
     # No try/except: a failed relate used to be skipped, so the panel
     # silently lost a whole kind of factor and still looked complete.
     for field_name, label in _PROJECT_FACTOR_FIELDS:
-        response = client.relate("projects", {"success": True}, field_name)
+        response = client.relate("projects", condition, field_name)
         factors.extend(_factors_from_hits(
             response["hits"],
             kind=field_name,
@@ -382,6 +421,12 @@ def _row_from_dict(d: dict) -> ProjectRow:
         on_time=d.get("on_time"),
         on_budget=d.get("on_budget"),
         success=d.get("success"),
+        outcome_score=d.get("outcome_score"),
+        financial_ok=d.get("financial_ok"),
+        team_happy=d.get("team_happy"),
+        customer_happy=d.get("customer_happy"),
+        outcome_ok=d.get("outcome_ok"),
+        doors_opened=d.get("doors_opened"),
         contract_type=d["contract_type"],
         scope_clarity=d["scope_clarity"],
         novelty=d["novelty"],
@@ -402,16 +447,12 @@ def get_portfolio(client: AitoClient) -> PortfolioOverview:
     # Sort: at-risk active first, then other active, then completed by month desc.
     def sort_key(r: ProjectRow):
         if r.status != "complete":
-            risk = r.success_p if r.success_p is not None else 1.0
-            return (0, risk)
+            return (0, r.combined["p"])
         return (1, -int(r.start_month.replace("-", "")))
 
     rows.sort(key=sort_key)
 
-    kpis = _compute_kpis(rows)
-    factors = _success_factors(client)
-
-    return PortfolioOverview(kpis=kpis, projects=rows, success_factors=factors)
+    return PortfolioOverview(kpis=_compute_kpis(rows), projects=rows)
 
 
 def forecast_for_project(client: AitoClient, project_id: str) -> dict:
@@ -430,8 +471,6 @@ def forecast_for_project(client: AitoClient, project_id: str) -> dict:
     base = _forecast_active(client, row)
     return {
         "project_id": project_id,
-        "base_p": base.success_p,
-        "base_why": base.success_why,
-        "alternatives": base.success_alternatives,
+        "combined": base.combined,
         "outcomes": base.outcomes,
     }

@@ -50,7 +50,7 @@ from src.pricing_service import get_pricing_overview
 from src.demand_service import get_demand_forecast
 from src.inventory_service import get_inventory_status
 from src.overview_service import get_overview
-from src.project_service import get_portfolio, forecast_for_project
+from src.project_service import get_portfolio, forecast_for_project, success_factors
 from src.recommendation_service import (
     get_overview as get_recommendation_overview,
     get_cross_sell as get_recommendation_cross_sell,
@@ -216,7 +216,7 @@ def _warm_one_tenant(tenant_id: TenantId, aito: AitoClient) -> None:
         warm_or_load("overview_metrics_v2", lambda: get_overview(aito).to_dict())
 
     def warm_projects():
-        warm_or_load("projects_portfolio_v2", lambda: get_portfolio(aito).to_dict())
+        warm_or_load("projects_portfolio_v3", lambda: get_portfolio(aito).to_dict())
 
     def warm_recommendations():
         # Aurora-only feature; skip for other personas (the API also
@@ -838,12 +838,28 @@ def utilization_forecast(body: dict, request: Request):
 @app.get("/api/projects/portfolio")
 def projects_portfolio(request: Request):
     tenant, aito = client_from_request(request)
-    cache_key = _tk(tenant, "projects_portfolio_v2")
+    cache_key = _tk(tenant, "projects_portfolio_v3")
     cached = cache.get(cache_key)
     if cached:
         return cached
     overview = get_portfolio(aito)
     result = overview.to_dict()
+    cache.set(cache_key, result)
+    return result
+
+
+@app.get("/api/projects/success-factors")
+def projects_success_factors(kpi: str, request: Request):
+    """Properties of the work that go with one KPI ("combined" or an outcome field)."""
+    from src.project_service import COMBINED, KPI_FIELDS
+    if kpi != COMBINED and kpi not in KPI_FIELDS:
+        raise HTTPException(status_code=400, detail=f"unknown kpi {kpi!r}")
+    tenant, aito = client_from_request(request)
+    cache_key = _tk(tenant, f"projects_success_factors_v1:{kpi}")
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+    result = {"kpi": kpi, "success_factors": [f.to_dict() for f in success_factors(aito, kpi)]}
     cache.set(cache_key, result)
     return result
 

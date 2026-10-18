@@ -10,7 +10,7 @@ relate is an error rather than a silently shorter list.
 import pytest
 
 from src.aito_client import AitoError
-from src.project_service import _PROJECT_FACTOR_FIELDS, _success_factors
+from src.project_service import _PROJECT_FACTOR_FIELDS, success_factors
 
 
 class _Relate:
@@ -19,6 +19,7 @@ class _Relate:
 
     def relate(self, table, where, field, limit=None):
         self.asked.append((table, field))
+        self.where = where
         if field == self.fail_on:
             raise AitoError("Aito v2 returned 500")
         return {"hits": [{"related": {field: "x"}, "lift": 1.4,
@@ -28,7 +29,7 @@ class _Relate:
 
 def test_only_properties_of_the_work_are_related():
     client = _Relate()
-    factors = _success_factors(client)
+    factors = success_factors(client, "combined")
     assert {t for t, _ in client.asked} == {"projects"}
     fields = {f for _, f in client.asked}
     assert not fields & {"person", "manager", "team_lead", "team_members"}
@@ -38,4 +39,18 @@ def test_only_properties_of_the_work_are_related():
 
 def test_a_failed_relate_is_an_error_not_a_shorter_list():
     with pytest.raises(AitoError):
-        _success_factors(_Relate(fail_on="scope_clarity"))
+        success_factors(_Relate(fail_on="scope_clarity"), "combined")
+
+
+def test_each_kpi_is_related_on_its_own_condition():
+    for kpi, expected in (("combined", {"outcome_score": "3"}),
+                          ("financial_ok", {"financial_ok": True}),
+                          ("on_time", {"on_time": True})):
+        client = _Relate()
+        success_factors(client, kpi)
+        assert client.where == expected, kpi
+
+
+def test_an_unknown_kpi_is_refused():
+    with pytest.raises(ValueError):
+        success_factors(_Relate(), "nonsense")
