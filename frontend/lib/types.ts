@@ -379,17 +379,20 @@ export interface ColdStartResponse {
 }
 
 /** Live cold-start: slider-driven `_evaluate` queries against the
- *  current tenant's purchases table, with `order_month <= cutoff`
- *  filtering Aito's conditional probabilities. */
+ *  current tenant's purchases table: Aito learns from the purchases up to
+ *  the cutoff and is tested on the month after it. */
 export interface ColdStartCutoff {
   cutoff: string;
   label: string;
   approx_rows: number;
+  /** The last month Aito learns from, and the month after it that it is tested on. */
+  train_through: string;
+  test_month: string;
 }
 
 export interface ColdStartLiveResponse extends WithQueries {
   cutoff: string;
-  fields: Array<ColdStartFieldSnapshot & { total_cases: number }>;
+  fields: Array<ColdStartFieldSnapshot & { total_cases: number; training_rows: number }>;
 }
 
 /* ─── Recommendations (Aurora retail) ─── */
