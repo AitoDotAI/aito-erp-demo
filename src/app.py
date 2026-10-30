@@ -1199,11 +1199,11 @@ def coldstart():
 # Five cutoffs map to roughly 4% / 13% / 28% / 59% / 100% of the
 # metsa fixture's history. The slider on /coldstart calls
 # /api/coldstart/live?cutoff=YYYY-MM and the backend runs one
-# `_evaluate` per target field with `order_month: {$lte: cutoff}`
-# tacked onto the evaluate-step `where`. Aito's conditional
-# probabilities then condition on only rows up to that cutoff —
-# same shape as a tenant who only has data through that month. No
-# data manipulation, works with read-only keys.
+# `_evaluate` per target field whose evidence is a nested `from` holding
+# only the rows up to that month: the same as a tenant who only has data
+# through it. (A cutoff in `evaluate.where` only conditions the predicted
+# row; it returned the full-history accuracy at every position.)
+# No data manipulation, works with read-only keys.
 COLDSTART_CUTOFFS = [
     # Clustered at the cold-start zone where the signal lives.
     # cost_center predictions saturate fast on the metsa fixture
@@ -1221,24 +1221,30 @@ COLDSTART_FEATURE_FIELDS = ["supplier", "description", "amount_eur"]
 HIGH_CONF_THRESHOLD = 0.85
 
 
+TEST_SHARE = 5          # held out: a fifth of the cutoff's history, at most 200 rows
+
+
 def _coldstart_evaluate_one(aito: AitoClient, cutoff: str, field: str) -> dict:
     """Run one `_evaluate` for a (cutoff, field) pair.
 
-    Both testSource AND the evaluate-step `where` are filtered to
-    `order_month <= cutoff`. That way we're testing the tenant's
-    own early data against patterns Aito learned from that same
-    early data — the honest cold-start framing. (Filtering only the
-    evaluate side would be testing future POs against past patterns,
-    which is a different question.)
+    Aito learns only from purchases up to `cutoff` (`population_where`)
+    and is tested on the first fifth of those same rows, which `_evaluate`
+    leaves out of what it learns from. So the number answers: with only
+    this much history, how often is the next purchase's field right? The
+    held-out rows are the history's earliest, not a random sample: the
+    engine's test selection takes rows in table order.
     """
-    cutoff_filter = {"order_month": {"$lte": cutoff}}
+    approx_rows = next((c["approx_rows"] for c in COLDSTART_CUTOFFS if c["cutoff"] == cutoff), None)
+    if approx_rows is None:
+        raise ValueError(f"Unknown cold-start cutoff {cutoff!r}")
+    in_history = {"order_month": {"$lte": cutoff}}
     response = aito.evaluate_with_cases(
         table="purchases",
         predict_field=field,
         feature_fields=COLDSTART_FEATURE_FIELDS,
-        test_where=cutoff_filter,
-        evaluate_extra_where=cutoff_filter,
-        limit=200,
+        test_where=in_history,
+        population_where=in_history,
+        limit=min(200, approx_rows // TEST_SHARE),
     )
     cases = response.get("cases") or []
     high = [c for c in cases
@@ -1253,6 +1259,7 @@ def _coldstart_evaluate_one(aito: AitoClient, cutoff: str, field: str) -> dict:
             round(high_correct / len(high), 3) if high else 0.0
         ),
         "total_cases": len(cases),
+        "training_rows": int(response["trainSamples"]),
     }
 
 
