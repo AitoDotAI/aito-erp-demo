@@ -96,8 +96,8 @@ export default function ColdStartPage() {
   const isLoading = loadingCutoff === activeCutoff && !active;
 
   // The pane shows the first of the three `_evaluate` queries behind the
-  // cutoff on screen, as sent — including the `order_month` filter on
-  // both testSource and the evaluate-step where.
+  // cutoff on screen, as sent: its evidence is a nested `from` that ends at
+  // the test month, and its test rows are that month's purchases.
   const panel = useMemo<AitoPanelConfig>(() => {
     const q = findQuery(active?._queries, { endpoint: "_evaluate" });
     return { ...PANEL, queries: q ? [q] : [] };
@@ -136,9 +136,9 @@ export default function ColdStartPage() {
                 prediction quality look like for a tenant whose data only
                 goes through this month?</em>
                 <span className="intro-banner-freshness">
-                  Each position runs <code>_evaluate</code> live with{" "}
-                  <code>order_month: {"{"} $lte: cutoff {"}"}</code> on the
-                  current tenant's <code>purchases</code>.
+                  Each position runs <code>_evaluate</code> live: Aito learns only
+                  from the tenant's <code>purchases</code> up to the cutoff and is
+                  tested on the month after it, which it has never seen.
                 </span>
               </div>
             </div>
@@ -181,6 +181,10 @@ export default function ColdStartPage() {
                 <div className="cs-headline-amount">{activeMeta.label}</div>
                 <div className="cs-headline-suffix">
                   of data &middot; ~{activeMeta.approx_rows.toLocaleString("fi-FI")} purchase orders
+                  {active && (
+                    <> &middot; learned from {active.fields[0].training_rows.toLocaleString("fi-FI")},
+                    tested on the {active.fields[0].total_cases} purchases of {activeMeta.test_month}</>
+                  )}
                 </div>
               </div>
             )}
@@ -219,7 +223,7 @@ export default function ColdStartPage() {
 
                 <div className="card">
                   <div className="card-head">
-                    <span className="card-title">_evaluate at order_month ≤ {activeMeta?.cutoff}</span>
+                    <span className="card-title">_evaluate: learn up to {activeMeta?.train_through}, test on {activeMeta?.test_month}</span>
                     <span className="card-meta">{active.fields.length} target fields · live</span>
                   </div>
                   <table className="tbl">
@@ -227,6 +231,8 @@ export default function ColdStartPage() {
                       <tr>
                         <th>Field</th>
                         <th>Accuracy</th>
+                        <th>± (95%)</th>
+                        <th>Tested on</th>
                         <th>Baseline</th>
                         <th>Gain</th>
                         <th>≥ 0.85 share</th>
@@ -248,6 +254,12 @@ export default function ColdStartPage() {
                               </div>
                             </td>
                             <td className="mono" style={{ fontSize: 11, color: "var(--mid)" }}>
+                              ±{Math.round(196 * Math.sqrt(f.accuracy * (1 - f.accuracy) / f.total_cases))}pt
+                            </td>
+                            <td className="mono" style={{ fontSize: 11, color: "var(--mid)" }}>
+                              n = {f.total_cases}
+                            </td>
+                            <td className="mono" style={{ fontSize: 11, color: "var(--mid)" }}>
                               {Math.round(f.base_accuracy * 100)}%
                             </td>
                             <td className="mono" style={{ fontSize: 11, color: gain >= 0 ? "var(--green)" : "#c54" }}>
@@ -265,40 +277,41 @@ export default function ColdStartPage() {
                     </tbody>
                   </table>
                   <div style={{ padding: "10px 14px 14px", fontSize: 11, color: "var(--mid)", lineHeight: 1.55 }}>
-                    <strong>Reading this:</strong> on the metsa fixture, supplier-driven
-                    patterns for these fields saturate fast — even <em>one week</em> of
-                    history (~70 POs) gets accuracy in the 90s, and the ≥ 0.85 confidence
-                    band is right 95-100% of the time at every slider position. That's
-                    the cold-start story: Aito doesn't need a lot of data to be useful, and
-                    its calibration ($p) honestly reflects what it knows.
+                    <strong>Reading this:</strong> each position is tested on one month of
+                    purchases, so every accuracy rests on the <em>n</em> shown and carries the
+                    margin beside it. A step smaller than that margin is noise, not a trend.
+                    The baseline is the base rate: always guessing the most common value
+                    among the purchases Aito learned from. Aito's calibration ($p) is what
+                    makes the ≥ 0.85 band meaningful, and it too is measured on these same few
+                    purchases.
                     <br/><br/>
-                    <em>Note:</em> this slider runs <code>_evaluate</code> on a real Aito
-                    DB with <code>order_month ≤ cutoff</code> in both the{" "}
-                    <code>testSource</code> and the evaluate-step <code>where</code> (the
-                    query is in the panel). That conditions Aito's probabilities on that
-                    slice of history; it does not remove later rows from the database. For a true cold-start simulation (smaller DB end-to-end), see
-                    the captured snapshot below.
+                    <em>Method:</em> the query in the panel gives <code>_evaluate</code> a
+                    nested <code>from</code> that ends at the test month; the test month's
+                    rows are held out of what it learns from, so it learns from the purchases
+                    up to the cutoff and nothing later. The last position has no later month: it
+                    learns from everything but the last month and is tested on that.
                   </div>
                 </div>
               </>
             )}
 
-            {/* Captured snapshot from the offline capture script —
-                a smaller-DB-end-to-end simulation, not a where-filter
-                trick. Numbers are real but frozen in time. */}
+            {/* Captured snapshot from the offline capture script. It measures something else
+                than the live curve above (a random subsample whose rows are predicted from
+                each other, no time order), so it sits behind a disclosure with that said. */}
             {snapshot && (
-              <div className="card" style={{ marginTop: 20 }}>
-                <div className="card-head">
-                  <span className="card-title">Captured snapshot — true cold start</span>
+              <details className="card" style={{ marginTop: 20 }}>
+                <summary className="card-head" style={{ cursor: "pointer" }}>
+                  <span className="card-title">Older capture: random subsamples, not comparable to the curve above</span>
                   <span className="card-meta">
-                    captured {snapshot.captured_at} · 50 / 500 / 5,000 row DBs
+                    captured {snapshot.captured_at} · not re-captured
                   </span>
-                </div>
+                </summary>
                 <div style={{ padding: "8px 14px 6px", fontSize: 11, color: "var(--mid)", lineHeight: 1.55 }}>
-                  Ran <code>capture_coldstart.py</code> against three different-size Aito
-                  DBs (the slider above can't shrink the DB itself). At 50 rows the
-                  high-confidence band is small but right; at 5,000 it covers most of the
-                  queue at near-perfect accuracy.
+                  Random subsamples of 50 / 500 / 5,000 purchases, loaded into a separate Aito DB
+                  by <code>capture_coldstart.py</code>, with each row predicted from the others:
+                  no time order, and the tested rows are the subsample itself (n = 50 at the
+                  first size, at most 200 after). It answers a different question from the
+                  curve above, so read the two separately.
                 </div>
                 <div className="cs-curve">
                   {snapshot.snapshots.map((s) => {
@@ -321,7 +334,7 @@ export default function ColdStartPage() {
                     );
                   })}
                 </div>
-              </div>
+              </details>
             )}
           </div>
           <AitoPanel config={panel} />

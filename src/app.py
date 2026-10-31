@@ -1199,46 +1199,55 @@ def coldstart():
 # Five cutoffs map to roughly 4% / 13% / 28% / 59% / 100% of the
 # metsa fixture's history. The slider on /coldstart calls
 # /api/coldstart/live?cutoff=YYYY-MM and the backend runs one
-# `_evaluate` per target field with `order_month: {$lte: cutoff}`
-# tacked onto the evaluate-step `where`. Aito's conditional
-# probabilities then condition on only rows up to that cutoff —
-# same shape as a tenant who only has data through that month. No
-# data manipulation, works with read-only keys.
+# `_evaluate` per target field: Aito learns from the purchases up to the
+# cutoff and is tested on the month AFTER it, which is what "how good
+# would it have been at that point" means. (A cutoff in `evaluate.where`
+# only conditions the predicted row: it returned the full-history accuracy
+# at every position. Testing on the earliest rows of the history instead
+# would train on the future.) The last position has no month after it, so
+# it trains on everything but the last month and tests on that.
+# No data manipulation, works with read-only keys.
 COLDSTART_CUTOFFS = [
     # Clustered at the cold-start zone where the signal lives.
     # cost_center predictions saturate fast on the metsa fixture
     # (per-supplier patterns stabilise within a few hundred rows),
     # so spreading the slider linearly across 4 years would land
     # 4 of 5 positions on the flat part of the curve.
-    {"cutoff": "2022-06", "label": "First week",   "approx_rows": 68},
-    {"cutoff": "2022-07", "label": "1 month",      "approx_rows": 138},
-    {"cutoff": "2022-09", "label": "3 months",     "approx_rows": 278},
-    {"cutoff": "2023-06", "label": "1 year",       "approx_rows": 910},
-    {"cutoff": "2026-03", "label": "Full history", "approx_rows": 3252},
+    {"cutoff": "2022-06", "label": "First week",   "approx_rows": 68,   "train_through": "2022-06", "test_month": "2022-07"},
+    {"cutoff": "2022-07", "label": "1 month",      "approx_rows": 138,  "train_through": "2022-07", "test_month": "2022-08"},
+    {"cutoff": "2022-09", "label": "3 months",     "approx_rows": 278,  "train_through": "2022-09", "test_month": "2022-10"},
+    {"cutoff": "2023-06", "label": "1 year",       "approx_rows": 910,  "train_through": "2023-06", "test_month": "2023-07"},
+    {"cutoff": "2026-03", "label": "Full history", "approx_rows": 3252, "train_through": "2026-02", "test_month": "2026-03"},
 ]
 COLDSTART_FIELDS = ["cost_center", "account_code", "approver"]
 COLDSTART_FEATURE_FIELDS = ["supplier", "description", "amount_eur"]
 HIGH_CONF_THRESHOLD = 0.85
 
 
+MONTH_ROW_CAP = 200     # a month holds about 70 purchases; the cap is a guard, not a sample
+
+
 def _coldstart_evaluate_one(aito: AitoClient, cutoff: str, field: str) -> dict:
     """Run one `_evaluate` for a (cutoff, field) pair.
 
-    Both testSource AND the evaluate-step `where` are filtered to
-    `order_month <= cutoff`. That way we're testing the tenant's
-    own early data against patterns Aito learned from that same
-    early data — the honest cold-start framing. (Filtering only the
-    evaluate side would be testing future POs against past patterns,
-    which is a different question.)
+    Aito learns from the purchases up to `train_through` and is tested on
+    the whole month after it. `_evaluate` takes its test rows from inside
+    the population it is given and leaves them out of what it learns from,
+    so the population runs to the end of the test month and the training
+    rows are exactly those up to `train_through`: `training_rows` says so,
+    and the evidence never sees the future.
     """
-    cutoff_filter = {"order_month": {"$lte": cutoff}}
+    position = next((c for c in COLDSTART_CUTOFFS if c["cutoff"] == cutoff), None)
+    if position is None:
+        raise ValueError(f"Unknown cold-start cutoff {cutoff!r}")
+    assert position["test_month"] > position["train_through"], position
     response = aito.evaluate_with_cases(
         table="purchases",
         predict_field=field,
         feature_fields=COLDSTART_FEATURE_FIELDS,
-        test_where=cutoff_filter,
-        evaluate_extra_where=cutoff_filter,
-        limit=200,
+        test_where={"order_month": position["test_month"]},
+        population_where={"order_month": {"$lte": position["test_month"]}},
+        limit=MONTH_ROW_CAP,
     )
     cases = response.get("cases") or []
     high = [c for c in cases
@@ -1253,6 +1262,7 @@ def _coldstart_evaluate_one(aito: AitoClient, cutoff: str, field: str) -> dict:
             round(high_correct / len(high), 3) if high else 0.0
         ),
         "total_cases": len(cases),
+        "training_rows": int(response["trainSamples"]),
     }
 
 

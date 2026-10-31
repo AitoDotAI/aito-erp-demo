@@ -599,6 +599,7 @@ class AitoClient:
         feature_fields: list[str],
         test_where: dict | None = None,
         evaluate_extra_where: dict | None = None,
+        population_where: dict | None = None,
         limit: int = 200,
     ) -> dict:
         """Run a held-out `_evaluate` and return per-case results.
@@ -621,13 +622,19 @@ class AitoClient:
         evaluate_where = {
             field: {"$get": field} for field in feature_fields
         }
-        # Extra constraints applied on the *evaluate* side — for
-        # cold-start simulation we add e.g. `order_month: {$lt: ...}`
-        # to make Aito's conditional probabilities use only an early
-        # slice of history. Caller is responsible for not picking a
-        # field name that collides with `feature_fields`.
+        # Extra constraints applied on the *evaluate* side. They condition
+        # the predicted row, so they do NOT limit what Aito learns from:
+        # a cutoff put here left `trainSamples` at 3,073 for every cutoff
+        # (td-20261030213014404900). Caller is responsible for not picking
+        # a field name that collides with `feature_fields`.
         if evaluate_extra_where:
             evaluate_where.update(evaluate_extra_where)
+        # The rows Aito may learn from. A nested `from` restricts the
+        # evidence itself, which is what a history cutoff means. The
+        # `testSource` rows are held out of it, so they must be a strict
+        # subset of this population or nothing is left to train on.
+        evaluate_from = ({"from": table, "where": population_where}
+                         if population_where else table)
         test_source: dict = {"from": table, "limit": limit}
         if test_where:
             test_source["where"] = test_where
@@ -635,11 +642,11 @@ class AitoClient:
         query = {
             "testSource": test_source,
             "evaluate": {
-                "from": table,
+                "from": evaluate_from,
                 "where": evaluate_where,
                 "predict": predict_field,
             },
-            "select": ["accuracy", "baseAccuracy", "cases"],
+            "select": ["accuracy", "baseAccuracy", "cases", "trainSamples", "testSamples"],
         }
         if self._v2 is not None:
             result = self._v2_result("evaluate_cases", table,
