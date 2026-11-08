@@ -28,8 +28,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import secrets
 
-from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.aito_client import AitoClient, AitoError
@@ -101,6 +102,18 @@ def client_from_request(request: Request) -> tuple[TenantId, AitoClient]:
     raw = request.headers.get("x-tenant", "").strip().lower()
     tenant: TenantId = raw if raw in TENANT_IDS else DEFAULT_TENANT  # type: ignore[assignment]
     return tenant, _clients[tenant]
+
+
+VISITOR_COOKIE = "erp_visitor"
+
+
+def _visitor_id(request: Request) -> str | None:
+    """The opaque id the submit set for this browser, if it set one.
+
+    It only scopes which in-memory submissions a visitor is shown; it is
+    not a login and carries nothing about the visitor."""
+    vid = request.cookies.get(VISITOR_COOKIE, "")
+    return vid if len(vid) == 32 and all(c in "0123456789abcdef" for c in vid) else None
 
 
 def _tk(tenant: TenantId, key: str) -> str:
@@ -510,7 +523,7 @@ def po_pending(request: Request):
     tenant, aito = client_from_request(request)
     cache_key = _tk(tenant, "po_pending_v2")
     cached = cache.get(cache_key)
-    submissions = submission_store.list_submissions()
+    submissions = submission_store.list_submissions(_visitor_id(request), tenant)
     if cached and not submissions:
         return cached
 
@@ -577,7 +590,7 @@ def smartentry_predict(body: dict, request: Request):
 
 
 @app.post("/api/po/submit")
-def po_submit(body: dict, request: Request):
+def po_submit(body: dict, request: Request, response: Response):
     tenant, _ = client_from_request(request)
     required = ["supplier", "amount_eur"]
     missing = [k for k in required if not body.get(k)]
@@ -595,15 +608,21 @@ def po_submit(body: dict, request: Request):
         "project": body.get("project"),
         "source": body.get("source", "smart_entry"),
     }
-    entry = submission_store.add_submission(record)
+    visitor = _visitor_id(request) or secrets.token_hex(16)
+    response.set_cookie(
+        VISITOR_COOKIE, visitor, max_age=submission_store.TTL_SECONDS,
+        httponly=True, samesite="lax", secure=request.url.scheme == "https",
+    )
+    entry = submission_store.add_submission(record, visitor, tenant)
     # Invalidate cached PO queue for this tenant.
     cache._cache.pop(_tk(tenant, "po_pending_v2"), None)
     return {"ok": True, "purchase_id": entry["purchase_id"], "submitted_at": entry["submitted_at"]}
 
 
 @app.get("/api/po/submissions")
-def po_submissions():
-    return {"submissions": submission_store.list_submissions()}
+def po_submissions(request: Request):
+    tenant, _ = client_from_request(request)
+    return {"submissions": submission_store.list_submissions(_visitor_id(request), tenant)}
 
 
 @app.get("/api/approval/queue")
