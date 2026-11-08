@@ -11,6 +11,9 @@ Public-demo hardening:
     flooding a queue every other visitor sees.
   - String fields are length-clipped on insert so a script can't
     submit a megabyte of text.
+  - A submission belongs to the visitor who made it (an opaque id the
+    app keeps in a cookie) and to its tenant. Only that visitor, in that
+    tenant, is shown it: what one visitor types never reaches another.
 """
 
 import threading
@@ -80,8 +83,10 @@ def _prune_locked() -> None:
     _submissions[:] = keep
 
 
-def add_submission(record: dict) -> dict:
-    """Append a submission, assigning a fresh PO number and timestamp."""
+def add_submission(record: dict, visitor: str, tenant: str) -> dict:
+    """Append a submission for `visitor` in `tenant`, assigning a fresh PO
+    number and timestamp."""
+    assert visitor and tenant, (visitor, tenant, record)
     global _counter
     with _lock:
         _counter += 1
@@ -92,20 +97,30 @@ def add_submission(record: dict) -> dict:
             "purchase_id": po_number,
             "submitted_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "_ts": _now(),
+            "_visitor": visitor,
+            "_tenant": tenant,
         }
         _submissions.append(entry)
         _prune_locked()
-        # Don't leak the internal timestamp in the public response.
-        return {k: v for k, v in entry.items() if k != "_ts"}
+        return _public(entry)
 
 
-def list_submissions() -> list[dict]:
-    """Return all submissions (newest first), pruning expired."""
+def _public(entry: dict) -> dict:
+    """The entry without its internal fields (timestamp, owner, tenant)."""
+    return {k: v for k, v in entry.items() if not k.startswith("_")}
+
+
+def list_submissions(visitor: str | None, tenant: str) -> list[dict]:
+    """Return this visitor's submissions in this tenant (newest first),
+    pruning expired. A visitor with no id has submitted nothing."""
     with _lock:
         _prune_locked()
+        if not visitor:
+            return []
         return [
-            {k: v for k, v in e.items() if k != "_ts"}
+            _public(e)
             for e in reversed(_submissions)
+            if e["_visitor"] == visitor and e["_tenant"] == tenant
         ]
 
 
