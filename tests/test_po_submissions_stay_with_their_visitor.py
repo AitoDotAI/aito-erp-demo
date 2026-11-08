@@ -31,6 +31,16 @@ class Pred:
 
 @pytest.fixture
 def app(monkeypatch):
+    yield from _app(monkeypatch)
+
+
+@pytest.fixture
+def public_app(monkeypatch):
+    monkeypatch.setenv("PUBLIC_DEMO", "1")
+    yield from _app(monkeypatch)
+
+
+def _app(monkeypatch):
     for key, value in _FAKE.items():
         monkeypatch.setenv(key, value)
     # Reload under these settings: an earlier test may have left the app
@@ -91,3 +101,24 @@ def test_a_submission_stays_in_the_tenant_it_was_made_in(app):
     subs, queue = listed(visitor, tenant=other)
     assert subs == [] and queue["recent_submissions"] == []
     assert [s["purchase_id"] for s in listed(visitor, tenant="metsa")[0]] == [po]
+
+
+@pytest.mark.parametrize("body", [
+    {"amount_eur": 120},
+    {"supplier": "Acme", "amount_eur": "a lot"},
+    {"supplier": "Acme", "amount_eur": None},
+], ids=["no supplier", "non-numeric amount", "no amount"])
+def test_a_submit_it_cannot_store_is_a_400_naming_the_problem(app, body):
+    r = TestClient(app).post("/api/po/submit", json=body)
+    assert r.status_code == 400, r.text
+    assert "amount_eur" in r.json()["detail"] or "supplier" in r.json()["detail"]
+    assert submission_store.list_submissions(None, "metsa") == []
+
+
+def test_the_public_demo_cookie_is_secure_behind_a_tls_proxy(public_app):
+    # TLS ends at the proxy, so the app itself sees plain http.
+    r = TestClient(public_app, base_url="http://testserver").post(
+        "/api/po/submit", json={"supplier": "Acme", "amount_eur": 10})
+    assert r.status_code == 200, r.text
+    cookie = r.headers["set-cookie"]
+    assert "erp_visitor=" in cookie and "Secure" in cookie and "HttpOnly" in cookie, cookie

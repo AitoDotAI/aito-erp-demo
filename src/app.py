@@ -595,12 +595,18 @@ def po_submit(body: dict, request: Request, response: Response):
     required = ["supplier", "amount_eur"]
     missing = [k for k in required if not body.get(k)]
     if missing:
-        return {"error": f"missing fields: {', '.join(missing)}"}, 400
+        raise HTTPException(status_code=400, detail=f"missing fields: {', '.join(missing)}")
+    try:
+        amount_eur = float(body["amount_eur"])
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400, detail=f"amount_eur must be a number, got {body['amount_eur']!r}"
+        ) from None
 
     record = {
         "supplier": str(body["supplier"]),
         "description": str(body.get("description", "")),
-        "amount_eur": float(body["amount_eur"]),
+        "amount_eur": amount_eur,
         "category": str(body.get("category", "general")),
         "cost_center": body.get("cost_center"),
         "account_code": body.get("account_code"),
@@ -611,7 +617,9 @@ def po_submit(body: dict, request: Request, response: Response):
     visitor = _visitor_id(request) or secrets.token_hex(16)
     response.set_cookie(
         VISITOR_COOKIE, visitor, max_age=submission_store.TTL_SECONDS,
-        httponly=True, samesite="lax", secure=request.url.scheme == "https",
+        # The public demo is served over TLS that ends at a proxy, so the app
+        # sees http there; Secure is set from the deployment, not the scheme.
+        httponly=True, samesite="lax", secure=_PUBLIC or request.url.scheme == "https",
     )
     entry = submission_store.add_submission(record, visitor, tenant)
     # Invalidate cached PO queue for this tenant.
